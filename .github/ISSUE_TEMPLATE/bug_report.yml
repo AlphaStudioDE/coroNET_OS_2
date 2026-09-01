@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible firmware, UI, connectivity, or hardware-integration problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve coroNET OS 2. Remove passwords, API keys, and private network data from every log.
+  - type: input
+    id: commit
+    attributes:
+      label: Firmware commit or release
+      description: Run `git rev-parse --short HEAD` for a source build.
+      placeholder: 05dde09
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Board revision and connected LEDs, speaker, fan, servo, SD card, and power supply.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: "1. Power on\n2. Open...\n3. Observe..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Serial/build logs
+      description: Paste text from reset through the failure. Do not submit screenshots of text when a copyable log is available.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed passwords, API keys, tokens, and private information.
+          required: true
+        - label: I searched existing issues for the same problem.
+          required: true

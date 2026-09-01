@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/AlphaStudioDE/coroNET_OS_2/security/advisories/new
+    about: Report security issues privately instead of opening a public issue.

@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a focused improvement to coroNET OS 2
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: User need
+      description: What problem would this solve for a builder or device user?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the visible behavior rather than only an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Hardware and resource impact
+      description: Note GPIO, PSRAM, internal RAM, DMA, CPU, power, app, or compatibility implications.

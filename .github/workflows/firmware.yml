@@ -1,0 +1,43 @@
+name: Firmware CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install PlatformIO
+        run: python -m pip install -r requirements.txt
+
+      - name: Build firmware
+        run: pio run
+
+      - name: Upload development firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: coronet-os2-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            .pio/build/coronet_os2/firmware.bin
+            .pio/build/coronet_os2/bootloader.bin
+            .pio/build/coronet_os2/partitions.bin
