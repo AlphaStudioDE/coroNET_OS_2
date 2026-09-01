@@ -30,7 +30,13 @@ private:
         int16_t toolTempTenths = INT16_MIN;
         int16_t bedTempTenths = INT16_MIN;
         int16_t chamberTempTenths = INT16_MIN;
+        uint32_t printDurationSec = 0;
+        uint32_t printEtaSec = 0;
+        uint32_t filamentColorRgb = 0xFFFFFF;
+        uint8_t fanPercent = 0;
+        uint8_t flapPercent = 0;
         char filename[65] = "";
+        char material[25] = "";
         char status[96] = "";
     };
 
@@ -53,6 +59,9 @@ private:
     lv_obj_t* toolTempLabel_ = nullptr;
     lv_obj_t* bedTempLabel_ = nullptr;
     lv_obj_t* chamberTempLabel_ = nullptr;
+    lv_obj_t* materialLabel_ = nullptr;
+    lv_obj_t* materialSwatch_ = nullptr;
+    lv_obj_t* ventOutputLabel_ = nullptr;
 
     ui::Navigation navigation_;
     ViewCache cache_;

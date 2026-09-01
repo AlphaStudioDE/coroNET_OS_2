@@ -18,16 +18,16 @@ constexpr uint8_t kStepCount = 6;
 constexpr lv_coord_t kScreenWidth = ui::ScreenWidth;
 constexpr lv_coord_t kScreenHeight = ui::ScreenHeight;
 
-constexpr uint32_t ColorBackground = ui::ColorBackground;
-constexpr uint32_t ColorSurface = ui::ColorSurface;
-constexpr uint32_t ColorSurfaceRaised = ui::ColorSurfaceRaised;
-constexpr uint32_t ColorBorder = ui::ColorBorder;
-constexpr uint32_t ColorText = ui::ColorText;
-constexpr uint32_t ColorMuted = ui::ColorMuted;
-constexpr uint32_t ColorCyan = ui::ColorCyan;
-constexpr uint32_t ColorCyanDark = ui::ColorCyanDark;
-constexpr uint32_t ColorAmber = ui::ColorAmber;
-constexpr uint32_t ColorRed = ui::ColorRed;
+const ui::ThemeColor& ColorBackground = ui::ColorBackground;
+const ui::ThemeColor& ColorSurface = ui::ColorSurface;
+const ui::ThemeColor& ColorSurfaceRaised = ui::ColorSurfaceRaised;
+const ui::ThemeColor& ColorBorder = ui::ColorBorder;
+const ui::ThemeColor& ColorText = ui::ColorText;
+const ui::ThemeColor& ColorMuted = ui::ColorMuted;
+const ui::ThemeColor& ColorCyan = ui::ColorCyan;
+const ui::ThemeColor& ColorCyanDark = ui::ColorCyanDark;
+const ui::ThemeColor& ColorAmber = ui::ColorAmber;
+const ui::ThemeColor& ColorRed = ui::ColorRed;
 
 SetupWizard* gActiveSetupWizard = nullptr;
 

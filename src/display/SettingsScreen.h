@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "UiNavigation.h"
+#include "../core/ProductTypes.h"
 
 struct _lv_obj_t;
 typedef struct _lv_obj_t lv_obj_t;
@@ -28,6 +29,21 @@ private:
         TransportWifi,
         Brightness,
         Reconfigure,
+        SkinNext,
+        ColorModeNext,
+        AccentHue,
+        SaverModeNext,
+        ClockStyleNext,
+        SaverDelay,
+        ClockBrightness,
+        QuietTargetNext,
+        QuietDuration,
+        QuietErrorsBypass,
+        OtaCheck,
+        OtaInstall,
+        OtaReinstall,
+        OtaSdRecovery,
+        FactoryReset,
     };
 
     struct ActionBinding {
@@ -41,6 +57,8 @@ private:
     void buildDeviceCard(lv_obj_t* parent, int y);
     void buildSetupCard(lv_obj_t* parent, int y);
     void buildAppearanceCard(lv_obj_t* parent, int y);
+    void buildQuietCard(lv_obj_t* parent, int y);
+    void buildSystemCard(lv_obj_t* parent, int y);
     void refreshTransportButtons();
     void handleAction(Action action, lv_event_t* event);
     static void actionEvent(lv_event_t* event);
@@ -55,7 +73,25 @@ private:
     lv_obj_t* brightnessSlider_ = nullptr;
     lv_obj_t* networkValueLabel_ = nullptr;
     lv_obj_t* printerValueLabel_ = nullptr;
-    ActionBinding actionBindings_[5] = {};
+    lv_obj_t* skinButtonLabel_ = nullptr;
+    lv_obj_t* colorModeButtonLabel_ = nullptr;
+    lv_obj_t* accentLabel_ = nullptr;
+    lv_obj_t* accentSlider_ = nullptr;
+    lv_obj_t* saverModeButtonLabel_ = nullptr;
+    lv_obj_t* clockStyleButtonLabel_ = nullptr;
+    lv_obj_t* saverDelayLabel_ = nullptr;
+    lv_obj_t* saverDelaySlider_ = nullptr;
+    lv_obj_t* clockBrightnessLabel_ = nullptr;
+    lv_obj_t* clockBrightnessSlider_ = nullptr;
+    lv_obj_t* quietTargetButtonLabel_ = nullptr;
+    lv_obj_t* quietDurationLabel_ = nullptr;
+    lv_obj_t* quietDurationSlider_ = nullptr;
+    lv_obj_t* quietErrorsButtonLabel_ = nullptr;
+    lv_obj_t* otaStatusLabel_ = nullptr;
+    lv_obj_t* otaVersionLabel_ = nullptr;
+    lv_obj_t* otaInstallButton_ = nullptr;
+    lv_obj_t* factoryResetButtonLabel_ = nullptr;
+    ActionBinding actionBindings_[20] = {};
     ui::Navigation navigation_;
     SetupCallback setupCallback_ = nullptr;
     void* callbackContext_ = nullptr;
@@ -63,6 +99,9 @@ private:
     bool wifiConnectedSeen_ = false;
     bool bleConnectedSeen_ = false;
     bool printerConnectedSeen_ = false;
+    OtaState otaStateSeen_ = OtaState::Idle;
+    uint8_t otaProgressSeen_ = 0;
+    uint32_t factoryConfirmUntilMs_ = 0;
     bool cacheValid_ = false;
 };
 

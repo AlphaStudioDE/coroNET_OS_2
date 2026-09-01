@@ -148,6 +148,12 @@ void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targ
                                  bool& failsafe, const char*& status) {
     const AppSettings& settings = settingsService().settings();
     const SystemState& system = state();
+    if (system.maintenanceMode) {
+        targetFan = 0;
+        targetFlap = 0;
+        status = "maintenance";
+        return;
+    }
     const bool activePrint = printingLike(system.printerState);
     if (system.printerConnected && activePrint) printingSeen_ = true;
     if (system.printerConnected && !activePrint) printingSeen_ = false;

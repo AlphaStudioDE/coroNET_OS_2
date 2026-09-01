@@ -122,6 +122,13 @@ lv_obj_t* makeMetricCard(lv_obj_t* parent, lv_coord_t x, const char* caption, ui
     return card;
 }
 
+void formatDuration(uint32_t seconds, char out[12]) {
+    const uint32_t hours = seconds / 3600U;
+    const uint32_t minutes = (seconds / 60U) % 60U;
+    snprintf(out, 12, "%02lu:%02lu", static_cast<unsigned long>(hours),
+             static_cast<unsigned long>(minutes));
+}
+
 }
 
 void HomeScreen::begin(ui::Navigation::Callback navigationCallback,
@@ -223,6 +230,16 @@ void HomeScreen::buildMetricCards() {
     toolTempLabel_ = makeLabel(toolCard, "--.- C", ui::ColorMuted,
                                &lv_font_montserrat_12, 58, 49, 74);
     lv_obj_set_style_text_align(toolTempLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    materialLabel_ = makeLabel(toolCard, "--", ui::ColorMuted,
+                               &lv_font_montserrat_10, 12, 68, 96);
+    lv_label_set_long_mode(materialLabel_, LV_LABEL_LONG_DOT);
+    materialSwatch_ = lv_obj_create(toolCard);
+    lv_obj_set_size(materialSwatch_, 10, 10);
+    lv_obj_set_pos(materialSwatch_, 120, 69);
+    lv_obj_set_style_radius(materialSwatch_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_width(materialSwatch_, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(materialSwatch_, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(materialSwatch_, 0, LV_PART_MAIN);
 
     lv_obj_t* bedCard = makeMetricCard(root_, 168, "BED", ui::ColorAmber);
     bedTempLabel_ = makeLabel(bedCard, "--.- C", ui::ColorText,
@@ -231,6 +248,8 @@ void HomeScreen::buildMetricCards() {
     lv_obj_t* chamberCard = makeMetricCard(root_, 320, "CHAMBER", ui::ColorGreen);
     chamberTempLabel_ = makeLabel(chamberCard, "--.- C", ui::ColorText,
                                   &lv_font_montserrat_22, 12, 41, 120);
+    ventOutputLabel_ = makeLabel(chamberCard, "F0  V0", ui::ColorMuted,
+                                 &lv_font_montserrat_10, 12, 68, 120);
 }
 
 void HomeScreen::update() {
@@ -249,7 +268,13 @@ void HomeScreen::update() {
     next.toolTempTenths = temperatureTenths(system.activeToolTempC);
     next.bedTempTenths = temperatureTenths(system.bedTempC);
     next.chamberTempTenths = temperatureTenths(system.chamberTempC);
+    next.printDurationSec = system.printDurationSec;
+    next.printEtaSec = system.printEtaSec;
+    next.filamentColorRgb = system.filamentColorRgb;
+    next.fanPercent = system.fanPercent;
+    next.flapPercent = system.flapPercent;
     strlcpy(next.filename, system.printFilename, sizeof(next.filename));
+    strlcpy(next.material, system.materialName, sizeof(next.material));
     strlcpy(next.status, system.printerStatusText, sizeof(next.status));
 
     if (!stateChanged(next)) return;
@@ -278,7 +303,15 @@ void HomeScreen::update() {
     if (!next.printerConnected) {
         lv_label_set_text(detailLabel_, offlineDetail(next.printerConfigured, next.status));
     } else if (next.filename[0]) {
-        lv_label_set_text(detailLabel_, next.filename);
+        if (next.printerState == PrinterState::Printing || next.printerState == PrinterState::Paused) {
+            char elapsed[12], eta[12], detail[112];
+            formatDuration(next.printDurationSec, elapsed);
+            formatDuration(next.printEtaSec, eta);
+            snprintf(detail, sizeof(detail), "%s  |  %s  |  ETA %s", next.filename, elapsed, eta);
+            lv_label_set_text(detailLabel_, detail);
+        } else {
+            lv_label_set_text(detailLabel_, next.filename);
+        }
     } else {
         lv_label_set_text(detailLabel_, "Printer is ready");
     }
@@ -289,6 +322,10 @@ void HomeScreen::update() {
     setTemperature(toolTempLabel_, next.toolTempTenths);
     setTemperature(bedTempLabel_, next.bedTempTenths);
     setTemperature(chamberTempLabel_, next.chamberTempTenths);
+    lv_label_set_text(materialLabel_, next.material[0] ? next.material : "MATERIAL --");
+    lv_obj_set_style_bg_color(materialSwatch_, lv_color_hex(next.filamentColorRgb), LV_PART_MAIN);
+    lv_label_set_text_fmt(ventOutputLabel_, "F%u  V%u", static_cast<unsigned>(next.fanPercent),
+                          static_cast<unsigned>(next.flapPercent));
 }
 
 bool HomeScreen::stateChanged(const ViewCache& next) const {
@@ -304,7 +341,12 @@ bool HomeScreen::stateChanged(const ViewCache& next) const {
            cache_.toolTempTenths != next.toolTempTenths ||
            cache_.bedTempTenths != next.bedTempTenths ||
            cache_.chamberTempTenths != next.chamberTempTenths ||
+           cache_.printDurationSec != next.printDurationSec ||
+           cache_.printEtaSec != next.printEtaSec ||
+           cache_.filamentColorRgb != next.filamentColorRgb ||
+           cache_.fanPercent != next.fanPercent || cache_.flapPercent != next.flapPercent ||
            strcmp(cache_.filename, next.filename) != 0 ||
+           strcmp(cache_.material, next.material) != 0 ||
            strcmp(cache_.status, next.status) != 0;
 }
 

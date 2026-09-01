@@ -32,6 +32,9 @@ private:
     void handleSettings();
     void handleUpdateSettings();
     void handlePrinterTest();
+    void handleOtaCheck();
+    void handleOtaInstall(bool reinstall);
+    void handleOtaSdRecovery();
     void handleNotFound();
 };
 

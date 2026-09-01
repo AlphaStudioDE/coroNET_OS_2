@@ -67,6 +67,17 @@ uint8_t toolIndexFromObject(const char* objectName) {
     return 0;
 }
 
+uint32_t parseFilamentColor(const char* text) {
+    if (!text) return 0xFFFFFF;
+    while (*text == '#' || *text == ' ') ++text;
+    if (strlen(text) < 6) return 0xFFFFFF;
+    char rgb[7] = {};
+    memcpy(rgb, text, 6);
+    char* end = nullptr;
+    const unsigned long value = strtoul(rgb, &end, 16);
+    return end == rgb + 6 ? static_cast<uint32_t>(value) : 0xFFFFFF;
+}
+
 String baseUrl(const char* host, uint16_t port) {
     String cleanHost = host ? host : "";
     cleanHost.trim();
@@ -125,6 +136,7 @@ void PrinterService::begin() {
 void PrinterService::loop() {
     if (!started_) return;
     consumeResults();
+    if (state().maintenanceMode) return;
 
     SystemState& system = state();
     system.setupDone = settingsService().settings().setupDone;
@@ -160,7 +172,7 @@ void PrinterService::loop() {
 }
 
 bool PrinterService::requestDiscovery() {
-    if (!started_ || WiFi.status() != WL_CONNECTED || !discoveredPrinters_) {
+    if (!started_ || state().maintenanceMode || WiFi.status() != WL_CONNECTED || !discoveredPrinters_) {
         updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi is not connected");
         return false;
     }
@@ -213,6 +225,10 @@ PrinterTestResult PrinterService::testConnection() {
     lastTestMs_ = millis();
 
     PollRequest request;
+    if (state().maintenanceMode) {
+        strlcpy(result.message, "maintenance_mode", sizeof(result.message));
+        return result;
+    }
     if (!captureRequest(request)) {
         strlcpy(result.message, "printer_not_configured", sizeof(result.message));
         setOffline(result.message);
@@ -430,9 +446,13 @@ void PrinterService::applyResult(const PollResult& result) {
     system.activeToolTempC = result.activeToolTempC;
     system.bedTempC = result.bedTempC;
     system.chamberTempC = result.chamberTempC;
+    system.printDurationSec = result.printDurationSec;
+    system.printEtaSec = result.printEtaSec;
+    system.filamentColorRgb = result.filamentColorRgb;
     system.printerConnected = true;
     system.lastPrinterUpdateMs = millis();
     strlcpy(system.printFilename, result.filename, sizeof(system.printFilename));
+    strlcpy(system.materialName, result.material, sizeof(system.materialName));
     strlcpy(system.printerStatusText, printerStateName(system.printerState), sizeof(system.printerStatusText));
 }
 
@@ -479,7 +499,8 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
         "\"extruder2\":[\"temperature\"],"
         "\"extruder3\":[\"temperature\"],"
         "\"heater_bed\":[\"temperature\"],"
-        "\"temperature_sensor cavity\":[\"temperature\"]}}";
+        "\"temperature_sensor cavity\":[\"temperature\"],"
+        "\"print_task_config\":[\"filament_color_rgba\",\"filament_type\"]}}";
 
     const int code = http.POST(Body);
     result.httpCode = code;
@@ -503,6 +524,7 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     const float progress = status["display_status"]["progress"] | 0.0f;
     const char* extruder = status["toolhead"]["extruder"] | "extruder";
     const uint8_t tool = toolIndexFromObject(extruder);
+    const float duration = status["print_stats"]["print_duration"] | 0.0f;
 
     float toolTemp = NAN;
     if (tool == 0) toolTemp = status["extruder"]["temperature"] | NAN;
@@ -517,7 +539,19 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     result.activeToolTempC = toolTemp;
     result.bedTempC = status["heater_bed"]["temperature"] | NAN;
     result.chamberTempC = status["temperature_sensor cavity"]["temperature"] | NAN;
+    result.printDurationSec = duration > 0.0f ? static_cast<uint32_t>(duration + 0.5f) : 0;
+    if (progress > 0.001f && progress < 1.0f && duration > 0.0f) {
+        const float eta = duration / progress - duration;
+        result.printEtaSec = eta > 0.0f ? static_cast<uint32_t>(eta + 0.5f) : 0;
+    }
+    JsonArrayConst colors = status["print_task_config"]["filament_color_rgba"].as<JsonArrayConst>();
+    if (!colors.isNull() && tool < colors.size()) {
+        result.filamentColorRgb = parseFilamentColor(colors[tool] | "");
+    }
+    JsonArrayConst materials = status["print_task_config"]["filament_type"].as<JsonArrayConst>();
+    const char* material = (!materials.isNull() && tool < materials.size()) ? (materials[tool] | "-") : "-";
     strlcpy(result.filename, filename, sizeof(result.filename));
+    strlcpy(result.material, material, sizeof(result.material));
     strlcpy(result.message, "ok", sizeof(result.message));
     return true;
 }

@@ -9,7 +9,7 @@ namespace coronet::ui {
 namespace {
 
 constexpr bool pageAvailable(Page page) {
-    return page == Page::Home || page == Page::Settings;
+    return page < Page::Count;
 }
 
 void styleButton(lv_obj_t* button, bool active) {

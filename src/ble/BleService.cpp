@@ -283,10 +283,10 @@ void BleService::applySettings() {
         fallbackActive_ = false;
     }
 
-    bool shouldStart = !cfg.apiPaired ||
+    bool shouldStart = !state().maintenanceMode && (!cfg.apiPaired ||
                        (cfg.bleEnabled && cfg.companionTransport != CompanionTransport::Wifi) ||
-                       fallbackActive_;
-    if (!shouldStart && isConnected()) shouldStart = true;
+                       fallbackActive_);
+    if (!state().maintenanceMode && !shouldStart && isConnected()) shouldStart = true;
 
     if (shouldStart && !started_) startStack();
     else if (!shouldStart && started_) stopStack();
@@ -558,6 +558,45 @@ void BleService::handleCommand(const char* command, size_t length) {
         return;
     }
 
+    if (strcmp(cmd, "setSettings") == 0) {
+        AppSettings& cfg = settingsService().mutableSettings();
+        if (doc["displayBrightness"].is<int>()) cfg.displayBrightness = constrain(doc["displayBrightness"].as<int>(), 0, 100);
+        if (doc["uiSkin"].is<int>()) cfg.uiSkin = static_cast<UiSkin>(constrain(doc["uiSkin"].as<int>(), 0, 3));
+        if (doc["uiColorMode"].is<int>()) cfg.uiColorMode = static_cast<UiColorMode>(constrain(doc["uiColorMode"].as<int>(), 0, 2));
+        if (doc["accentHueDegrees"].is<int>()) cfg.accentHueDegrees = constrain(doc["accentHueDegrees"].as<int>(), 0, 359);
+        if (doc["screenSaverMode"].is<int>()) cfg.screenSaverMode = static_cast<ScreenSaverMode>(constrain(doc["screenSaverMode"].as<int>(), 0, 2));
+        if (doc["screenSaverDelayMinutes"].is<int>()) cfg.screenSaverDelayMinutes = constrain(doc["screenSaverDelayMinutes"].as<int>(), 1, 60);
+        if (doc["clockBrightness"].is<int>()) cfg.clockBrightness = constrain(doc["clockBrightness"].as<int>(), 5, 100);
+        if (doc["clockStyle"].is<int>()) cfg.clockStyle = static_cast<ClockStyle>(constrain(doc["clockStyle"].as<int>(), 0, static_cast<int>(ClockStyle::Count) - 1));
+        if (doc["quietTarget"].is<int>()) cfg.quietTarget = static_cast<QuietTarget>(constrain(doc["quietTarget"].as<int>(), 0, 3));
+        if (doc["quietDurationMinutes"].is<int>()) cfg.quietDurationMinutes = constrain(doc["quietDurationMinutes"].as<int>(), 1, 1440);
+        if (doc["ledEnabled"].is<bool>()) cfg.ledEnabled = doc["ledEnabled"].as<bool>();
+        if (doc["insideColorStyle"].is<int>()) cfg.insideColorStyle = static_cast<InsideColorStyle>(constrain(doc["insideColorStyle"].as<int>(), 0, 1));
+        if (doc["mirrorLedLayout"].is<bool>()) cfg.mirrorLedLayout = doc["mirrorLedLayout"].as<bool>();
+        if (doc["ledBrightness"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledBrightness"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(LedSection{}) && i < values.size(); ++i) cfg.ledBrightness[i] = constrain(values[i].as<int>(), 0, 100);
+        }
+        if (doc["soundVolume"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["soundVolume"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(SoundScenario{}) && i < values.size(); ++i) cfg.soundVolume[i] = constrain(values[i].as<int>(), 0, 100);
+        }
+        if (doc["ventMode"].is<int>()) cfg.ventMode = static_cast<VentMode>(constrain(doc["ventMode"].as<int>(), 0, 2));
+        if (doc["ventTargetTempC"].is<int>()) cfg.ventTargetTempC = constrain(doc["ventTargetTempC"].as<int>(), 20, 80);
+        if (doc["manualFanPercent"].is<int>()) cfg.manualFanPercent = constrain(doc["manualFanPercent"].as<int>(), 0, 100);
+        if (doc["manualFlapPercent"].is<int>()) cfg.manualFlapPercent = constrain(doc["manualFlapPercent"].as<int>(), 0, 100);
+        if (doc["servoClosedUs"].is<int>()) cfg.servoClosedUs = constrain(doc["servoClosedUs"].as<int>(), 500, 2500);
+        if (doc["servoOpenUs"].is<int>()) cfg.servoOpenUs = constrain(doc["servoOpenUs"].as<int>(), 500, 2500);
+        if (doc["servoReverse"].is<bool>()) cfg.servoReverse = doc["servoReverse"].as<bool>();
+        if (doc["pandaEnabled"].is<bool>()) cfg.pandaEnabled = doc["pandaEnabled"].as<bool>();
+        if (doc["pandaMode"].is<int>()) cfg.pandaMode = static_cast<PandaBreathMode>(constrain(doc["pandaMode"].as<int>(), 0, static_cast<int>(PandaBreathMode::Count) - 1));
+        if (doc["pandaTargetTempC"].is<int>()) cfg.pandaTargetTempC = constrain(doc["pandaTargetTempC"].as<int>(), 30, 60);
+        settingsService().save();
+        publishSettings();
+        publishEvent("ack", "settings_saved");
+        return;
+    }
+
     publishEvent("error", "unknown_command");
 }
 
@@ -603,7 +642,18 @@ void BleService::publishSettings() {
     jsonStringCopy(cfg.printerHost, safePrinterHost, sizeof(safePrinterHost));
 
     char payload[512];
-    const int written = snprintf(payload, sizeof(payload),
+    auto sendPayload = [this, &payload](int written) {
+        if (written <= 0 || static_cast<size_t>(written) >= sizeof(payload)) {
+            publishEvent("error", "settings_too_large");
+            return false;
+        }
+        return sendFramed(gEventChr,
+                          static_cast<uint8_t>(bleprotocol::MessageType::SettingsJson),
+                          reinterpret_cast<const uint8_t*>(payload),
+                          static_cast<size_t>(written));
+    };
+
+    int written = snprintf(payload, sizeof(payload),
                                  "{\"v\":%u,\"t\":\"settings\",\"r\":%lu,\"id\":\"%s\",\"name\":\"%s\","
                                  "\"setupDone\":%u,\"bleEnabled\":%u,\"apiPaired\":%u,\"transport\":%u,\"brightness\":%u,"
                                  "\"uiSkin\":%u,\"uiColor\":%u,\"wifiSsid\":\"%s\",\"wifiPasswordSet\":%u,"
@@ -623,15 +673,40 @@ void BleService::publishSettings() {
                                  safePrinterHost,
                                  static_cast<unsigned>(cfg.printerPort),
                                  cfg.printerApiKey[0] ? 1 : 0);
-    if (written < 0 || static_cast<size_t>(written) >= sizeof(payload)) {
-        publishEvent("error", "settings_too_large");
-        return;
-    }
+    if (!sendPayload(written)) return;
 
-    sendFramed(gEventChr,
-               static_cast<uint8_t>(bleprotocol::MessageType::SettingsJson),
-               reinterpret_cast<const uint8_t*>(payload),
-               static_cast<size_t>(written));
+    written = snprintf(payload, sizeof(payload),
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"appearance\",\"displayBrightness\":%u,"
+                       "\"uiSkin\":%u,\"uiColorMode\":%u,\"accentHueDegrees\":%u,\"screenSaverMode\":%u,"
+                       "\"screenSaverDelayMinutes\":%u,\"clockBrightness\":%u,\"clockStyle\":%u,"
+                       "\"quietTarget\":%u,\"quietDurationMinutes\":%u}",
+                       bleprotocol::Version, cfg.displayBrightness, static_cast<unsigned>(cfg.uiSkin),
+                       static_cast<unsigned>(cfg.uiColorMode), cfg.accentHueDegrees,
+                       static_cast<unsigned>(cfg.screenSaverMode), cfg.screenSaverDelayMinutes,
+                       cfg.clockBrightness, static_cast<unsigned>(cfg.clockStyle),
+                       static_cast<unsigned>(cfg.quietTarget), cfg.quietDurationMinutes);
+    if (!sendPayload(written)) return;
+
+    written = snprintf(payload, sizeof(payload),
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"led_sound\",\"ledEnabled\":%s,"
+                       "\"ledBrightness\":[%u,%u,%u,%u],\"insideColorStyle\":%u,\"mirrorLedLayout\":%s,"
+                       "\"soundVolume\":[%u,%u,%u,%u,%u]}",
+                       bleprotocol::Version, cfg.ledEnabled ? "true" : "false",
+                       cfg.ledBrightness[0], cfg.ledBrightness[1], cfg.ledBrightness[2], cfg.ledBrightness[3],
+                       static_cast<unsigned>(cfg.insideColorStyle), cfg.mirrorLedLayout ? "true" : "false",
+                       cfg.soundVolume[0], cfg.soundVolume[1], cfg.soundVolume[2], cfg.soundVolume[3], cfg.soundVolume[4]);
+    if (!sendPayload(written)) return;
+
+    written = snprintf(payload, sizeof(payload),
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"vent\",\"ventMode\":%u,"
+                       "\"ventTargetTempC\":%u,\"manualFanPercent\":%u,\"manualFlapPercent\":%u,"
+                       "\"servoClosedUs\":%u,\"servoOpenUs\":%u,\"servoReverse\":%s,"
+                       "\"pandaEnabled\":%s,\"pandaMode\":%u,\"pandaTargetTempC\":%u}",
+                       bleprotocol::Version, static_cast<unsigned>(cfg.ventMode), cfg.ventTargetTempC,
+                       cfg.manualFanPercent, cfg.manualFlapPercent, cfg.servoClosedUs, cfg.servoOpenUs,
+                       cfg.servoReverse ? "true" : "false", cfg.pandaEnabled ? "true" : "false",
+                       static_cast<unsigned>(cfg.pandaMode), cfg.pandaTargetTempC);
+    sendPayload(written);
 }
 
 void BleService::publishPairingToken() {

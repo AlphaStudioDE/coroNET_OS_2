@@ -67,6 +67,10 @@ enum class PandaWorkflowPhase : uint8_t {
 enum class PandaDryPreset : uint8_t {
     Pla = 0,
     Petg,
+    AbsAsa,
+    Tpu,
+    NylonPa,
+    Pc,
     Custom,
     Count,
 };
@@ -93,6 +97,18 @@ enum class QuietTarget : uint8_t {
     Sound,
     Leds,
     SoundAndLeds,
+};
+
+enum class OtaState : uint8_t {
+    Idle = 0,
+    Checking,
+    UpdateAvailable,
+    UpToDate,
+    Preparing,
+    Downloading,
+    Installing,
+    Success,
+    Failed,
 };
 
 struct RgbwColor {

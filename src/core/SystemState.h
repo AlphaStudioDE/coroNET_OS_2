@@ -27,6 +27,9 @@ struct SystemState {
     bool audioPlaying = false;
     SoundScenario activeSoundScenario = SoundScenario::Start;
     char activeSoundPath[65] = "";
+    uint8_t audioFileCount = 0;
+    bool audioAssetsValid = false;
+    char audioAssetStatus[72] = "SD not checked";
     bool ledReady = false;
     uint32_t ledFrameCount = 0;
     uint32_t ledDroppedFrames = 0;
@@ -39,6 +42,9 @@ struct SystemState {
     char ventStatusText[72] = "disabled";
     bool pandaConnected = false;
     PandaWorkflowPhase pandaPhase = PandaWorkflowPhase::Idle;
+    float pandaCurrentTempC = NAN;
+    uint8_t pandaTargetTempC = 0;
+    bool pandaHeating = false;
     char pandaStatusText[72] = "disabled";
     bool displayReady = false;
     bool touchReady = false;
@@ -66,7 +72,14 @@ struct SystemState {
 
     bool screenSaverActive = false;
     bool displaySleeping = false;
+    bool timeReady = false;
     bool quietActive = false;
+    bool maintenanceMode = false;
+    OtaState otaState = OtaState::Idle;
+    uint8_t otaProgress = 0;
+    bool otaUpdateAvailable = false;
+    char otaAvailableVersion[24] = "";
+    char otaStatusText[96] = "Ready";
 
     uint32_t heapFree = 0;
     uint32_t heapLargest = 0;

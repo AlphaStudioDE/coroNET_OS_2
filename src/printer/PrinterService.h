@@ -62,7 +62,11 @@ private:
         float activeToolTempC = NAN;
         float bedTempC = NAN;
         float chamberTempC = NAN;
+        uint32_t printDurationSec = 0;
+        uint32_t printEtaSec = 0;
+        uint32_t filamentColorRgb = 0xFFFFFF;
         char filename[65] = "";
+        char material[25] = "";
         char message[96] = "";
     };
 
