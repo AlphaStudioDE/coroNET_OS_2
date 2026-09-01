@@ -55,7 +55,9 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [ ] printer-aware LED layers and selected OS 1 animation concepts
 - [ ] PWM fan control
 - [ ] servo flap control and calibration
-- [ ] ventilation logic and failsafe states
+- [ ] ventilation logic driven exclusively by printer telemetry, with failsafe states
+- [ ] Panda Breath discovery and direct control validated on physical hardware
+- [ ] improved Panda automatic, preheat, tempering, forced-on, and drying modes
 
 ## Connectivity And Updates
 
