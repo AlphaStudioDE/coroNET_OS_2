@@ -43,7 +43,7 @@ void DisplayService::begin() {
     if (bsp_display_lock(kLvglLockTimeoutMs)) {
         state().setupDone = settingsService().settings().setupDone;
         if (settingsService().settings().setupDone) {
-            buildHomeScreen();
+            showPage(ui::Page::Home);
         } else {
             setupWizard_.begin();
             wizardActive_ = true;
@@ -80,19 +80,58 @@ void DisplayService::loop() {
         if (wizardActive_) {
             setupWizard_.loop();
             if (setupWizard_.finished()) {
-                buildHomeScreen(true);
+                showPage(ui::Page::Home, true);
                 setupWizard_.reset();
                 wizardActive_ = false;
             }
+        } else if (pageRequestPending_) {
+            const ui::Page page = requestedPage_;
+            pageRequestPending_ = false;
+            if (page != activePage_) showPage(page, true);
         } else {
-            homeScreen_.update();
+            if (activePage_ == ui::Page::Home) homeScreen_.update();
+            else if (activePage_ == ui::Page::Settings) settingsScreen_.update();
         }
         bsp_display_unlock();
     }
 }
 
-void DisplayService::buildHomeScreen(bool animate) {
-    homeScreen_.begin(animate);
+void DisplayService::requestPage(ui::Page page) {
+    if (page != ui::Page::Home && page != ui::Page::Settings) return;
+    requestedPage_ = page;
+    pageRequestPending_ = true;
+}
+
+void DisplayService::showPage(ui::Page page, bool animate) {
+    if (page != ui::Page::Home && page != ui::Page::Settings) return;
+    activePage_ = page;
+    if (page == ui::Page::Home) {
+        homeScreen_.begin(navigationRequested, this, animate);
+    } else {
+        settingsScreen_.begin(navigationRequested, setupRequested, this, animate);
+    }
+}
+
+void DisplayService::reopenSetupWizard() {
+    if (wizardActive_) return;
+    AppSettings& settings = settingsService().mutableSettings();
+    settings.setupDone = false;
+    state().setupDone = false;
+    settingsService().save();
+    settingsService().flush();
+    setupWizard_.begin();
+    wizardActive_ = true;
+}
+
+void DisplayService::navigationRequested(ui::Page page, void* context) {
+    DisplayService* service = static_cast<DisplayService*>(context);
+    if (!service || service->wizardActive_ || page == service->activePage_) return;
+    service->showPage(page, true);
+}
+
+void DisplayService::setupRequested(void* context) {
+    DisplayService* service = static_cast<DisplayService*>(context);
+    if (service) service->reopenSetupWizard();
 }
 
 void DisplayService::applyBrightness(uint8_t percent) {

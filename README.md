@@ -17,7 +17,7 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 
 ## Start Here
 
-[Getting started](GETTING_STARTED.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [Contributing](CONTRIBUTING.md)
+[Getting started](GETTING_STARTED.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
 
 ## What The Finished Device Is Designed To Do
 
@@ -48,7 +48,8 @@ The repository is public early so that the architecture, documentation, hardware
 | I2S audio output | Working on hardware, with PSRAM staging and diagnostic tone |
 | SD-backed WAV playback | In development |
 | Home dashboard | Working on hardware, with live printer and connectivity state |
-| Remaining touchscreen tabs and settings UI | In development |
+| Settings and one-screen-at-a-time UI navigation | Working on hardware |
+| LED, ventilation, and sound tabs | In development |
 | Android companion app for OS 2 | Planned |
 | Layered RGBW LED engine | Planned |
 | Fan, servo, OTA, SD assets, and release installer | Planned |

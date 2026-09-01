@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "../core/SystemState.h"
+#include "UiNavigation.h"
 
 struct _lv_obj_t;
 typedef struct _lv_obj_t lv_obj_t;
@@ -11,7 +12,9 @@ namespace coronet {
 
 class HomeScreen {
 public:
-    void begin(bool animate = false);
+    void begin(ui::Navigation::Callback navigationCallback,
+               void* callbackContext,
+               bool animate = false);
     void update();
 
 private:
@@ -34,7 +37,6 @@ private:
     void buildHeader();
     void buildPrinterPanel();
     void buildMetricCards();
-    void buildNavigation();
     bool stateChanged(const ViewCache& next) const;
 
     lv_obj_t* root_ = nullptr;
@@ -52,6 +54,7 @@ private:
     lv_obj_t* bedTempLabel_ = nullptr;
     lv_obj_t* chamberTempLabel_ = nullptr;
 
+    ui::Navigation navigation_;
     ViewCache cache_;
     bool cacheValid_ = false;
 };

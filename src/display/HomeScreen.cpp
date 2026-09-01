@@ -15,13 +15,6 @@ void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
     lv_obj_set_style_text_letter_space(object, 0, LV_PART_MAIN);
 }
 
-void clearContainer(lv_obj_t* object) {
-    lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(object, LV_OPA_0, LV_PART_MAIN);
-    lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(object, 0, LV_PART_MAIN);
-}
-
 void stylePanel(lv_obj_t* object) {
     lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(object, ui::CornerRadius, LV_PART_MAIN);
@@ -129,23 +122,11 @@ lv_obj_t* makeMetricCard(lv_obj_t* parent, lv_coord_t x, const char* caption, ui
     return card;
 }
 
-void styleNavigationButton(lv_obj_t* button, bool active) {
-    lv_obj_set_style_radius(button, ui::CornerRadius, LV_PART_MAIN);
-    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(button,
-                                  lv_color_hex(active ? ui::ColorCyan : ui::ColorBorder),
-                                  LV_PART_MAIN);
-    lv_obj_set_style_bg_color(button,
-                              lv_color_hex(active ? ui::ColorSurfaceRaised : ui::ColorBackground),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(button, active ? LV_OPA_COVER : LV_OPA_0, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
 }
 
-}
-
-void HomeScreen::begin(bool animate) {
+void HomeScreen::begin(ui::Navigation::Callback navigationCallback,
+                       void* callbackContext,
+                       bool animate) {
     cacheValid_ = false;
     root_ = lv_obj_create(nullptr);
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
@@ -157,7 +138,7 @@ void HomeScreen::begin(bool animate) {
     buildHeader();
     buildPrinterPanel();
     buildMetricCards();
-    buildNavigation();
+    navigation_.build(root_, ui::Page::Home, navigationCallback, callbackContext);
 
     lv_scr_load_anim(root_,
                      animate ? LV_SCR_LOAD_ANIM_FADE_ON : LV_SCR_LOAD_ANIM_NONE,
@@ -250,43 +231,6 @@ void HomeScreen::buildMetricCards() {
     lv_obj_t* chamberCard = makeMetricCard(root_, 320, "CHAMBER", ui::ColorGreen);
     chamberTempLabel_ = makeLabel(chamberCard, "--.- C", ui::ColorText,
                                   &lv_font_montserrat_22, 12, 41, 120);
-}
-
-void HomeScreen::buildNavigation() {
-    lv_obj_t* nav = lv_obj_create(root_);
-    lv_obj_set_size(nav, 480, 66);
-    lv_obj_set_pos(nav, 0, 254);
-    clearContainer(nav);
-    lv_obj_set_style_border_width(nav, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_side(nav, LV_BORDER_SIDE_TOP, LV_PART_MAIN);
-    lv_obj_set_style_border_color(nav, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
-
-    static const char* const labels[5] = {
-        LV_SYMBOL_HOME "\nHOME",
-        LV_SYMBOL_CHARGE "\nLED",
-        LV_SYMBOL_REFRESH "\nVENT",
-        LV_SYMBOL_AUDIO "\nSOUND",
-        LV_SYMBOL_SETTINGS "\nSET",
-    };
-
-    for (uint8_t index = 0; index < 5; ++index) {
-        lv_obj_t* button = lv_btn_create(nav);
-        lv_obj_set_size(button, 86, 50);
-        lv_obj_set_pos(button, 9 + index * 94, 8);
-        styleNavigationButton(button, index == 0);
-        lv_obj_add_event_cb(button, touchEvent, LV_EVENT_PRESSED, nullptr);
-        if (index != 0) {
-            lv_obj_add_state(button, LV_STATE_DISABLED);
-            lv_obj_set_style_opa(button, LV_OPA_50, LV_PART_MAIN);
-        }
-
-        lv_obj_t* label = lv_label_create(button);
-        styleText(label, index == 0 ? ui::ColorCyan : ui::ColorMuted, &lv_font_montserrat_12);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_line_space(label, 1, LV_PART_MAIN);
-        lv_label_set_text(label, labels[index]);
-        lv_obj_center(label);
-    }
 }
 
 void HomeScreen::update() {

@@ -62,6 +62,12 @@ void executeSerialCommand() {
         audioService.setSampleRate(44100);
     } else if (strcmp(serialCommand, "audio rate 48000") == 0) {
         audioService.setSampleRate(48000);
+    } else if (strcmp(serialCommand, "ui home") == 0) {
+        displayService.requestPage(coronet::ui::Page::Home);
+        Serial.println("[console] Home screen requested");
+    } else if (strcmp(serialCommand, "ui settings") == 0) {
+        displayService.requestPage(coronet::ui::Page::Settings);
+        Serial.println("[console] Settings screen requested");
     } else if (serialCommandLength > 0) {
         Serial.printf("[console] unknown command: %s\n", serialCommand);
     }

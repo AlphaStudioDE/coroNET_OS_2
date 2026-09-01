@@ -52,7 +52,10 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - Screens should render from shared state and theme tokens, not hard-coded per-screen color islands.
 - The setup wizard and operational Home screen share the same `UiTheme` tokens, geometry language, and restrained cyan/amber visual hierarchy.
 - Live screens cache their last rendered values and only invalidate LVGL objects when state changes.
+- The UI router keeps only the active operational screen alive; inactive tabs are destroyed after the transition instead of permanently consuming LVGL/internal memory.
 - Planned skins start as `Coronet` (the original simple cyan/amber dashboard direction), `Graphite`, `Aurora`, and `Minimal`; names can still change before public OS 2 release.
+
+OS 1 features are reviewed before migration in [OS1_FEATURE_SCOPE.md](OS1_FEATURE_SCOPE.md). The on-device LED animation creator, external lighting-provider integrations, and the disabled MIDI engine are intentionally excluded from OS 2.
 
 ## Memory Policy
 
@@ -80,6 +83,8 @@ Measured on the target JC3248W535 with display, touch, WiFi station stack, print
 | BLE with external host allocation | 39,980 B | 10,384 B |
 
 The measured connected steady state retained approximately 109.8 KB of free DMA-capable memory with a 53.2 KB largest contiguous block. A full printer-discovery scan temporarily reduced free DMA to approximately 106.6 KB without a restart or audio write failure.
+
+With the operational Home/Settings router active alongside display, touch, WiFi, web control, printer polling, BLE, and audio, Home retained approximately 102.0 KB of free DMA-capable memory and Settings approximately 98.8 KB. Five repeated Home/Settings transitions returned to the same steady-state values and stable PSRAM usage; the temporary transition allocation was fully released with the outgoing LVGL screen.
 
 ### Audio DMA profiles
 
