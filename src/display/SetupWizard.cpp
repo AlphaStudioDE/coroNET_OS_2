@@ -1,0 +1,620 @@
+#include "SetupWizard.h"
+
+#include <Arduino.h>
+#include <lvgl.h>
+
+#include "../core/DeviceIdentity.h"
+#include "../core/SystemState.h"
+#include "../settings/SettingsService.h"
+
+namespace coronet {
+
+namespace {
+
+constexpr uint8_t kStepCount = 6;
+constexpr lv_coord_t kScreenWidth = 480;
+constexpr lv_coord_t kScreenHeight = 320;
+
+constexpr uint32_t ColorBackground = 0x071018;
+constexpr uint32_t ColorSurface = 0x0D1A24;
+constexpr uint32_t ColorSurfaceRaised = 0x132531;
+constexpr uint32_t ColorBorder = 0x29414F;
+constexpr uint32_t ColorText = 0xF4F8FA;
+constexpr uint32_t ColorMuted = 0x8FAAB7;
+constexpr uint32_t ColorCyan = 0x27D3C2;
+constexpr uint32_t ColorCyanDark = 0x0F665F;
+constexpr uint32_t ColorAmber = 0xF1B84B;
+
+SetupWizard* gActiveSetupWizard = nullptr;
+
+void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
+    lv_obj_set_style_text_color(object, lv_color_hex(color), LV_PART_MAIN);
+    lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(object, 0, LV_PART_MAIN);
+}
+
+void clearContainerStyle(lv_obj_t* object) {
+    lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(object, LV_OPA_0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(object, 0, LV_PART_MAIN);
+}
+
+lv_obj_t* makeLabel(lv_obj_t* parent,
+                    const char* text,
+                    uint32_t color,
+                    const lv_font_t* font,
+                    lv_coord_t x,
+                    lv_coord_t y,
+                    lv_coord_t width = LV_SIZE_CONTENT) {
+    lv_obj_t* label = lv_label_create(parent);
+    styleText(label, color, font);
+    if (width != LV_SIZE_CONTENT) {
+        lv_obj_set_width(label, width);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    }
+    lv_label_set_text(label, text);
+    lv_obj_set_pos(label, x, y);
+    return label;
+}
+
+void styleButton(lv_obj_t* button, bool primary) {
+    lv_obj_set_style_radius(button, 6, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(button,
+                                  lv_color_hex(primary ? ColorCyan : ColorBorder),
+                                  LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button,
+                              lv_color_hex(primary ? ColorCyan : ColorSurface),
+                              LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button,
+                              lv_color_hex(primary ? 0x1AB7A9 : ColorSurfaceRaised),
+                              static_cast<lv_style_selector_t>(
+                                  static_cast<uint32_t>(LV_PART_MAIN) |
+                                  static_cast<uint32_t>(LV_STATE_PRESSED)));
+}
+
+void styleInput(lv_obj_t* field) {
+    lv_obj_set_style_radius(field, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(field, lv_color_hex(ColorSurface), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(field, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(field, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(field, lv_color_hex(ColorBorder), LV_PART_MAIN);
+    lv_obj_set_style_border_color(field,
+                                  lv_color_hex(ColorCyan),
+                                  static_cast<lv_style_selector_t>(
+                                      static_cast<uint32_t>(LV_PART_MAIN) |
+                                      static_cast<uint32_t>(LV_STATE_FOCUSED)));
+    lv_obj_set_style_text_color(field, lv_color_hex(ColorText), LV_PART_MAIN);
+    lv_obj_set_style_text_font(field, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(field, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(field, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(field, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(field, 9, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(field, 7, LV_PART_MAIN);
+}
+
+void markTouch() {
+    SystemState& system = state();
+    system.touchCount++;
+    system.lastTouchMs = millis();
+}
+
+void rootTouchEvent(lv_event_t* event) {
+    if (lv_event_get_code(event) == LV_EVENT_PRESSED) markTouch();
+}
+
+const char* transportName(CompanionTransport transport) {
+    switch (transport) {
+        case CompanionTransport::Ble: return "Bluetooth LE";
+        case CompanionTransport::Wifi: return "Wi-Fi";
+        case CompanionTransport::Auto:
+        default: return "Automatic";
+    }
+}
+
+void normalizePrinterHost(const char* input, char* output, size_t outputSize, uint16_t& port) {
+    if (!output || outputSize == 0) return;
+    output[0] = '\0';
+    String host(input ? input : "");
+    host.trim();
+    if (host.startsWith("http://")) host.remove(0, 7);
+    if (host.startsWith("https://")) host.remove(0, 8);
+    const int slash = host.indexOf('/');
+    if (slash >= 0) host.remove(slash);
+    const int colon = host.lastIndexOf(':');
+    if (colon > 0) {
+        const int parsedPort = host.substring(colon + 1).toInt();
+        if (parsedPort > 0 && parsedPort <= 65535) {
+            port = static_cast<uint16_t>(parsedPort);
+            host.remove(colon);
+        }
+    }
+    host.trim();
+    host.toCharArray(output, outputSize);
+}
+
+}
+
+void SetupWizard::begin() {
+    reset();
+    gActiveSetupWizard = this;
+    step_ = Step::Welcome;
+    finished_ = false;
+    buildRoot();
+    renderStep();
+    lv_scr_load_anim(root_, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+}
+
+void SetupWizard::loop() {
+    if (!root_ || finished_) return;
+    if (settingsService().settings().setupDone) {
+        finished_ = true;
+        return;
+    }
+    if (renderPending_) {
+        renderPending_ = false;
+        renderStep();
+    }
+}
+
+void SetupWizard::reset() {
+    if (gActiveSetupWizard == this) gActiveSetupWizard = nullptr;
+    root_ = nullptr;
+    content_ = nullptr;
+    stepLabel_ = nullptr;
+    backButton_ = nullptr;
+    nextButton_ = nullptr;
+    nextButtonLabel_ = nullptr;
+    keyboard_ = nullptr;
+    nameField_ = nullptr;
+    ssidField_ = nullptr;
+    passwordField_ = nullptr;
+    printerHostField_ = nullptr;
+    printerPortField_ = nullptr;
+    for (lv_obj_t*& segment : progress_) segment = nullptr;
+    renderPending_ = false;
+}
+
+void SetupWizard::buildRoot() {
+    root_ = lv_obj_create(nullptr);
+    lv_obj_clear_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(root_, lv_color_hex(ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(root_, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(root_, rootTouchEvent, LV_EVENT_PRESSED, nullptr);
+
+    makeLabel(root_, "coroNET", ColorText, &lv_font_montserrat_26, 24, 15);
+    makeLabel(root_, "FIRST SETUP", ColorCyan, &lv_font_montserrat_10, 145, 27);
+
+    stepLabel_ = makeLabel(root_, "1 OF 6", ColorMuted, &lv_font_montserrat_12, 405, 23, 52);
+    lv_obj_set_style_text_align(stepLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+
+    for (uint8_t index = 0; index < kStepCount; ++index) {
+        progress_[index] = lv_obj_create(root_);
+        lv_obj_set_size(progress_[index], 66, 3);
+        lv_obj_set_pos(progress_[index], 24 + index * 73, 52);
+        lv_obj_set_style_radius(progress_[index], 0, LV_PART_MAIN);
+        lv_obj_set_style_border_width(progress_[index], 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(progress_[index], 0, LV_PART_MAIN);
+    }
+
+    content_ = lv_obj_create(root_);
+    lv_obj_set_size(content_, 432, 190);
+    lv_obj_set_pos(content_, 24, 66);
+    clearContainerStyle(content_);
+
+    backButton_ = lv_btn_create(root_);
+    lv_obj_set_size(backButton_, 104, 40);
+    lv_obj_set_pos(backButton_, 24, 270);
+    styleButton(backButton_, false);
+    lv_obj_add_event_cb(backButton_, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::Back)));
+    lv_obj_t* backLabel = lv_label_create(backButton_);
+    styleText(backLabel, ColorText, &lv_font_montserrat_14);
+    lv_label_set_text(backLabel, "Back");
+    lv_obj_center(backLabel);
+
+    nextButton_ = lv_btn_create(root_);
+    lv_obj_set_size(nextButton_, 122, 40);
+    lv_obj_set_pos(nextButton_, 334, 270);
+    styleButton(nextButton_, true);
+    lv_obj_add_event_cb(nextButton_, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::Next)));
+    nextButtonLabel_ = lv_label_create(nextButton_);
+    styleText(nextButtonLabel_, ColorBackground, &lv_font_montserrat_14);
+    lv_label_set_text(nextButtonLabel_, "Start");
+    lv_obj_center(nextButtonLabel_);
+
+    makeLabel(root_, "Your settings stay on this device.", ColorMuted,
+              &lv_font_montserrat_10, 148, 285, 170);
+}
+
+void SetupWizard::renderStep() {
+    if (!content_) return;
+    hideKeyboard();
+    lv_obj_clean(content_);
+    nameField_ = nullptr;
+    ssidField_ = nullptr;
+    passwordField_ = nullptr;
+    printerHostField_ = nullptr;
+    printerPortField_ = nullptr;
+
+    switch (step_) {
+        case Step::Welcome: renderWelcome(); break;
+        case Step::Identity: renderIdentity(); break;
+        case Step::Connection: renderConnection(); break;
+        case Step::Network: renderNetwork(); break;
+        case Step::Printer: renderPrinter(); break;
+        case Step::Ready: renderReady(); break;
+        case Step::Count: break;
+    }
+    updateProgress();
+    updateNavigation();
+}
+
+void SetupWizard::renderWelcome() {
+    makeLabel(content_, "Welcome to coroNET", ColorText, &lv_font_montserrat_30, 0, 4);
+    makeLabel(content_,
+              "Let us shape this device around your printer and the way you work.",
+              ColorMuted, &lv_font_montserrat_16, 0, 48, 420);
+
+    lv_obj_t* accent = lv_obj_create(content_);
+    lv_obj_set_size(accent, 4, 72);
+    lv_obj_set_pos(accent, 0, 104);
+    lv_obj_set_style_radius(accent, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(accent, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(accent, lv_color_hex(ColorAmber), LV_PART_MAIN);
+
+    makeLabel(content_, "DISPLAY", ColorCyan, &lv_font_montserrat_10, 18, 106);
+    makeLabel(content_, "Clear status at a glance", ColorText, &lv_font_montserrat_14, 18, 126);
+    makeLabel(content_, "COMPANION", ColorCyan, &lv_font_montserrat_10, 218, 106);
+    makeLabel(content_, "Control from your phone", ColorText, &lv_font_montserrat_14, 218, 126);
+    makeLabel(content_, "PRIVATE", ColorCyan, &lv_font_montserrat_10, 18, 154);
+    makeLabel(content_, "Local-first by design", ColorText, &lv_font_montserrat_14, 18, 173);
+}
+
+void SetupWizard::renderIdentity() {
+    makeLabel(content_, "Make it yours", ColorText, &lv_font_montserrat_26, 0, 2);
+    makeLabel(content_, "This name identifies the device in Bluetooth and the companion app.",
+              ColorMuted, &lv_font_montserrat_14, 0, 38, 420);
+    makeLabel(content_, "DEVICE NAME", ColorCyan, &lv_font_montserrat_10, 0, 92);
+
+    char effectiveName[25] = "";
+    const AppSettings& settings = settingsService().settings();
+    deviceIdentity().effectiveName(settings.deviceName, effectiveName, sizeof(effectiveName));
+
+    nameField_ = lv_textarea_create(content_);
+    lv_obj_set_size(nameField_, 310, 44);
+    lv_obj_set_pos(nameField_, 0, 112);
+    styleInput(nameField_);
+    lv_textarea_set_one_line(nameField_, true);
+    lv_textarea_set_max_length(nameField_, 24);
+    lv_textarea_set_text(nameField_, effectiveName);
+    lv_obj_add_event_cb(nameField_, fieldEvent, LV_EVENT_FOCUSED, this);
+
+    makeLabel(content_, deviceIdentity().id(), ColorMuted, &lv_font_montserrat_10, 326, 128, 100);
+}
+
+void SetupWizard::renderConnection() {
+    makeLabel(content_, "Choose your connection", ColorText, &lv_font_montserrat_26, 0, 2);
+    makeLabel(content_, "Automatic keeps the fastest available path and retains BLE recovery.",
+              ColorMuted, &lv_font_montserrat_14, 0, 38, 420);
+
+    const CompanionTransport selected = settingsService().settings().companionTransport;
+    struct Choice {
+        const char* title;
+        const char* detail;
+        CompanionTransport transport;
+        Action action;
+    };
+    static constexpr Choice choices[] = {
+        {"AUTO", "Recommended", CompanionTransport::Auto, Action::TransportAuto},
+        {"BLE", "Direct phone link", CompanionTransport::Ble, Action::TransportBle},
+        {"WI-FI", "Fast local control", CompanionTransport::Wifi, Action::TransportWifi},
+    };
+
+    for (uint8_t index = 0; index < 3; ++index) {
+        const bool active = selected == choices[index].transport;
+        lv_obj_t* button = lv_btn_create(content_);
+        lv_obj_set_size(button, 136, 82);
+        lv_obj_set_pos(button, index * 148, 88);
+        styleButton(button, active);
+        lv_obj_set_style_border_color(button,
+                                      lv_color_hex(active ? ColorCyan : ColorBorder),
+                                      LV_PART_MAIN);
+        lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED,
+                            reinterpret_cast<void*>(static_cast<uintptr_t>(choices[index].action)));
+        lv_obj_t* title = makeLabel(button, choices[index].title,
+                                    active ? ColorBackground : ColorText,
+                                    &lv_font_montserrat_18, 12, 13, 110);
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_t* detail = makeLabel(button, choices[index].detail,
+                                     active ? ColorCyanDark : ColorMuted,
+                                     &lv_font_montserrat_10, 8, 47, 118);
+        lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    }
+}
+
+void SetupWizard::renderNetwork() {
+    makeLabel(content_, "Join your network", ColorText, &lv_font_montserrat_26, 0, 0);
+    makeLabel(content_, "Optional now. Wi-Fi enables faster local control and printer updates.",
+              ColorMuted, &lv_font_montserrat_12, 0, 34, 420);
+
+    const AppSettings& settings = settingsService().settings();
+    makeLabel(content_, "NETWORK NAME", ColorCyan, &lv_font_montserrat_10, 0, 70);
+    ssidField_ = lv_textarea_create(content_);
+    lv_obj_set_size(ssidField_, 206, 42);
+    lv_obj_set_pos(ssidField_, 0, 88);
+    styleInput(ssidField_);
+    lv_textarea_set_one_line(ssidField_, true);
+    lv_textarea_set_max_length(ssidField_, 32);
+    lv_textarea_set_placeholder_text(ssidField_, "Wi-Fi SSID");
+    lv_textarea_set_text(ssidField_, settings.wifiSsid);
+    lv_obj_add_event_cb(ssidField_, fieldEvent, LV_EVENT_FOCUSED, this);
+
+    makeLabel(content_, "PASSWORD", ColorCyan, &lv_font_montserrat_10, 224, 70);
+    passwordField_ = lv_textarea_create(content_);
+    lv_obj_set_size(passwordField_, 208, 42);
+    lv_obj_set_pos(passwordField_, 224, 88);
+    styleInput(passwordField_);
+    lv_textarea_set_one_line(passwordField_, true);
+    lv_textarea_set_max_length(passwordField_, 64);
+    lv_textarea_set_password_mode(passwordField_, true);
+    lv_textarea_set_password_show_time(passwordField_, 800);
+    lv_textarea_set_placeholder_text(passwordField_, "Optional for open network");
+    lv_textarea_set_text(passwordField_, settings.wifiPassword);
+    lv_obj_add_event_cb(passwordField_, fieldEvent, LV_EVENT_FOCUSED, this);
+
+    makeLabel(content_, "Leave both fields empty to configure Wi-Fi later from the companion app.",
+              ColorMuted, &lv_font_montserrat_10, 0, 149, 420);
+}
+
+void SetupWizard::renderPrinter() {
+    makeLabel(content_, "Connect your printer", ColorText, &lv_font_montserrat_26, 0, 0);
+    makeLabel(content_, "Enter the Moonraker address. You can skip this and finish it later.",
+              ColorMuted, &lv_font_montserrat_12, 0, 34, 420);
+
+    const AppSettings& settings = settingsService().settings();
+    makeLabel(content_, "HOST OR IP ADDRESS", ColorCyan, &lv_font_montserrat_10, 0, 70);
+    printerHostField_ = lv_textarea_create(content_);
+    lv_obj_set_size(printerHostField_, 310, 42);
+    lv_obj_set_pos(printerHostField_, 0, 88);
+    styleInput(printerHostField_);
+    lv_textarea_set_one_line(printerHostField_, true);
+    lv_textarea_set_max_length(printerHostField_, 64);
+    lv_textarea_set_placeholder_text(printerHostField_, "192.168.1.50");
+    lv_textarea_set_text(printerHostField_, settings.printerHost);
+    lv_obj_add_event_cb(printerHostField_, fieldEvent, LV_EVENT_FOCUSED, this);
+
+    makeLabel(content_, "PORT", ColorCyan, &lv_font_montserrat_10, 326, 70);
+    printerPortField_ = lv_textarea_create(content_);
+    lv_obj_set_size(printerPortField_, 106, 42);
+    lv_obj_set_pos(printerPortField_, 326, 88);
+    styleInput(printerPortField_);
+    lv_textarea_set_one_line(printerPortField_, true);
+    lv_textarea_set_max_length(printerPortField_, 5);
+    lv_textarea_set_accepted_chars(printerPortField_, "0123456789");
+    char portText[6] = "";
+    snprintf(portText, sizeof(portText), "%u", static_cast<unsigned>(settings.printerPort));
+    lv_textarea_set_text(printerPortField_, portText);
+    lv_obj_add_event_cb(printerPortField_, fieldEvent, LV_EVENT_FOCUSED, this);
+
+    makeLabel(content_, "Default Moonraker port: 7125", ColorMuted,
+              &lv_font_montserrat_10, 0, 149);
+}
+
+void SetupWizard::renderReady() {
+    makeLabel(content_, "Ready when you are", ColorText, &lv_font_montserrat_28, 0, 0);
+    makeLabel(content_, "Review the essentials. Every setting remains editable later.",
+              ColorMuted, &lv_font_montserrat_12, 0, 38, 420);
+
+    const AppSettings& settings = settingsService().settings();
+    char effectiveName[25] = "";
+    deviceIdentity().effectiveName(settings.deviceName, effectiveName, sizeof(effectiveName));
+
+    makeLabel(content_, "DEVICE", ColorCyan, &lv_font_montserrat_10, 0, 78);
+    makeLabel(content_, effectiveName, ColorText, &lv_font_montserrat_16, 0, 96, 200);
+    makeLabel(content_, "CONTROL", ColorCyan, &lv_font_montserrat_10, 230, 78);
+    makeLabel(content_, transportName(settings.companionTransport), ColorText,
+              &lv_font_montserrat_16, 230, 96, 200);
+
+    makeLabel(content_, "NETWORK", ColorCyan, &lv_font_montserrat_10, 0, 134);
+    makeLabel(content_, settings.wifiSsid[0] ? settings.wifiSsid : "Set up later",
+              ColorText, &lv_font_montserrat_14, 0, 151, 200);
+    makeLabel(content_, "PRINTER", ColorCyan, &lv_font_montserrat_10, 230, 134);
+    makeLabel(content_, settings.printerHost[0] ? settings.printerHost : "Set up later",
+              ColorText, &lv_font_montserrat_14, 230, 151, 200);
+}
+
+void SetupWizard::commitCurrentStep() {
+    AppSettings& settings = settingsService().mutableSettings();
+    switch (step_) {
+        case Step::Identity: {
+            char cleanName[sizeof(settings.deviceName)] = "";
+            deviceIdentity().sanitizeName(nameField_ ? lv_textarea_get_text(nameField_) : "",
+                                          cleanName, sizeof(cleanName));
+            strlcpy(settings.deviceName, cleanName, sizeof(settings.deviceName));
+            break;
+        }
+        case Step::Network:
+            strlcpy(settings.wifiSsid,
+                    ssidField_ ? lv_textarea_get_text(ssidField_) : "",
+                    sizeof(settings.wifiSsid));
+            strlcpy(settings.wifiPassword,
+                    passwordField_ ? lv_textarea_get_text(passwordField_) : "",
+                    sizeof(settings.wifiPassword));
+            break;
+        case Step::Printer: {
+            uint16_t port = settings.printerPort ? settings.printerPort : 7125;
+            if (printerPortField_) {
+                const int parsed = atoi(lv_textarea_get_text(printerPortField_));
+                if (parsed > 0 && parsed <= 65535) port = static_cast<uint16_t>(parsed);
+            }
+            char cleanHost[sizeof(settings.printerHost)] = "";
+            normalizePrinterHost(printerHostField_ ? lv_textarea_get_text(printerHostField_) : "",
+                                 cleanHost, sizeof(cleanHost), port);
+            strlcpy(settings.printerHost, cleanHost, sizeof(settings.printerHost));
+            settings.printerPort = port;
+            break;
+        }
+        case Step::Welcome:
+        case Step::Connection:
+        case Step::Ready:
+        case Step::Count:
+            break;
+    }
+    settingsService().save();
+}
+
+void SetupWizard::moveNext() {
+    hideKeyboard();
+    commitCurrentStep();
+    if (step_ == Step::Ready) {
+        finish();
+        return;
+    }
+    step_ = static_cast<Step>(static_cast<uint8_t>(step_) + 1);
+    renderPending_ = true;
+}
+
+void SetupWizard::moveBack() {
+    if (step_ == Step::Welcome) return;
+    hideKeyboard();
+    commitCurrentStep();
+    step_ = static_cast<Step>(static_cast<uint8_t>(step_) - 1);
+    renderPending_ = true;
+}
+
+void SetupWizard::finish() {
+    AppSettings& settings = settingsService().mutableSettings();
+    settings.setupDone = true;
+    state().setupDone = true;
+    settingsService().save();
+    settingsService().flush();
+    finished_ = true;
+    Serial.println("[setup] first-run wizard completed");
+}
+
+void SetupWizard::showKeyboard(lv_obj_t* textarea) {
+    if (!textarea || !root_) return;
+    if (!keyboard_) {
+        keyboard_ = lv_keyboard_create(root_);
+        lv_obj_set_size(keyboard_, kScreenWidth, 160);
+        lv_obj_align(keyboard_, LV_ALIGN_BOTTOM_MID, 0, 0);
+        lv_obj_set_style_radius(keyboard_, 0, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(keyboard_, lv_color_hex(ColorSurface), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(keyboard_, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(keyboard_, 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(keyboard_, lv_color_hex(ColorBorder), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(keyboard_, lv_color_hex(ColorSurfaceRaised), LV_PART_ITEMS);
+        lv_obj_set_style_bg_color(keyboard_, lv_color_hex(ColorCyan),
+                                  static_cast<lv_style_selector_t>(
+                                      static_cast<uint32_t>(LV_PART_ITEMS) |
+                                      static_cast<uint32_t>(LV_STATE_PRESSED)));
+        lv_obj_set_style_text_color(keyboard_, lv_color_hex(ColorText), LV_PART_ITEMS);
+        lv_obj_set_style_text_font(keyboard_, &lv_font_montserrat_14, LV_PART_ITEMS);
+        lv_obj_add_event_cb(keyboard_, keyboardEvent, LV_EVENT_READY, this);
+        lv_obj_add_event_cb(keyboard_, keyboardEvent, LV_EVENT_CANCEL, this);
+    }
+    lv_keyboard_set_mode(keyboard_, textarea == printerPortField_
+                                        ? LV_KEYBOARD_MODE_NUMBER
+                                        : LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_keyboard_set_textarea(keyboard_, textarea);
+    if (content_) lv_obj_set_y(content_, 0);
+    lv_obj_clear_flag(keyboard_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(keyboard_);
+}
+
+void SetupWizard::hideKeyboard() {
+    if (content_) lv_obj_set_y(content_, 66);
+    if (!keyboard_) return;
+    lv_keyboard_set_textarea(keyboard_, nullptr);
+    lv_obj_del_async(keyboard_);
+    keyboard_ = nullptr;
+}
+
+void SetupWizard::updateNavigation() {
+    if (!backButton_ || !nextButtonLabel_) return;
+    if (step_ == Step::Welcome) lv_obj_add_flag(backButton_, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_clear_flag(backButton_, LV_OBJ_FLAG_HIDDEN);
+
+    const char* nextText = "Continue";
+    if (step_ == Step::Welcome) nextText = "Start";
+    else if (step_ == Step::Ready) nextText = "Finish";
+    lv_label_set_text(nextButtonLabel_, nextText);
+    lv_obj_center(nextButtonLabel_);
+}
+
+void SetupWizard::updateProgress() {
+    const uint8_t current = static_cast<uint8_t>(step_);
+    if (stepLabel_) {
+        lv_label_set_text_fmt(stepLabel_, "%u OF %u",
+                              static_cast<unsigned>(current + 1),
+                              static_cast<unsigned>(kStepCount));
+    }
+    for (uint8_t index = 0; index < kStepCount; ++index) {
+        if (!progress_[index]) continue;
+        const uint32_t color = index <= current ? ColorCyan : ColorBorder;
+        lv_obj_set_style_bg_color(progress_[index], lv_color_hex(color), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(progress_[index], index <= current ? LV_OPA_COVER : LV_OPA_60,
+                                LV_PART_MAIN);
+    }
+}
+
+void SetupWizard::actionEvent(lv_event_t* event) {
+    if (!event || lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    const Action action = static_cast<Action>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    SetupWizard* wizard = gActiveSetupWizard;
+    if (!wizard) return;
+    markTouch();
+
+    AppSettings& settings = settingsService().mutableSettings();
+    switch (action) {
+        case Action::Back:
+            wizard->moveBack();
+            break;
+        case Action::Next:
+            wizard->moveNext();
+            break;
+        case Action::TransportAuto:
+            settings.companionTransport = CompanionTransport::Auto;
+            settings.bleEnabled = true;
+            settingsService().save();
+            wizard->renderPending_ = true;
+            break;
+        case Action::TransportBle:
+            settings.companionTransport = CompanionTransport::Ble;
+            settings.bleEnabled = true;
+            settingsService().save();
+            wizard->renderPending_ = true;
+            break;
+        case Action::TransportWifi:
+            settings.companionTransport = CompanionTransport::Wifi;
+            settings.bleEnabled = true;
+            settingsService().save();
+            wizard->renderPending_ = true;
+            break;
+    }
+}
+
+void SetupWizard::fieldEvent(lv_event_t* event) {
+    if (!event || lv_event_get_code(event) != LV_EVENT_FOCUSED) return;
+    SetupWizard* wizard = static_cast<SetupWizard*>(lv_event_get_user_data(event));
+    if (!wizard) return;
+    markTouch();
+    wizard->showKeyboard(lv_event_get_target(event));
+}
+
+void SetupWizard::keyboardEvent(lv_event_t* event) {
+    if (!event) return;
+    SetupWizard* wizard = static_cast<SetupWizard*>(lv_event_get_user_data(event));
+    if (!wizard) return;
+    markTouch();
+    wizard->hideKeyboard();
+}
+
+}

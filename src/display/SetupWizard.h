@@ -1,0 +1,78 @@
+#pragma once
+
+#include <stdint.h>
+
+struct _lv_obj_t;
+typedef struct _lv_obj_t lv_obj_t;
+struct _lv_event_t;
+typedef struct _lv_event_t lv_event_t;
+
+namespace coronet {
+
+class SetupWizard {
+public:
+    void begin();
+    void loop();
+    void reset();
+    bool finished() const { return finished_; }
+    bool active() const { return root_ != nullptr && !finished_; }
+
+private:
+    enum class Step : uint8_t {
+        Welcome = 0,
+        Identity,
+        Connection,
+        Network,
+        Printer,
+        Ready,
+        Count,
+    };
+
+    enum class Action : uintptr_t {
+        Back = 1,
+        Next,
+        TransportAuto = 10,
+        TransportBle,
+        TransportWifi,
+    };
+
+    void buildRoot();
+    void renderStep();
+    void renderWelcome();
+    void renderIdentity();
+    void renderConnection();
+    void renderNetwork();
+    void renderPrinter();
+    void renderReady();
+    void commitCurrentStep();
+    void moveNext();
+    void moveBack();
+    void finish();
+    void showKeyboard(lv_obj_t* textarea);
+    void hideKeyboard();
+    void updateNavigation();
+    void updateProgress();
+
+    static void actionEvent(lv_event_t* event);
+    static void fieldEvent(lv_event_t* event);
+    static void keyboardEvent(lv_event_t* event);
+
+    lv_obj_t* root_ = nullptr;
+    lv_obj_t* content_ = nullptr;
+    lv_obj_t* stepLabel_ = nullptr;
+    lv_obj_t* backButton_ = nullptr;
+    lv_obj_t* nextButton_ = nullptr;
+    lv_obj_t* nextButtonLabel_ = nullptr;
+    lv_obj_t* keyboard_ = nullptr;
+    lv_obj_t* nameField_ = nullptr;
+    lv_obj_t* ssidField_ = nullptr;
+    lv_obj_t* passwordField_ = nullptr;
+    lv_obj_t* printerHostField_ = nullptr;
+    lv_obj_t* printerPortField_ = nullptr;
+    lv_obj_t* progress_[static_cast<uint8_t>(Step::Count)] = {};
+    Step step_ = Step::Welcome;
+    bool renderPending_ = false;
+    bool finished_ = false;
+};
+
+}

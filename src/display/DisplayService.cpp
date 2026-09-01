@@ -55,7 +55,7 @@ void setPanelStyle(lv_obj_t* obj, lv_color_t bg, lv_color_t border) {
     lv_obj_set_style_pad_all(obj, 14, LV_PART_MAIN);
 }
 
-void updateBootScreen() {
+void updateDashboardScreen() {
     if (!root) return;
 
     const SystemState& s = state();
@@ -127,7 +127,13 @@ void DisplayService::begin() {
     state().touchReady = (bsp_display_get_input_dev() != nullptr);
 
     if (bsp_display_lock(kLvglLockTimeoutMs)) {
-        buildBootScreen();
+        state().setupDone = settingsService().settings().setupDone;
+        if (settingsService().settings().setupDone) {
+            buildDashboardScreen();
+        } else {
+            setupWizard_.begin();
+            wizardActive_ = true;
+        }
         bsp_display_unlock();
     } else {
         Serial.println("DisplayService warning: LVGL lock timeout while building boot screen");
@@ -152,22 +158,31 @@ void DisplayService::loop() {
     }
 
     const uint32_t now = millis();
-    if (now - lastUiUpdateMs_ < kUiUpdateIntervalMs) return;
+    const uint32_t updateIntervalMs = wizardActive_ ? 30 : kUiUpdateIntervalMs;
+    if (now - lastUiUpdateMs_ < updateIntervalMs) return;
     lastUiUpdateMs_ = now;
 
     if (bsp_display_lock(5)) {
-        updateBootScreen();
+        if (wizardActive_) {
+            setupWizard_.loop();
+            if (setupWizard_.finished()) {
+                buildDashboardScreen(true);
+                setupWizard_.reset();
+                wizardActive_ = false;
+            }
+        } else {
+            updateDashboardScreen();
+        }
         bsp_display_unlock();
     }
 }
 
-void DisplayService::buildBootScreen() {
+void DisplayService::buildDashboardScreen(bool animate) {
     root = lv_obj_create(nullptr);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(root, lv_color_hex(0x07111E), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_add_event_cb(root, touchEventCb, LV_EVENT_PRESSED, nullptr);
-    lv_obj_add_event_cb(root, touchEventCb, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t* title = lv_label_create(root);
     styleText(title, lv_color_hex(0xF8FAFC), &lv_font_montserrat_34);
@@ -234,8 +249,9 @@ void DisplayService::buildBootScreen() {
     lv_label_set_text(touchLabel, "touches 0   last -");
     lv_obj_align_to(touchLabel, touchDot, LV_ALIGN_OUT_RIGHT_MID, 12, 0);
 
-    lv_scr_load(root);
-    updateBootScreen();
+    if (animate) lv_scr_load_anim(root, LV_SCR_LOAD_ANIM_FADE_ON, 280, 0, true);
+    else lv_scr_load_anim(root, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    updateDashboardScreen();
 }
 
 void DisplayService::applyBrightness(uint8_t percent) {

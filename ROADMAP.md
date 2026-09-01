@@ -21,7 +21,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 
 ## User Experience
 
-- [ ] first-run setup wizard
+- [x] first-run setup wizard
 - [ ] modern home dashboard
 - [ ] Coronet, Graphite, Aurora, and Minimal UI skins
 - [ ] dark and light mode for every skin
