@@ -10,14 +10,14 @@
 OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE/coroNET_OS_1). It keeps the same physical hardware and GPIO layout while replacing the original monolithic firmware with a modular PlatformIO architecture designed for long-term stability, PSRAM-first memory use, and synchronized control from the touchscreen and Android companion app.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/AlphaStudioDE/coroNET_OS_1/main/mods/alternative-magnetic-enclosure/photo_front_mounted.jpg" alt="coroNET hardware reference mounted beside a 3D printer" width="760">
+  <img src="docs/media/community-showcase/three-quarter-system.jpg" alt="Community-built coroNET installation on a customized Snapmaker" width="760">
 </p>
 
-> The photograph shows the shared coroNET hardware running OS 1. OS 2 uses the same enclosure and electronics; dedicated OS 2 product photography will replace it as the new interface reaches release quality.
+> Bobby Morgan's community-built coroNET installation running OS 1 on the same controller hardware targeted by OS 2. Photograph published with permission.
 
 ## Start Here
 
-[Getting started](GETTING_STARTED.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Android app](android/README.md) | [Development updates](docs/UPDATES.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
+[Getting started](GETTING_STARTED.md) | [Community showcase](docs/COMMUNITY_SHOWCASE.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Android app](android/README.md) | [Development updates](docs/UPDATES.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
 
 ## What The Finished Device Is Designed To Do
 
@@ -30,6 +30,22 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 - synchronize settings and live state with an Android app over BLE or local WiFi;
 - support multiple coroNET devices in one companion app;
 - keep large buffers in PSRAM and reserve internal/DMA memory for hardware-critical work.
+
+## Community Showcase: coroNET in the Wild
+
+coroNET is already living beyond the original prototype. Community builders are integrating it into highly customized machines with multi-tool material handling, active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/media/community-showcase/front-status-lighting.jpg" alt="Bobby Morgan's coroNET status lighting installation"></td>
+    <td width="33%"><img src="docs/media/community-showcase/controller-and-spoolbox.jpg" alt="coroNET touchscreen in a community installation"></td>
+    <td width="33%"><img src="docs/media/community-showcase/four-tool-filament-system.jpg" alt="Four-tool filament system managed alongside coroNET"></td>
+  </tr>
+</table>
+
+Explore the full **[Community Showcase](docs/COMMUNITY_SHOWCASE.md)** and see coroNET working as part of a real, extensively customized printer installation.
+
+Featured installation built and photographed by **Bobby Morgan**.
 
 ## Current Development Status
 
@@ -112,5 +128,7 @@ This project controls lighting, motors, fans, network-connected printer data, an
 Created and maintained by **Damian Borkowski**.
 
 Special thanks to **@wlodeka** on Discord for hardware testing, feedback, and the optional magnetic enclosure developed for coroNET OS 1.
+
+Special thanks to **Bobby Morgan** for building and testing an extensive four-tool coroNET installation and for contributing the photographs featured in the [Community Showcase](docs/COMMUNITY_SHOWCASE.md).
 
 coroNET is an independent community project and is not affiliated with or endorsed by Snapmaker. Snapmaker and other product names may be trademarks of their respective owners.
