@@ -284,8 +284,8 @@ lv_disp_t *lvgl_port_add_disp(const lvgl_port_display_cfg_t *disp_cfg)
 
     disp_ctx->disp_drv.draw_buf = disp_buf;
     disp_ctx->disp_drv.user_data = disp_ctx;
-    /* Dirty-area rendering keeps small UI changes from redrawing the full panel. */
-    disp_ctx->disp_drv.full_refresh = 0;
+    /* This rotated panel path requires a complete canvas flush for stable output. */
+    disp_ctx->disp_drv.full_refresh = 1;
 
 #if LVGL_PORT_HANDLE_FLUSH_READY
     /* Register done callback */

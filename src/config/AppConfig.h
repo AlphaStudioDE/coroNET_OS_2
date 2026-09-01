@@ -9,6 +9,10 @@ static constexpr const char* FirmwareName = "coroNET OS 2";
 static constexpr const char* FirmwareVersion = "0.0.1-dev";
 
 static constexpr uint32_t SerialBaud = 115200;
+static constexpr uint32_t ExpectedCpuFrequencyMhz = 240;
+static constexpr uint32_t ExpectedFlashFrequencyHz = 80000000;
+static constexpr uint32_t ExpectedFlashSizeBytes = 16U * 1024U * 1024U;
+static constexpr uint32_t ExpectedPsramSizeBytes = 8U * 1024U * 1024U;
 static constexpr uint32_t HealthLogIntervalMs = 5000;
 static constexpr uint32_t HealthSampleIntervalMs = 500;
 static constexpr uint32_t BleStateNotifyIntervalMs = 1000;

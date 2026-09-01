@@ -5,9 +5,21 @@ coroNET OS 2 targets the same hardware and GPIO layout as coroNET 1.
 ## Board
 
 - ESP32-S3 based `JC3248W535`
-- 16 MB flash
-- OPI PSRAM
+- dual-core CPU at 240 MHz
+- 16 MB QIO flash at 80 MHz
+- 8 MB OPI PSRAM at 80 MHz
 - Integrated display, touch, microSD, and I2S audio amplifier
+
+The 80 MHz OPI PSRAM profile is intentional. [ESP-IDF 5.4 marks 120 MHz
+Octal PSRAM as experimental](https://docs.espressif.com/projects/esp-idf/en/release-v5.4/esp32s3/api-reference/kconfig.html#config-spiram-speed)
+and warns about temperature-dependent instability, which is unsuitable for a
+controller mounted near a 3D printer. The custom PlatformIO board definition
+and compile-time guards keep this profile fixed.
+
+PlatformIO's build summary reports the ESP32-S3 internal static RAM limit
+(320 KB); it does not include the external PSRAM. At runtime, `MemoryService`
+checks that all 8 MB of PSRAM are visible, and `SystemHealth` reports free and
+largest blocks independently for internal RAM, DMA-capable RAM, and PSRAM.
 
 ## Display And Touch
 
