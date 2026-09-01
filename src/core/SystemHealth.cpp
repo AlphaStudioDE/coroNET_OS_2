@@ -69,4 +69,36 @@ void SystemHealth::log() const {
         static_cast<unsigned long>(s.touchCount));
 }
 
+void SystemHealth::checkpoint(const char* label) {
+    sample();
+    const SystemState& s = state();
+    const int32_t internalDelta = checkpointReady_
+                                      ? static_cast<int32_t>(s.internalFree) - static_cast<int32_t>(checkpointInternalFree_)
+                                      : 0;
+    const int32_t dmaDelta = checkpointReady_
+                                 ? static_cast<int32_t>(s.dmaFree) - static_cast<int32_t>(checkpointDmaFree_)
+                                 : 0;
+    const int32_t psramDelta = checkpointReady_
+                                   ? static_cast<int32_t>(s.psramFree) - static_cast<int32_t>(checkpointPsramFree_)
+                                   : 0;
+
+    Serial.printf(
+        "[memory-step] %-14s internal=%lu (%+ld) largest=%lu dma=%lu (%+ld) largest=%lu psram=%lu (%+ld) largest=%lu\n",
+        label ? label : "-",
+        static_cast<unsigned long>(s.internalFree),
+        static_cast<long>(internalDelta),
+        static_cast<unsigned long>(s.internalLargest),
+        static_cast<unsigned long>(s.dmaFree),
+        static_cast<long>(dmaDelta),
+        static_cast<unsigned long>(s.dmaLargest),
+        static_cast<unsigned long>(s.psramFree),
+        static_cast<long>(psramDelta),
+        static_cast<unsigned long>(s.psramLargest));
+
+    checkpointInternalFree_ = s.internalFree;
+    checkpointDmaFree_ = s.dmaFree;
+    checkpointPsramFree_ = s.psramFree;
+    checkpointReady_ = true;
+}
+
 }

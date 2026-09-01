@@ -35,14 +35,22 @@ void setup() {
     Serial.println(coronet::config::FirmwareVersion);
 
     coronet::memoryService().begin();
+    systemHealth.checkpoint("memory");
     coronet::settingsService().begin();
+    systemHealth.checkpoint("settings");
     systemHealth.begin();
     displayService.begin();
+    systemHealth.checkpoint("display-touch");
     audioService.begin();
+    systemHealth.checkpoint("audio");
     wifiService.begin();
+    systemHealth.checkpoint("wifi");
     coronet::printerService().begin();
+    systemHealth.checkpoint("printer");
     webControlService.begin();
+    systemHealth.checkpoint("web");
     bleService.begin();
+    systemHealth.checkpoint("ble");
 }
 
 void loop() {

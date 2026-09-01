@@ -60,6 +60,22 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - LCD transfer buffers remain DMA-capable internal memory because the LCD peripheral needs DMA-visible memory.
 - Small BSP objects, touch contexts, semaphores, callbacks, and FreeRTOS task stacks stay in internal RAM unless there is a measured reason to move them.
 - Future large buffers for audio, JSON snapshots, file indexes, icons, cached screens, LED previews, and app protocol queues should use PSRAM-aware allocation helpers instead of raw `malloc`.
+- NimBLE host allocations use the library-supported external-memory mode. Controller memory and the host task stack remain internal, while eligible protocol buffers are placed in PSRAM.
+- Startup memory checkpoints are emitted after every service initialization so a regression can be assigned to a service instead of inferred from one final heap value.
+
+## Measured Memory Baseline
+
+Measured on the target JC3248W535 with display, touch, WiFi station stack, printer worker, web routes, and BLE advertising active:
+
+| Stage | DMA-capable internal memory used | PSRAM used |
+| --- | ---: | ---: |
+| Display and touch | 55,160 B | 314,680 B |
+| WiFi station stack | 41,452 B | 9,848 B |
+| Printer worker and queues | 9,944 B | 32-72 B |
+| Web routes | 1,616 B | 0 B |
+| BLE with external host allocation | 40,028 B | 10,384 B |
+
+The measured steady state retained approximately 127 KB of free DMA-capable memory with a 73 KB largest contiguous block. Audio is not included in this baseline because its hardware backend is not implemented yet; WiFi server and mDNS connection-time allocations must be measured again once the setup wizard can provide network credentials.
 
 ## Runtime Concurrency
 
