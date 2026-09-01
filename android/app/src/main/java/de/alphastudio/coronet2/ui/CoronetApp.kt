@@ -1,0 +1,312 @@
+package de.alphastudio.coronet2.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import de.alphastudio.coronet2.CoronetViewModel
+import de.alphastudio.coronet2.model.*
+import org.json.JSONArray
+import org.json.JSONObject
+import kotlin.math.roundToInt
+
+private val CoronetDark = darkColorScheme(
+    primary = Color(0xFF16C7E8), secondary = Color(0xFFFFB323), tertiary = Color(0xFF42E19B),
+    onPrimary = Color(0xFF001F27),
+    background = Color(0xFF071018), surface = Color(0xFF0D1821), surfaceVariant = Color(0xFF14232E),
+    onBackground = Color(0xFFEAF7FA), onSurface = Color(0xFFEAF7FA), outline = Color(0xFF365363),
+)
+
+private enum class Page(val label: String) { Home("Home"), Led("LED"), Vent("Vent"), Sound("Sound"), Settings("Settings") }
+
+@Composable
+fun CoronetApp(model: CoronetViewModel) {
+    val devices by model.devices.collectAsState()
+    val selectedId by model.selectedId.collectAsState()
+    val snapshot by model.snapshot.collectAsState()
+    val settings by model.settings.collectAsState()
+    val discovered by model.discovered.collectAsState()
+    val scanning by model.scanning.collectAsState()
+    var page by remember { mutableStateOf(Page.Home) }
+    var manageDevices by remember { mutableStateOf(devices.isEmpty()) }
+
+    MaterialTheme(colorScheme = CoronetDark, typography = Typography()) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = { DeviceHeader(snapshot, onManage = { manageDevices = true }) },
+            bottomBar = {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    Page.entries.forEach { item ->
+                        NavigationBarItem(
+                            selected = page == item, onClick = { page = item },
+                            icon = { Text(item.label.take(1), fontWeight = FontWeight.Bold) },
+                            label = { Text(item.label, fontSize = 11.sp) },
+                        )
+                    }
+                }
+            },
+        ) { padding ->
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                when (page) {
+                    Page.Home -> HomePage(snapshot)
+                    Page.Led -> LedPage(settings, model::sendSettings)
+                    Page.Vent -> VentPage(settings, snapshot, model::sendSettings)
+                    Page.Sound -> SoundPage(settings, snapshot, model::sendSettings)
+                    Page.Settings -> SettingsPage(settings, snapshot, model::sendSettings)
+                }
+            }
+        }
+        if (manageDevices) DeviceManager(
+            devices = devices, selectedId = selectedId, discovered = discovered, scanning = scanning,
+            onSelect = { model.select(it); manageDevices = false },
+            onScan = model::startScan, onAdd = { model.addAndConnect(it); manageDevices = false },
+            onSave = { model.saveDevice(it); manageDevices = false },
+            onRemove = model::removeSelected, onDismiss = { if (devices.isNotEmpty()) manageDevices = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeviceHeader(snapshot: DeviceSnapshot, onManage: () -> Unit) {
+    TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+        title = {
+            Column {
+                Text(snapshot.device?.name ?: "coroNET", fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp)
+                Text(
+                    when (snapshot.connection) { ConnectionKind.Wifi -> "Connected via Wi-Fi"; ConnectionKind.Ble -> "Connected via BLE"; else -> "Offline" },
+                    fontSize = 12.sp, color = connectionColor(snapshot.connection), letterSpacing = 0.sp,
+                )
+            }
+        },
+        actions = { TextButton(onClick = onManage) { Text("DEVICES") } },
+    )
+}
+
+@Composable
+private fun HomePage(snapshot: DeviceSnapshot) = PageColumn {
+    Text("Printer", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Light)
+    StatusPanel(snapshot.printer)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Metric("Tool", snapshot.printer.toolTemp?.let { "%.1f C".format(it) } ?: "--", Modifier.weight(1f))
+        Metric("Bed", snapshot.printer.bedTemp?.let { "%.1f C".format(it) } ?: "--", Modifier.weight(1f))
+        Metric("Chamber", snapshot.printer.chamberTemp?.let { "%.1f C".format(it) } ?: "--", Modifier.weight(1f))
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Metric("Fan", "${snapshot.fanPercent}%", Modifier.weight(1f))
+        Metric("Flap", "${snapshot.flapPercent}%", Modifier.weight(1f))
+        Metric("Firmware", snapshot.firmware, Modifier.weight(1f))
+    }
+    snapshot.error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+}
+
+@Composable
+private fun StatusPanel(printer: PrinterSnapshot) = SectionCard {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(printer.state.uppercase(), color = stateColor(printer.state), fontWeight = FontWeight.Bold)
+            Text(printer.filename.ifBlank { printer.status.ifBlank { "Waiting for printer" } }, maxLines = 2)
+        }
+        Text("${printer.progress}%", fontSize = 30.sp, fontWeight = FontWeight.Light)
+    }
+    LinearProgressIndicator(
+        progress = { printer.progress.coerceIn(0, 100) / 100f },
+        modifier = Modifier.fillMaxWidth().height(7.dp), color = stateColor(printer.state),
+    )
+}
+
+@Composable
+private fun LedPage(settings: DeviceSettings, send: (String) -> Unit) = PageColumn {
+    PageTitle("LED", "Physical light engine")
+    SectionCard {
+        SettingSwitch("LED output", settings.ledEnabled) { send(json("ledEnabled", it)) }
+        val labels = listOf("Right", "Center", "Left", "Inside")
+        labels.forEachIndexed { index, label ->
+            ValueSlider(label, settings.ledBrightness.getOrElse(index) { 70 }, 0..100, "%") { value ->
+                val values = settings.ledBrightness.toMutableList().also { while (it.size < 4) it.add(70); it[index] = value }
+                send(JSONObject().put("ledBrightness", JSONArray(values)).toString())
+            }
+        }
+    }
+    SectionCard {
+        ChoiceRow("Inside light", if (settings.insideColorStyle == 0) "WHITE" else "AMBIENT") {
+            send(json("insideColorStyle", if (settings.insideColorStyle == 0) 1 else 0))
+        }
+        SettingSwitch("Mirror LED layout", settings.mirrorLedLayout) { send(json("mirrorLedLayout", it)) }
+    }
+}
+
+@Composable
+private fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) = PageColumn {
+    PageTitle("Vent", "Local chamber airflow")
+    SectionCard {
+        ChoiceRow("Mode", listOf("AUTO", "TARGET", "MANUAL").getOrElse(settings.ventMode) { "AUTO" }) {
+            send(json("ventMode", (settings.ventMode + 1) % 3))
+        }
+        ValueSlider("Target temperature", settings.ventTargetTempC, 20..80, " C") { send(json("ventTargetTempC", it)) }
+        if (settings.ventMode == 2) {
+            ValueSlider("Manual fan", settings.manualFanPercent, 0..100, "%") { send(json("manualFanPercent", it)) }
+            ValueSlider("Manual flap", settings.manualFlapPercent, 0..100, "%") { send(json("manualFlapPercent", it)) }
+        }
+        Text("Live: fan ${snapshot.fanPercent}%  |  flap ${snapshot.flapPercent}%", color = MaterialTheme.colorScheme.primary)
+    }
+    SectionCard {
+        Text("Servo calibration", fontWeight = FontWeight.SemiBold)
+        ValueSlider("Closed", settings.servoClosedUs, 500..2500, " us") { send(json("servoClosedUs", it)) }
+        ValueSlider("Open", settings.servoOpenUs, 500..2500, " us") { send(json("servoOpenUs", it)) }
+        SettingSwitch("Reverse servo", settings.servoReverse) { send(json("servoReverse", it)) }
+    }
+    SectionCard {
+        Text("Panda Breath", fontWeight = FontWeight.SemiBold)
+        SettingSwitch("Integration", settings.pandaEnabled) { send(json("pandaEnabled", it)) }
+        ChoiceRow("Workflow", listOf("OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRY").getOrElse(settings.pandaMode) { "OFF" }) {
+            send(json("pandaMode", (settings.pandaMode + 1) % 6))
+        }
+        ValueSlider("Panda target", settings.pandaTargetTempC, 30..60, " C") { send(json("pandaTargetTempC", it)) }
+    }
+}
+
+@Composable
+private fun SoundPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) = PageColumn {
+    PageTitle("Sound", if (snapshot.audioPlaying) "Audio is playing" else "Scenario mixer")
+    SectionCard {
+        listOf("Start", "Finish", "Error", "Pause", "Idle").forEachIndexed { index, label ->
+            ValueSlider(label, settings.soundVolume.getOrElse(index) { 75 }, 0..100, "%") { value ->
+                val values = settings.soundVolume.toMutableList().also { while (it.size < 5) it.add(75); it[index] = value }
+                send(JSONObject().put("soundVolume", JSONArray(values)).toString())
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) = PageColumn {
+    PageTitle("Settings", "Appearance and behavior")
+    SectionCard {
+        ChoiceRow("Interface", listOf("CORONET", "GRAPHITE", "AURORA", "MINIMAL").getOrElse(settings.uiSkin) { "CORONET" }) {
+            send(json("uiSkin", (settings.uiSkin + 1) % 4))
+        }
+        ChoiceRow("Color mode", listOf("DARK", "LIGHT", "AUTO").getOrElse(settings.uiColorMode) { "DARK" }) {
+            send(json("uiColorMode", (settings.uiColorMode + 1) % 3))
+        }
+        ValueSlider("Accent hue", settings.accentHueDegrees, 0..359, " deg") { send(json("accentHueDegrees", it)) }
+        ValueSlider("Display", settings.displayBrightness, 10..100, "%") { send(json("displayBrightness", it)) }
+    }
+    SectionCard {
+        Text("Screen saver", fontWeight = FontWeight.SemiBold)
+        ChoiceRow("Mode", listOf("DISABLED", "DISPLAY OFF", "CLOCK").getOrElse(settings.screenSaverMode) { "CLOCK" }) {
+            send(json("screenSaverMode", (settings.screenSaverMode + 1) % 3))
+        }
+        ChoiceRow("Clock", listOf("DIGITAL", "RETRO", "ANALOG", "LINHO", "BAUHAUS", "MATRIX", "ARC").getOrElse(settings.clockStyle) { "DIGITAL" }) {
+            send(json("clockStyle", (settings.clockStyle + 1) % 7))
+        }
+        ValueSlider("After", settings.screenSaverDelayMinutes, 1..60, " min") { send(json("screenSaverDelayMinutes", it)) }
+        ValueSlider("Clock brightness", settings.clockBrightness, 5..100, "%") { send(json("clockBrightness", it)) }
+    }
+    SectionCard {
+        ChoiceRow("Quiet mode", listOf("OFF", "SOUND", "LEDS", "BOTH").getOrElse(settings.quietTarget) { "OFF" }) {
+            send(json("quietTarget", (settings.quietTarget + 1) % 4))
+        }
+        ValueSlider("Duration", settings.quietDurationMinutes.coerceAtMost(240), 1..240, " min") { send(json("quietDurationMinutes", it)) }
+        Text("Firmware ${snapshot.firmware}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun DeviceManager(
+    devices: List<CoronetDevice>, selectedId: String?, discovered: List<CoronetDevice>, scanning: Boolean,
+    onSelect: (String) -> Unit, onScan: () -> Unit, onAdd: (CoronetDevice) -> Unit,
+    onSave: (CoronetDevice) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit,
+) {
+    var edited by remember(devices, selectedId) { mutableStateOf(devices.firstOrNull { it.id == selectedId } ?: devices.firstOrNull()) }
+    var host by remember(edited) { mutableStateOf(edited?.host.orEmpty()) }
+    var token by remember(edited) { mutableStateOf(edited?.token.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("coroNET devices") },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                devices.forEach { device ->
+                    OutlinedButton(onClick = { edited = device; host = device.host; token = device.token; onSelect(device.id) }, Modifier.fillMaxWidth()) {
+                        Text(if (device.id == selectedId) "${device.name}  SELECTED" else device.name)
+                    }
+                }
+                HorizontalDivider()
+                Button(onClick = onScan, enabled = !scanning, modifier = Modifier.fillMaxWidth()) { Text(if (scanning) "SCANNING..." else "SCAN BLE") }
+                discovered.forEach { device -> TextButton(onClick = { onAdd(device) }, Modifier.fillMaxWidth()) { Text("ADD ${device.name}") } }
+                edited?.let { device ->
+                    Text("Wi-Fi connection", fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(host, { host = it }, label = { Text("IP address or host") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(token, { token = it }, label = { Text("API token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Button(onClick = { onSave(device.copy(host = host.trim(), token = token.trim())) }, Modifier.fillMaxWidth()) { Text("SAVE CONNECTION") }
+                    TextButton(onClick = onRemove, Modifier.fillMaxWidth()) { Text("REMOVE SELECTED", color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("DONE") } },
+    )
+}
+
+@Composable
+private fun PageColumn(content: @Composable ColumnScope.() -> Unit) = Column(
+    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp), content = content,
+)
+
+@Composable
+private fun PageTitle(title: String, subtitle: String) = Column {
+    Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Light)
+    Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+}
+
+@Composable
+private fun SectionCard(content: @Composable ColumnScope.() -> Unit) = Surface(
+    shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
+    tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth(),
+) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
+
+@Composable
+private fun Metric(label: String, value: String, modifier: Modifier = Modifier) = Surface(
+    modifier, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
+) { Column(Modifier.padding(12.dp)) { Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(value, fontWeight = FontWeight.SemiBold) } }
+
+@Composable
+private fun SettingSwitch(label: String, checked: Boolean, changed: (Boolean) -> Unit) = Row(
+    Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+) { Text(label, Modifier.weight(1f)); Switch(checked, changed) }
+
+@Composable
+private fun ChoiceRow(label: String, value: String, clicked: () -> Unit) = Row(
+    Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+) { Text(label, Modifier.weight(1f)); OutlinedButton(onClick = clicked) { Text(value) } }
+
+@Composable
+private fun ValueSlider(label: String, value: Int, range: IntRange, suffix: String, changed: (Int) -> Unit) {
+    var local by remember(value) { mutableFloatStateOf(value.toFloat()) }
+    Column {
+        Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text("${local.roundToInt()}$suffix", color = MaterialTheme.colorScheme.primary) }
+        Slider(
+            value = local, onValueChange = { local = it },
+            onValueChangeFinished = { changed(local.roundToInt()) },
+            valueRange = range.first.toFloat()..range.last.toFloat(),
+        )
+    }
+}
+
+private fun json(key: String, value: Any): String = JSONObject().put(key, value).toString()
+private fun connectionColor(kind: ConnectionKind) = if (kind == ConnectionKind.Offline) Color(0xFFFF8A80) else Color(0xFF42E19B)
+private fun stateColor(state: String) = when (state) {
+    "error" -> Color(0xFFFF5C62); "complete" -> Color(0xFF42E19B); "paused" -> Color(0xFFFFB323); else -> Color(0xFF16C7E8)
+}
