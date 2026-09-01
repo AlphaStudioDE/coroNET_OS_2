@@ -26,47 +26,48 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] automatic Snapmaker and Moonraker discovery during first setup
 - [x] modern home dashboard with live printer, progress, temperature, and connectivity state
 - [x] lightweight Home/Settings navigation and initial live Settings controls
-- [ ] LED, ventilation, and sound tabs
-- [ ] Coronet, Graphite, Aurora, and Minimal UI skins
-- [ ] dark and light mode for every skin
+- [x] LED, ventilation, and sound tabs
+- [x] Coronet, Graphite, Aurora, and Minimal UI skins
+- [x] dark and light mode for every skin
 - [x] revisioned settings with immediate service application and debounced NVS persistence
 - [ ] physical pairing reset/confirmation screen
-- [ ] screen saver and low-power behavior
+- [x] seven clock styles, screen saver, display-off mode, and printer-error wake
 - [ ] accessibility, localization, and touch calibration review
 
 ## Companion App
 
-- [ ] Android project for OS 2
-- [ ] discover and remember multiple coroNET devices
-- [ ] BLE setup and fallback connection
-- [ ] preferred local WiFi control
-- [ ] bidirectional state and settings synchronization
-- [ ] printer error and finish notifications
+- [x] Android project for OS 2
+- [x] discover and remember multiple coroNET devices
+- [x] BLE setup, secure token pairing, and fallback connection
+- [x] preferred local WiFi control
+- [x] bidirectional state and settings synchronization
+- [x] printer error and finish notifications
 - [ ] reconnect, conflict resolution, and offline cached state
 
 ## Hardware Services
 
-- [ ] SD card service and asset validation
+- [x] SD card service, bounded WAV index, and asset validation
 - [x] modern I2S output driver with PSRAM staging and measured DMA profiles
-- [ ] non-blocking I2S WAV audio engine
-- [ ] layered RGBW LED engine
-- [ ] logical right, center, left, and inside mapping
-- [ ] ambient, dimming, mirroring, previews, and boot show
+- [x] non-blocking I2S WAV audio engine
+- [x] layered RGBW LED engine
+- [x] logical right, center, left, and inside mapping
+- [x] ambient, dimming, mirroring, and previews
+- [ ] final boot light-and-sound show
 - [ ] printer-aware LED layers and selected OS 1 animation concepts
-- [ ] PWM fan control
-- [ ] servo flap control and calibration
-- [ ] ventilation logic driven exclusively by printer telemetry, with failsafe states
+- [x] PWM fan control
+- [x] servo flap control and calibration
+- [x] ventilation logic driven exclusively by printer telemetry, with failsafe states
 - [ ] Panda Breath discovery and direct control validated on physical hardware
-- [ ] improved Panda automatic, preheat, tempering, forced-on, and drying modes
+- [x] improved Panda automatic, preheat, tempering, forced-on, and drying state machine
 
 ## Connectivity And Updates
 
 - [x] non-blocking printer polling worker with consecutive-failure tolerance
 - [x] non-blocking mDNS and local-subnet printer discovery
-- [ ] resilient printer connection lifecycle and reconnect telemetry
+- [x] resilient printer connection lifecycle and reconnect telemetry
 - [ ] event-driven printer updates where supported
-- [ ] OTA update service with rollback
-- [ ] SD recovery update path
+- [x] OTA update service with rollback validity marker
+- [x] SD recovery update path
 - [ ] factory flashing package
 - [ ] versioned release metadata and changelog
 

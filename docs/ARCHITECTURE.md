@@ -16,10 +16,9 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - LED rendering is a layered engine, not a collection of unrelated direct frame writers.
 - Memory policy is explicit: PSRAM first for large/stateful allocations, DMA only for hardware transfer buffers, internal RAM reserved for small critical objects and stacks.
 
-## Planned Services
+## Service Boundaries
 
 - `SystemState`: shared runtime state and snapshots.
-- `EventBus`: lightweight event delivery between modules.
 - `DisplayService`: LVGL display, touch, screens, and UI theme.
 - `AudioService`: SD-backed WAV playback and status sounds.
 - `WifiService`: connection lifecycle and network state.
@@ -29,6 +28,9 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - `PrinterService`: Moonraker/WebSocket/HTTP integration.
 - `SettingsService`: versioned NVS settings, migrations, runtime revisions, and debounced persistence.
 - `SystemHealth`: memory, DMA, watchdog, and diagnostics.
+- `QuietService`: time-bounded global Sound/LED suppression with Error bypass.
+- `PandaBreathService`: optional external vent workflow state machine.
+- `OtaService`: GitHub release updates, same-version reinstall, rollback validity, and SD recovery.
 
 ## Milestone 0
 
@@ -75,16 +77,16 @@ Measured on the target JC3248W535 with display, touch, WiFi station stack, print
 
 | Stage | DMA-capable internal memory used | PSRAM used |
 | --- | ---: | ---: |
-| Display and touch | 55,016 B | 314,680 B |
-| Audio service, task, and balanced I2S ring | 9,708 B | 276 B |
-| WiFi station stack | 42,084 B | 9,880 B |
-| Printer worker and queues | 9,964 B | 564 B |
-| Web routes | 1,268 B | 0 B |
-| BLE with external host allocation | 39,980 B | 10,384 B |
+| Display and touch | approximately 63 KB | approximately 315 KB |
+| Audio service, task, and balanced I2S ring | approximately 10.5 KB | less than 1 KB plus indexed file data |
+| WiFi station stack | approximately 42.3 KB | approximately 10 KB |
+| Printer worker and queues | approximately 10 KB | less than 1 KB |
+| Web routes | approximately 2.8 KB | negligible |
+| BLE with external host allocation | approximately 41 KB | approximately 11 KB |
 
-The measured connected steady state retained approximately 109.8 KB of free DMA-capable memory with a 53.2 KB largest contiguous block. A full printer-discovery scan temporarily reduced free DMA to approximately 106.6 KB without a restart or audio write failure.
+With all current services enabled, the measured connected Home steady state retains approximately 87 KB of free DMA-capable memory with a 31.7 KB largest contiguous block and approximately 8.04 MB free PSRAM. The Settings screen retains approximately 70.6 KB free DMA. These figures include display, touch, audio, WiFi, web API, printer polling, BLE, LED, local vent, Panda state machine, and OTA service state.
 
-With the operational Home/Settings router active alongside display, touch, WiFi, web control, printer polling, BLE, and audio, Home retained approximately 102.0 KB of free DMA-capable memory and Settings approximately 98.8 KB. Five repeated Home/Settings transitions returned to the same steady-state values and stable PSRAM usage; the temporary transition allocation was fully released with the outgoing LVGL screen.
+Repeated Home/LED/Vent/Sound/Settings transitions and repeated entry into all seven clock screens return to stable steady-state values. A GitHub OTA metadata check temporarily reduced the recorded DMA minimum to approximately 32 KB, then recovered to the normal Home value. The OTA path therefore enters maintenance mode before firmware download and stops nonessential network/control work. Exact baselines are intentionally re-measured as screens and protocol payloads evolve.
 
 ### Audio DMA profiles
 

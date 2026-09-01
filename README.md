@@ -17,7 +17,7 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 
 ## Start Here
 
-[Getting started](GETTING_STARTED.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
+[Getting started](GETTING_STARTED.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Android app](android/README.md) | [Development updates](docs/UPDATES.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
 
 ## What The Finished Device Is Designed To Do
 
@@ -46,13 +46,16 @@ The repository is public early so that the architecture, documentation, hardware
 | First-run setup wizard | Working on hardware, with WiFi validation and printer discovery |
 | Moonraker HTTP polling and discovery | Background worker implementation |
 | I2S audio output | Working on hardware, with PSRAM staging and diagnostic tone |
-| SD-backed WAV playback | In development |
+| SD-backed WAV playback | Working on hardware, with PSRAM staging and indexed asset validation |
 | Home dashboard | Working on hardware, with live printer and connectivity state |
 | Settings and one-screen-at-a-time UI navigation | Working on hardware |
-| LED, ventilation, and sound tabs | In development |
-| Android companion app for OS 2 | Planned |
-| Layered RGBW LED engine | Planned |
-| Fan, servo, OTA, SD assets, and release installer | Planned |
+| LED, ventilation, and sound tabs | Working on hardware |
+| Four UI skins, dark/light modes, clocks, and screen saver | Working on hardware |
+| Android companion app for OS 2 | Debug APK builds; emulator-tested, physical-phone validation pending |
+| Layered RGBW LED engine | Working on hardware, including ambient, dimming, mirror, and previews |
+| PWM fan and servo flap | Working on hardware with calibration and fail-safe logic |
+| Panda Breath workflows | Implemented; physical Panda validation pending |
+| GitHub OTA, same-version reinstall, SD recovery, and rollback marker | Implemented; release-install validation pending |
 
 Development builds are not yet end-user releases. The public flashing package will appear under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases) after the release path is validated.
 
@@ -83,6 +86,7 @@ The target board definition is included in the repository. Detailed instructions
 ## Repository Layout
 
 ```text
+android/      native Android companion application
 boards/       custom PlatformIO board definition
 docs/         architecture, protocol, hardware, and technical notes
 hardware/     printable mechanical files and hardware documentation

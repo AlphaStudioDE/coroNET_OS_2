@@ -109,6 +109,14 @@ Commands are UTF-8 JSON objects. The firmware parses the exact `cmd` field with 
 
 Valid transport values are `auto`, `ble`, and `wifi`.
 
+Operational controls can send a bounded settings patch over BLE. Only supplied fields are changed:
+
+```json
+{"cmd":"setSettings","ledEnabled":true,"ledBrightness":[70,80,70,45]}
+```
+
+The same field names are accepted by `POST /api/settings`. BLE accepts appearance, screen saver, quiet mode, LED brightness/policy, sound volume, local vent calibration, and Panda mode controls. Larger configuration changes should be split into small patches so each command remains below the 384-byte command limit.
+
 ## Initial Pairing
 
 Each device generates a random 128-bit local API token and stores it in NVS. Complete first pairing as follows:
@@ -136,7 +144,11 @@ The API is available in `auto` and `wifi` modes while the device has a WiFi conn
 - `GET /api/state`;
 - `GET /api/settings`;
 - `POST /api/settings`;
-- `POST /api/printer/test`.
+- `POST /api/printer/test`;
+- `POST /api/ota/check`;
+- `POST /api/ota/install`;
+- `POST /api/ota/reinstall`;
+- `POST /api/ota/sd`.
 
 Every `/api/*` request requires one of these headers:
 
@@ -148,6 +160,10 @@ Authorization: Bearer <32-character-token>
 X-coroNET-Token: <32-character-token>
 ```
 
-Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 1024 bytes. The firmware intentionally does not publish a wildcard CORS origin; the Android app should use its native HTTP client. Secrets are never returned by settings endpoints, only `wifiPasswordSet` and `printerApiKeySet` flags.
+Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 4096 bytes. The firmware intentionally does not publish a wildcard CORS origin; the Android app uses its native HTTP client. Secrets are never returned by settings endpoints, only `wifiPasswordSet` and `printerApiKeySet` flags.
 
 Settings are applied to active services immediately. NVS persistence is debounced for 1.5 seconds and forced after at most 5 seconds to prevent slider controls from wearing flash.
+
+## Android Reference Client
+
+The native reference application lives in [`android/`](../android). It queues GATT descriptor and characteristic operations, reconstructs framed notifications, stores per-device API tokens in encrypted preferences backed by Android Keystore, remembers multiple devices, prefers the authenticated WiFi API after pairing, and posts local notifications for printer Error and Finish transitions.
