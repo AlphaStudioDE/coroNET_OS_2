@@ -69,6 +69,7 @@ private:
     uint32_t submitRequest(RequestType type, const char* path, uint8_t volumePercent,
                            bool repeat, SoundScenario scenario, bool bootAudio,
                            uint32_t durationMs = 0);
+    bool stopAndWait(uint32_t timeoutMs = 1000);
     void snapshotRequest(uint32_t& sequence, RequestType& type, char path[65],
                          uint8_t& volumePercent, bool& repeat, SoundScenario& scenario,
                          bool& bootAudio, uint32_t& durationMs);
@@ -89,6 +90,7 @@ private:
     WavInfo wav_;
     portMUX_TYPE requestMux_ = portMUX_INITIALIZER_UNLOCKED;
     volatile uint32_t requestSequence_ = 0;
+    volatile uint32_t completedRequestSequence_ = 0;
     RequestType requestedType_ = RequestType::Stop;
     char requestedPath_[65] = "";
     uint8_t requestedVolume_ = 75;
@@ -100,6 +102,8 @@ private:
     volatile bool writing_ = false;
     volatile bool bootAudioActive_ = false;
     volatile uint32_t playbackStartedMs_ = 0;
+    volatile bool taskInitDone_ = false;
+    volatile bool taskInitOk_ = false;
     bool driverReady_ = false;
     bool storageReady_ = false;
     AudioDmaProfile profile_ = AudioDmaProfile::Balanced;

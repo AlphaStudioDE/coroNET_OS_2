@@ -27,6 +27,51 @@ constexpr uint8_t NibbleLutLo[16] = {
 
 LedService gLedService;
 
+constexpr LedSection VisualOuterSections[3] = {
+    LedSection::Left,
+    LedSection::Center,
+    LedSection::Right,
+};
+
+constexpr LedSection VisualAllSections[4] = {
+    LedSection::Left,
+    LedSection::Center,
+    LedSection::Right,
+    LedSection::Inside,
+};
+
+constexpr uint16_t mappedSectionIndex(LedSection section, uint16_t logical, bool mirror) {
+    if (mirror) {
+        switch (section) {
+            case LedSection::Left: return hw::RightStart + logical;
+            case LedSection::Center: return hw::CenterStart + logical;
+            case LedSection::Right: return hw::LeftEnd - logical;
+            case LedSection::Inside: return hw::InsideEnd - logical;
+            default: return 0;
+        }
+    }
+    switch (section) {
+        case LedSection::Left: return hw::LeftEnd - logical;
+        case LedSection::Center: return hw::CenterEnd - logical;
+        case LedSection::Right: return hw::RightStart + logical;
+        case LedSection::Inside: return hw::InsideStart + logical;
+        default: return 0;
+    }
+}
+
+static_assert(mappedSectionIndex(LedSection::Right, 0, false) == 0);
+static_assert(mappedSectionIndex(LedSection::Right, hw::RightCount - 1U, false) == 10);
+static_assert(mappedSectionIndex(LedSection::Center, 0, false) == 30);
+static_assert(mappedSectionIndex(LedSection::Center, hw::CenterCount - 1U, false) == 11);
+static_assert(mappedSectionIndex(LedSection::Left, 0, false) == 41);
+static_assert(mappedSectionIndex(LedSection::Left, hw::LeftCount - 1U, false) == 31);
+static_assert(mappedSectionIndex(LedSection::Inside, 0, false) == 42);
+static_assert(mappedSectionIndex(LedSection::Inside, hw::InsideCount - 1U, false) == 59);
+static_assert(mappedSectionIndex(LedSection::Left, 0, true) == 0);
+static_assert(mappedSectionIndex(LedSection::Center, 0, true) == 11);
+static_assert(mappedSectionIndex(LedSection::Right, 0, true) == 41);
+static_assert(mappedSectionIndex(LedSection::Inside, 0, true) == 59);
+
 uint8_t clampByte(int value) {
     if (value < 0) return 0;
     if (value > 255) return 255;
@@ -144,8 +189,7 @@ void LedService::begin() {
     clearTarget();
     memset(currentFrame_, 0, sizeof(RgbwColor) * hw::LedCount);
     encodeFrame();
-    spi_->writeBytes(txBuffer_, hw::LedCount * 16U);
-    delayMicroseconds(100);
+    transmitEncodedFrame();
 
     const BaseType_t created = xTaskCreatePinnedToCore(
         taskEntry, "coronet-led", TaskStackBytes, this, TaskPriority, &task_, TaskCore);
@@ -195,8 +239,9 @@ bool LedService::copyFrame(RgbwColor* output, size_t count) const {
 }
 
 void LedService::logStatus() const {
-    Serial.printf("[led] ready=%u boot=%u preview=%u shows=%lu skipped=%lu frames=%lu dropped=%lu\n",
+    Serial.printf("[led] ready=%u boot=%u preview=%u mirror=%u shows=%lu skipped=%lu frames=%lu dropped=%lu\n",
                   started_ ? 1U : 0U, bootActive_ ? 1U : 0U, previewActive_ ? 1U : 0U,
+                  settingsService().settings().mirrorLedLayout ? 1U : 0U,
                   static_cast<unsigned long>(shows_), static_cast<unsigned long>(skippedShows_),
                   static_cast<unsigned long>(state().ledFrameCount),
                   static_cast<unsigned long>(state().ledDroppedFrames));
@@ -232,6 +277,7 @@ void LedService::render(uint32_t now) {
     clearTarget();
     const AppSettings& settings = settingsService().settings();
     const SystemState& system = state();
+    frameMirror_ = settings.mirrorLedLayout;
 
     if (!settings.ledEnabled || quietSuppressesLeds(settings, system)) {
         bootActive_ = false;
@@ -275,11 +321,9 @@ void LedService::renderBoot(uint32_t elapsedMs) {
             const uint16_t distance = path > scanner ? path - scanner : scanner - path;
             if (distance > 3U) continue;
             const uint8_t value = static_cast<uint8_t>((4U - distance) * reveal / 5U);
-            if (path < hw::RightCount) setSection(LedSection::Right, path, hsv(timeHue, 250, value));
-            else if (path < hw::RightCount + hw::CenterCount) {
-                setSection(LedSection::Center, path - hw::RightCount, hsv(timeHue + 24U, 245, value));
-            } else setSection(LedSection::Left, path - hw::RightCount - hw::CenterCount,
-                              hsv(timeHue + 48U, 250, value));
+            const uint8_t hueOffset = path < hw::LeftCount ? 0U
+                                      : path < hw::LeftCount + hw::CenterCount ? 24U : 48U;
+            setOuterVisualPathPixel(path, hsv(timeHue + hueOffset, 250, value));
         }
         return;
     }
@@ -287,7 +331,7 @@ void LedService::renderBoot(uint32_t elapsedMs) {
     if (elapsedMs < 15000U) {
         const uint32_t local = elapsedMs - 7000U;
         for (uint8_t sectionIndex = 0; sectionIndex < 4U; ++sectionIndex) {
-            const LedSection section = static_cast<LedSection>(sectionIndex);
+            const LedSection section = VisualAllSections[sectionIndex];
             const uint16_t count = sectionCount(section);
             for (uint16_t i = 0; i < count; ++i) {
                 const uint8_t phase = static_cast<uint8_t>(local / 13U + i * 18U + sectionIndex * 29U);
@@ -302,7 +346,7 @@ void LedService::renderBoot(uint32_t elapsedMs) {
     if (elapsedMs < 30000U) {
         const uint32_t local = elapsedMs - 15000U;
         for (uint8_t sectionIndex = 0; sectionIndex < 4U; ++sectionIndex) {
-            const LedSection section = static_cast<LedSection>(sectionIndex);
+            const LedSection section = VisualAllSections[sectionIndex];
             const uint16_t count = sectionCount(section);
             for (uint16_t i = 0; i < count; ++i) {
                 const uint8_t hue = static_cast<uint8_t>(i * 256U / count + local / 15U + sectionIndex * 21U);
@@ -350,9 +394,7 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
                 const RgbwColor color = decorativeHsv(LedCategory::Idle,
                     static_cast<uint8_t>(now / 24U + path * 5U), 230,
                     static_cast<uint8_t>((6U - distance) * 35U));
-                if (path < hw::RightCount) setSection(LedSection::Right, path, color);
-                else if (path < hw::RightCount + hw::CenterCount) setSection(LedSection::Center, path - hw::RightCount, color);
-                else setSection(LedSection::Left, path - hw::RightCount - hw::CenterCount, color);
+                setOuterVisualPathPixel(path, color);
             }
             break;
         }
@@ -361,7 +403,7 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
             const uint8_t hot = clampByte(static_cast<int>((temp - 20.0f) * 255.0f / 40.0f));
             const RgbwColor thermal = blend(RgbwColor(0, 70, 255), RgbwColor(255, 20, 0), hot);
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
-                const LedSection section = static_cast<LedSection>(sectionIndex);
+                const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint8_t pulse = static_cast<uint8_t>(50U + wave8(static_cast<uint8_t>(now / 24U + i * 12U)) / 2U);
@@ -372,7 +414,7 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
         }
         case 3:
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
-                const LedSection section = static_cast<LedSection>(sectionIndex);
+                const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint8_t spark = hash8(i * 97U + sectionIndex * 701U + now / 180U);
@@ -383,7 +425,7 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
         case 0:
         default:
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
-                const LedSection section = static_cast<LedSection>(sectionIndex);
+                const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint8_t phase = static_cast<uint8_t>(now / 28U + i * 10U + sectionIndex * 31U);
@@ -481,7 +523,7 @@ void LedService::renderError(uint8_t animation, uint32_t now) {
 void LedService::renderFinish(uint8_t animation, uint32_t now, uint32_t filamentRgb) {
     const RgbwColor filament = fromRgb(filamentRgb);
     for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
-        const LedSection section = static_cast<LedSection>(sectionIndex);
+        const LedSection section = VisualOuterSections[sectionIndex];
         const uint16_t count = sectionCount(section);
         for (uint16_t i = 0; i < count; ++i) {
             const uint8_t hue = static_cast<uint8_t>(now / 10U + i * 19U + sectionIndex * 61U);
@@ -496,7 +538,7 @@ void LedService::renderFinish(uint8_t animation, uint32_t now, uint32_t filament
 
 void LedService::renderOther(uint8_t animation, uint32_t now) {
     for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
-        const LedSection section = static_cast<LedSection>(sectionIndex);
+        const LedSection section = VisualOuterSections[sectionIndex];
         const uint16_t count = sectionCount(section);
         for (uint16_t i = 0; i < count; ++i) {
             RgbwColor color;
@@ -616,10 +658,21 @@ bool LedService::smoothAndShow(bool immediate) {
         return false;
     }
     encodeFrame();
-    spi_->writeBytes(txBuffer_, hw::LedCount * 16U);
-    delayMicroseconds(100);
+    transmitEncodedFrame();
     ++shows_;
     return true;
+}
+
+void LedService::transmitEncodedFrame() {
+    // Arduino's polling SPI writer emits this 960-byte frame as 15 separate
+    // 64-byte hardware transactions. A long Core 1 interrupt between chunks
+    // exceeds the SK6812 reset interval and latches a partial frame. Keep the
+    // complete 2.4 ms waveform uninterrupted; Core 0 remains available for
+    // audio, networking and other time-sensitive work.
+    portENTER_CRITICAL(&outputMux_);
+    spi_->writeBytes(txBuffer_, hw::LedCount * 16U);
+    portEXIT_CRITICAL(&outputMux_);
+    delayMicroseconds(100);
 }
 
 void LedService::encodeFrame() {
@@ -632,8 +685,8 @@ void LedService::encodeFrame() {
         txBuffer_[output++] = NibbleLutHi[low];
         txBuffer_[output++] = NibbleLutLo[low];
     };
-    for (uint16_t i = 0; i < hw::LedCount; ++i) {
-        const RgbwColor& color = currentFrame_[i];
+    for (uint16_t outputIndex = 0; outputIndex < hw::LedCount; ++outputIndex) {
+        const RgbwColor& color = currentFrame_[outputIndex];
         append(color.g);
         append(color.r);
         append(color.b);
@@ -650,7 +703,23 @@ void LedService::setPhysical(uint16_t index, const RgbwColor& color) {
 }
 
 void LedService::setSection(LedSection section, uint16_t logical, const RgbwColor& color) {
+    if (logical >= sectionCount(section)) return;
     setPhysical(sectionPhysicalIndex(section, logical), color);
+}
+
+void LedService::setOuterVisualPathPixel(uint16_t path, const RgbwColor& color) {
+    if (path >= hw::OuterCount) return;
+    if (path < hw::LeftCount) {
+        setSection(LedSection::Left, path, color);
+        return;
+    }
+    path -= hw::LeftCount;
+    if (path < hw::CenterCount) {
+        setSection(LedSection::Center, path, color);
+        return;
+    }
+    path -= hw::CenterCount;
+    setSection(LedSection::Right, hw::RightCount - 1U - path, color);
 }
 
 void LedService::fillSection(LedSection section, const RgbwColor& color) {
@@ -673,23 +742,7 @@ uint16_t LedService::sectionPhysicalIndex(LedSection section, uint16_t logical) 
     const uint16_t count = sectionCount(section);
     if (!count) return 0;
     if (logical >= count) logical = count - 1U;
-    const bool mirror = settingsService().settings().mirrorLedLayout;
-    if (mirror) {
-        switch (section) {
-            case LedSection::Left: return hw::RightStart + logical;
-            case LedSection::Center: return hw::CenterStart + logical;
-            case LedSection::Right: return hw::LeftEnd - logical;
-            case LedSection::Inside: return hw::InsideStart + logical;
-            default: return 0;
-        }
-    }
-    switch (section) {
-        case LedSection::Left: return hw::LeftEnd - logical;
-        case LedSection::Center: return hw::CenterEnd - logical;
-        case LedSection::Right: return hw::RightStart + logical;
-        case LedSection::Inside: return hw::InsideStart + logical;
-        default: return 0;
-    }
+    return mappedSectionIndex(section, logical, frameMirror_);
 }
 
 RgbwColor LedService::sectionColor(LedSection section, const RgbwColor& color) const {

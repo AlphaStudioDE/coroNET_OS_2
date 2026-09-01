@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_system.h>
 
 #include "audio/AudioService.h"
 #include "ble/BleService.h"
@@ -25,6 +26,82 @@ coronet::SystemHealth systemHealth;
 coronet::WebControlService webControlService;
 char serialCommand[96] = "";
 size_t serialCommandLength = 0;
+
+enum class BootStage : uint32_t {
+    Entry = 1,
+    Memory,
+    Settings,
+    Display,
+    Led,
+    Audio,
+    Wifi,
+    Printer,
+    Vent,
+    Panda,
+    Web,
+    Ble,
+    Ota,
+    Running,
+};
+
+constexpr uint32_t BootStageMagic = 0x434E3252UL;
+RTC_NOINIT_ATTR uint32_t rtcBootStageMagic;
+RTC_NOINIT_ATTR uint32_t rtcBootStageValue;
+RTC_NOINIT_ATTR uint32_t rtcBootStageInverse;
+
+const char* resetReasonName(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON: return "power-on";
+        case ESP_RST_EXT: return "external-reset";
+        case ESP_RST_SW: return "software-reset";
+        case ESP_RST_PANIC: return "panic";
+        case ESP_RST_INT_WDT: return "interrupt-watchdog";
+        case ESP_RST_TASK_WDT: return "task-watchdog";
+        case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_DEEPSLEEP: return "deep-sleep";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SDIO: return "sdio";
+        case ESP_RST_UNKNOWN:
+        default: return "unknown";
+    }
+}
+
+const char* bootStageName(uint32_t stage) {
+    switch (static_cast<BootStage>(stage)) {
+        case BootStage::Entry: return "entry";
+        case BootStage::Memory: return "memory";
+        case BootStage::Settings: return "settings";
+        case BootStage::Display: return "display-touch";
+        case BootStage::Led: return "led";
+        case BootStage::Audio: return "audio";
+        case BootStage::Wifi: return "wifi";
+        case BootStage::Printer: return "printer";
+        case BootStage::Vent: return "vent";
+        case BootStage::Panda: return "panda";
+        case BootStage::Web: return "web";
+        case BootStage::Ble: return "ble";
+        case BootStage::Ota: return "ota";
+        case BootStage::Running: return "running";
+        default: return "invalid";
+    }
+}
+
+void setBootStage(BootStage stage) {
+    const uint32_t value = static_cast<uint32_t>(stage);
+    rtcBootStageValue = value;
+    rtcBootStageInverse = ~value;
+    rtcBootStageMagic = BootStageMagic;
+}
+
+void logBootDiagnostics() {
+    const esp_reset_reason_t reason = esp_reset_reason();
+    const bool priorStageValid = rtcBootStageMagic == BootStageMagic &&
+                                 rtcBootStageInverse == ~rtcBootStageValue;
+    Serial.printf("[boot] reset=%u (%s) previous-stage=%s\n",
+                  static_cast<unsigned>(reason), resetReasonName(reason),
+                  priorStageValid ? bootStageName(rtcBootStageValue) : "unavailable");
+    setBootStage(BootStage::Entry);
+}
 
 void executeSerialCommand() {
     serialCommand[serialCommandLength] = '\0';
@@ -199,6 +276,8 @@ void setup() {
     Serial.begin(coronet::config::SerialBaud);
     delay(150);
 
+    logBootDiagnostics();
+
     coronet::state().bootMs = millis();
 
     Serial.println();
@@ -207,30 +286,43 @@ void setup() {
     Serial.println(coronet::config::FirmwareVersion);
 
     coronet::memoryService().begin();
+    setBootStage(BootStage::Memory);
     systemHealth.checkpoint("memory");
     coronet::settingsService().begin();
     coronet::quietService().begin();
+    setBootStage(BootStage::Settings);
     systemHealth.checkpoint("settings");
     systemHealth.begin();
     displayService.begin();
+    setBootStage(BootStage::Display);
     systemHealth.checkpoint("display-touch");
     coronet::ledService().begin();
+    setBootStage(BootStage::Led);
     systemHealth.checkpoint("led");
     coronet::audioService().begin();
+    setBootStage(BootStage::Audio);
     systemHealth.checkpoint("audio");
     coronet::wifiService().begin();
+    setBootStage(BootStage::Wifi);
     systemHealth.checkpoint("wifi");
     coronet::printerService().begin();
+    setBootStage(BootStage::Printer);
     systemHealth.checkpoint("printer");
     coronet::ventService().begin();
+    setBootStage(BootStage::Vent);
     systemHealth.checkpoint("vent");
     coronet::pandaBreathService().begin();
+    setBootStage(BootStage::Panda);
     systemHealth.checkpoint("panda");
     webControlService.begin();
+    setBootStage(BootStage::Web);
     systemHealth.checkpoint("web");
     bleService.begin();
+    setBootStage(BootStage::Ble);
     systemHealth.checkpoint("ble");
     coronet::otaService().begin();
+    setBootStage(BootStage::Ota);
+    setBootStage(BootStage::Running);
 }
 
 void loop() {

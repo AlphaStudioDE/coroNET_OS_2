@@ -44,10 +44,12 @@ private:
     void applyOutputPolicies();
     bool smoothAndShow(bool immediate = false);
     void encodeFrame();
+    void transmitEncodedFrame();
 
     void clearTarget();
     void setPhysical(uint16_t index, const RgbwColor& color);
     void setSection(LedSection section, uint16_t logical, const RgbwColor& color);
+    void setOuterVisualPathPixel(uint16_t path, const RgbwColor& color);
     void fillSection(LedSection section, const RgbwColor& color);
     uint16_t sectionCount(LedSection section) const;
     uint16_t sectionPhysicalIndex(LedSection section, uint16_t logical) const;
@@ -61,10 +63,12 @@ private:
     RgbwColor* currentFrame_ = nullptr;
     uint8_t* txBuffer_ = nullptr;
     mutable portMUX_TYPE frameMux_ = portMUX_INITIALIZER_UNLOCKED;
+    portMUX_TYPE outputMux_ = portMUX_INITIALIZER_UNLOCKED;
     bool started_ = false;
     bool bootActive_ = false;
     uint32_t bootStartedMs_ = 0;
     bool previewActive_ = false;
+    bool frameMirror_ = false;
     LedCategory previewCategory_ = LedCategory::Idle;
     uint8_t previewAnimation_ = 0;
     uint32_t previewUntilMs_ = 0;

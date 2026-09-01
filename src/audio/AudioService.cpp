@@ -84,18 +84,24 @@ void AudioService::begin() {
     }
 
     mountStorage();
-    if (!installDriver(BalancedDmaBufferCount)) return;
 
     const BaseType_t created = xTaskCreatePinnedToCore(
         taskEntry, "coronet-audio", TaskStackBytes, this, TaskPriority, &task_, TaskCore);
     if (created != pdPASS) {
         Serial.println("[audio] task creation failed");
-        uninstallDriver();
+        task_ = nullptr;
+        return;
+    }
+
+    const uint32_t initStarted = millis();
+    while (!taskInitDone_ && millis() - initStarted < 2000U) vTaskDelay(pdMS_TO_TICKS(1));
+    if (!taskInitDone_ || !taskInitOk_) {
+        Serial.println("[audio] Core 0 I2S initialization failed or timed out");
         return;
     }
 
     state().audioReady = true;
-    Serial.println("[audio] ready; WAV playback runs on Core 0");
+    Serial.println("[audio] ready; I2S interrupt and WAV playback run on Core 0");
     logStatus();
 
     if (storageReady_ && SD_MMC.exists("/boot.wav")) {
@@ -241,18 +247,21 @@ void AudioService::stop() {
 }
 
 void AudioService::release() {
-    stop();
-    const uint32_t started = millis();
-    while ((playing_ || writing_) && millis() - started < 300U) vTaskDelay(pdMS_TO_TICKS(1));
+    if (!stopAndWait()) {
+        Serial.println("[audio] release aborted: task did not stop");
+        return;
+    }
     uninstallDriver();
     state().audioReady = false;
     logMemory("released");
 }
 
 bool AudioService::useDmaProfile(AudioDmaProfile profile) {
-    stop();
-    const uint32_t started = millis();
-    while ((playing_ || writing_) && millis() - started < 300U) vTaskDelay(pdMS_TO_TICKS(1));
+    if (profile == profile_ && driverReady_) return true;
+    if (!stopAndWait()) {
+        Serial.println("[audio] DMA profile change aborted: task did not stop");
+        return false;
+    }
     uninstallDriver();
     profile_ = profile;
     const uint16_t count = profile == AudioDmaProfile::Coronet1
@@ -265,9 +274,10 @@ bool AudioService::useDmaProfile(AudioDmaProfile profile) {
 
 bool AudioService::setSampleRate(uint32_t sampleRate) {
     if (sampleRate != 22050U && sampleRate != 44100U && sampleRate != 48000U) return false;
-    stop();
-    const uint32_t started = millis();
-    while ((playing_ || writing_) && millis() - started < 300U) vTaskDelay(pdMS_TO_TICKS(1));
+    if (!stopAndWait()) {
+        Serial.println("[audio] sample-rate change aborted: task did not stop");
+        return false;
+    }
     return reconfigureClock(sampleRate);
 }
 
@@ -300,6 +310,18 @@ uint32_t AudioService::submitRequest(RequestType type, const char* path, uint8_t
     return sequence;
 }
 
+bool AudioService::stopAndWait(uint32_t timeoutMs) {
+    if (!task_) return false;
+    const uint32_t sequence = submitRequest(
+        RequestType::Stop, "", 0, false, SoundScenario::Start, false);
+    const uint32_t started = millis();
+    while (static_cast<int32_t>(completedRequestSequence_ - sequence) < 0) {
+        if (millis() - started >= timeoutMs) return false;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return true;
+}
+
 void AudioService::snapshotRequest(uint32_t& sequence, RequestType& type, char path[65],
                                    uint8_t& volumePercent, bool& repeat, SoundScenario& scenario,
                                    bool& bootAudio, uint32_t& durationMs) {
@@ -320,6 +342,14 @@ void AudioService::taskEntry(void* context) {
 }
 
 void AudioService::taskLoop() {
+    taskInitOk_ = installDriver(BalancedDmaBufferCount);
+    taskInitDone_ = true;
+    if (!taskInitOk_) {
+        task_ = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
     uint32_t handledSequence = 0;
     while (true) {
         if (handledSequence == requestSequence_) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -341,7 +371,10 @@ void AudioService::taskLoop() {
         state().audioPlaying = false;
         state().activeSoundPath[0] = '\0';
         primeSilence();
-        if (type == RequestType::Stop) continue;
+        if (type == RequestType::Stop) {
+            completedRequestSequence_ = sequence;
+            continue;
+        }
 
         playbackStartedMs_ = millis();
         playing_ = true;
@@ -360,6 +393,7 @@ void AudioService::taskLoop() {
                 }
             }
             finishPlayback(true);
+            completedRequestSequence_ = sequence;
             continue;
         }
 
@@ -378,6 +412,7 @@ void AudioService::taskLoop() {
             if (naturalEnd) ++completedFiles_;
         } while (repeat && naturalEnd && requestSequence_ == sequence);
         finishPlayback(naturalEnd);
+        completedRequestSequence_ = sequence;
     }
 }
 
