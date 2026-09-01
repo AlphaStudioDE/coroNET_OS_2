@@ -29,3 +29,12 @@
 - Added a native Android application with multi-device storage, BLE discovery, queued GATT operations, framed payload reassembly, and automatic first pairing.
 - Added encrypted per-device token storage, preferred local WiFi control, bidirectional settings refresh, and Error/Finish notifications.
 - Added mirrored Home, LED, Vent, Sound, and Settings screens and verified the debug APK on the minimum API 26 emulator.
+
+### Reliability Pass
+
+- Serialized Android MTU negotiation and GATT service discovery, with a bounded fallback when a phone does not return the MTU callback.
+- Added notification reception compatible with Android 8 through Android 12 while retaining the Android 13+ callback path.
+- Bounded BLE command queues and fragment assembly by source, type, message ID, count, payload size, and timeout; complete payloads are now assembled with one allocation.
+- Isolated printer transition history per saved device and removed stale scan timers when switching or reconnecting devices.
+- Disabled Android cloud backup for Keystore-bound pairing data and prevented stale GitHub release metadata from being reused by OTA.
+- Revalidated firmware startup, stable heap/DMA recovery, OTA metadata checks, repeated BLE reconnects, framed settings transfer, and the API 26 app lifecycle.

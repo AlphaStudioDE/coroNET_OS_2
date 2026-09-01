@@ -8,6 +8,9 @@ import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import de.alphastudio.coronet2.model.*
 import org.json.JSONObject
@@ -29,21 +32,29 @@ class CoronetBleManager(
         private val CommandUuid = UUID.fromString("7b7e0003-9f2a-4f3c-8d2a-c0a0e7c0ffee")
         private val EventUuid = UUID.fromString("7b7e0004-9f2a-4f3c-8d2a-c0a0e7c0ffee")
         private val Cccd = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private const val MaxCommandBytes = 384
+        private const val MaxPendingCommands = 16
     }
 
-    private data class Assembly(val type: Int, val total: Int, val chunks: Array<ByteArray?>)
+    private data class AssemblyKey(val source: UUID, val type: Int, val messageId: Int)
+    private data class Assembly(val total: Int, val chunks: Array<ByteArray?>, val startedAtMs: Long)
     private val adapter get() = context.getSystemService(BluetoothManager::class.java)?.adapter
-    private val assemblies = mutableMapOf<Int, Assembly>()
-    private var gatt: BluetoothGatt? = null
-    private var command: BluetoothGattCharacteristic? = null
+    private val assemblies = mutableMapOf<AssemblyKey, Assembly>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var gatt: BluetoothGatt? = null
+    @Volatile private var command: BluetoothGattCharacteristic? = null
     private var activeDevice: CoronetDevice? = null
     private val commandWrites = ArrayDeque<ByteArray>()
     private val descriptorWrites = ArrayDeque<BluetoothGattDescriptor>()
     private var commandWriteInFlight = false
-    private var subscriptionsReady = false
+    @Volatile private var subscriptionsReady = false
+    @Volatile private var serviceDiscoveryStarted = false
+    private val serviceDiscoveryFallback = Runnable { gatt?.let(::discoverServicesOnce) }
 
     private val scanCallback = object : ScanCallback() {
+        @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (!hasScanPermission()) return
             val name = result.scanRecord?.deviceName ?: runCatching { result.device.name }.getOrNull() ?: return
             val hasService = result.scanRecord?.serviceUuids?.any { it.uuid == ServiceUuid } == true
             if (!hasService && !name.startsWith("coroNET", ignoreCase = true)) return
@@ -53,30 +64,46 @@ class CoronetBleManager(
 
     @SuppressLint("MissingPermission")
     fun startScan(): Boolean {
-        if (!hasBlePermission()) return false
+        if (!hasScanPermission()) return false
         adapter?.bluetoothLeScanner?.startScan(scanCallback) ?: return false
         return true
     }
 
     @SuppressLint("MissingPermission")
-    fun stopScan() { if (hasBlePermission()) adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+    fun stopScan() { if (hasScanPermission()) adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
 
     @SuppressLint("MissingPermission")
     fun connect(device: CoronetDevice) {
-        if (!hasBlePermission() || device.address.isBlank()) return
+        if (!hasConnectPermission() || device.address.isBlank()) return
         stopScan(); gatt?.close(); activeDevice = device
         synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
-        descriptorWrites.clear(); subscriptionsReady = false
+        descriptorWrites.clear(); synchronized(assemblies) { assemblies.clear() }; subscriptionsReady = false
+        serviceDiscoveryStarted = false
+        mainHandler.removeCallbacks(serviceDiscoveryFallback)
         gatt = adapter?.getRemoteDevice(device.address)?.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
     }
 
     @SuppressLint("MissingPermission")
-    fun disconnect() { gatt?.disconnect(); gatt?.close(); gatt = null; command = null }
+    fun disconnect() {
+        mainHandler.removeCallbacks(serviceDiscoveryFallback)
+        gatt?.disconnect()
+        gatt?.close()
+        gatt = null
+        command = null
+        subscriptionsReady = false
+        serviceDiscoveryStarted = false
+        synchronized(assemblies) { assemblies.clear() }
+    }
 
     @SuppressLint("MissingPermission")
     fun send(json: String): Boolean {
         if (gatt == null || command == null) return false
-        synchronized(commandWrites) { commandWrites.addLast(json.toByteArray()) }
+        val bytes = json.toByteArray()
+        if (bytes.size > MaxCommandBytes) return false
+        synchronized(commandWrites) {
+            if (commandWrites.size >= MaxPendingCommands) return false
+            commandWrites.addLast(bytes)
+        }
         writeNextCommand()
         return true
     }
@@ -108,18 +135,35 @@ class CoronetBleManager(
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (this@CoronetBleManager.gatt !== gatt) {
+                if (newState == BluetoothProfile.STATE_DISCONNECTED) gatt.close()
+                return
+            }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
-                gatt.requestMtu(247); gatt.discoverServices()
+                val mtuRequestStarted = gatt.requestMtu(247)
+                if (mtuRequestStarted) mainHandler.postDelayed(serviceDiscoveryFallback, 1200)
+                else discoverServicesOnce(gatt)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                mainHandler.removeCallbacks(serviceDiscoveryFallback)
                 command = null
                 subscriptionsReady = false
+                serviceDiscoveryStarted = false
+                synchronized(assemblies) { assemblies.clear() }
                 activeDevice?.let { onSnapshot(DeviceSnapshot(device = it)) }
+                if (this@CoronetBleManager.gatt === gatt) this@CoronetBleManager.gatt = null
+                gatt.close()
             }
         }
 
         @SuppressLint("MissingPermission")
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            mainHandler.removeCallbacks(serviceDiscoveryFallback)
+            discoverServicesOnce(gatt)
+        }
+
+        @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return
+            if (gatt !== this@CoronetBleManager.gatt || status != BluetoothGatt.GATT_SUCCESS) return
             val service = gatt.getService(ServiceUuid) ?: return
             command = service.getCharacteristic(CommandUuid)
             queueNotify(gatt, service.getCharacteristic(StateUuid))
@@ -156,11 +200,13 @@ class CoronetBleManager(
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (gatt !== this@CoronetBleManager.gatt) return
             if (descriptorWrites.firstOrNull() == descriptor) descriptorWrites.removeFirst()
             writeNextDescriptor(gatt)
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (gatt !== this@CoronetBleManager.gatt) return
             synchronized(commandWrites) {
                 if (commandWrites.isNotEmpty()) commandWrites.removeFirst()
                 commandWriteInFlight = false
@@ -168,12 +214,27 @@ class CoronetBleManager(
             writeNextCommand()
         }
 
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            if (gatt === this@CoronetBleManager.gatt && Build.VERSION.SDK_INT < 33) {
+                acceptFrame(characteristic.uuid, characteristic.value ?: return)
+            }
+        }
+
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            acceptFrame(value)
+            if (gatt === this@CoronetBleManager.gatt) acceptFrame(characteristic.uuid, value)
         }
     }
 
-    private fun acceptFrame(frame: ByteArray) {
+    @SuppressLint("MissingPermission")
+    @Synchronized
+    private fun discoverServicesOnce(targetGatt: BluetoothGatt) {
+        if (targetGatt !== gatt || serviceDiscoveryStarted) return
+        serviceDiscoveryStarted = targetGatt.discoverServices()
+        if (!serviceDiscoveryStarted) mainHandler.postDelayed(serviceDiscoveryFallback, 350)
+    }
+
+    private fun acceptFrame(source: UUID, frame: ByteArray) {
         if (frame.size < 8 || frame[0].toInt() != 1) return
         val header = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN)
         header.get(); val type = header.get().toInt() and 0xff
@@ -182,12 +243,34 @@ class CoronetBleManager(
         val index = header.get().toInt() and 0xff
         val count = header.get().toInt() and 0xff
         if (total !in 1..4096 || count !in 1..64 || index >= count) return
-        val assembly = assemblies.getOrPut(messageId) { Assembly(type, total, arrayOfNulls(count)) }
-        if (assembly.type != type || assembly.total != total || assembly.chunks.size != count) return
-        assembly.chunks[index] = frame.copyOfRange(8, frame.size)
-        if (assembly.chunks.any { it == null }) return
-        val payload = assembly.chunks.filterNotNull().fold(ByteArray(0)) { acc, bytes -> acc + bytes }.copyOf(total)
-        assemblies.remove(messageId)
+        val payload = synchronized(assemblies) {
+            val now = SystemClock.elapsedRealtime()
+            assemblies.entries.removeAll { now - it.value.startedAtMs > 5000L }
+            val key = AssemblyKey(source, type, messageId)
+            if (key !in assemblies && assemblies.size >= 8) {
+                assemblies.minByOrNull { it.value.startedAtMs }?.key?.let(assemblies::remove)
+            }
+            val assembly = assemblies.getOrPut(key) { Assembly(total, arrayOfNulls(count), now) }
+            if (assembly.total != total || assembly.chunks.size != count) {
+                assemblies.remove(key)
+                return@synchronized null
+            }
+            assembly.chunks[index] = frame.copyOfRange(8, frame.size)
+            if (assembly.chunks.any { it == null }) return@synchronized null
+            val completeChunks = assembly.chunks.filterNotNull()
+            if (completeChunks.sumOf { it.size } != total) {
+                assemblies.remove(key)
+                return@synchronized null
+            }
+            ByteArray(total).also { complete ->
+                var offset = 0
+                completeChunks.forEach { chunk ->
+                    chunk.copyInto(complete, offset)
+                    offset += chunk.size
+                }
+                assemblies.remove(key)
+            }
+        } ?: return
         if (type == 1) parseSnapshot(payload) else parseJson(payload)
     }
 
@@ -228,9 +311,15 @@ class CoronetBleManager(
         }
     }
 
-    private fun hasBlePermission(): Boolean = android.os.Build.VERSION.SDK_INT < 31 ||
-        (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
-         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
+    private fun hasScanPermission(): Boolean = if (Build.VERSION.SDK_INT >= 31) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
+            hasConnectPermission()
+    } else {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasConnectPermission(): Boolean = Build.VERSION.SDK_INT < 31 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun Int.toTemperature(): Double? = if (this == Short.MIN_VALUE.toInt()) null else this / 10.0

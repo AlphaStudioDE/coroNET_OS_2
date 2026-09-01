@@ -1,8 +1,8 @@
 package de.alphastudio.coronet2
 
 import android.app.*
-import android.content.Context
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -14,9 +14,10 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
-class CoronetViewModel(private val context: Context) : ViewModel() {
-    private val store = DeviceStore(context)
+class CoronetViewModel(application: Application) : AndroidViewModel(application) {
+    private val store = DeviceStore(application)
     private val wifi = CoronetWifiClient()
     private val _devices = MutableStateFlow(store.load())
     val devices: StateFlow<List<CoronetDevice>> = _devices
@@ -30,20 +31,32 @@ class CoronetViewModel(private val context: Context) : ViewModel() {
     val selectedId: StateFlow<String?> = _selectedId
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning
-    private var previousPrinterState = "unknown"
+    private val previousPrinterStates = ConcurrentHashMap<String, String>()
     private var pendingPairingId: String? = null
+    private var scanJob: Job? = null
     private var pollingJob: Job? = null
-    private val ble = CoronetBleManager(context, ::onFound, ::onSnapshot, ::onBleSettings, ::onPairing, ::onEvent)
+    private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings, ::onPairing, ::onEvent)
 
     init { createNotificationChannel(); select(_selectedId.value) }
 
     fun startScan() {
+        scanJob?.cancel()
+        ble.stopScan()
         _discovered.value = emptyList()
         _scanning.value = ble.startScan()
-        viewModelScope.launch { delay(12000); ble.stopScan(); _scanning.value = false }
+        if (_scanning.value) {
+            scanJob = viewModelScope.launch {
+                delay(12000)
+                ble.stopScan()
+                _scanning.value = false
+            }
+        }
     }
 
     fun addAndConnect(device: CoronetDevice) {
+        scanJob?.cancel()
+        ble.stopScan()
+        _scanning.value = false
         val existing = _devices.value.indexOfFirst { it.id == device.id || it.address == device.address }
         _devices.value = if (existing >= 0) _devices.value.toMutableList().also { it[existing] = device }
                          else _devices.value + device
@@ -52,6 +65,7 @@ class CoronetViewModel(private val context: Context) : ViewModel() {
 
     fun select(id: String?) {
         _selectedId.value = id
+        scanJob?.cancel(); ble.stopScan(); _scanning.value = false
         pollingJob?.cancel(); ble.disconnect()
         val device = _devices.value.firstOrNull { it.id == id }
         _snapshot.value = DeviceSnapshot(device = device)
@@ -109,10 +123,13 @@ class CoronetViewModel(private val context: Context) : ViewModel() {
     private fun onSnapshot(value: DeviceSnapshot) {
         if (value.device?.id != _selectedId.value && value.device?.address != _snapshot.value.device?.address) return
         val newState = value.printer.state
-        if (newState != previousPrinterState && (newState == "error" || newState == "complete")) {
+        val stateKey = value.device?.id?.takeIf { it.isNotBlank() }
+            ?: value.device?.address?.takeIf { it.isNotBlank() }
+            ?: return
+        val previousState = previousPrinterStates.put(stateKey, newState)
+        if (previousState != null && newState != previousState && (newState == "error" || newState == "complete")) {
             notifyPrinter(newState, value.printer.filename)
         }
-        previousPrinterState = newState
         _snapshot.value = value
     }
 
@@ -140,26 +157,34 @@ class CoronetViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun createNotificationChannel() {
-        val manager = context.getSystemService(NotificationManager::class.java)
+        val manager = getApplication<Application>().getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("printer-events", "Printer events", NotificationManager.IMPORTANCE_HIGH))
     }
 
     private fun notifyPrinter(event: String, detail: String) {
-        val notification = NotificationCompat.Builder(context, "printer-events")
+        val notification = NotificationCompat.Builder(getApplication<Application>(), "printer-events")
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentTitle(if (event.contains("error")) "coroNET: printer attention" else "coroNET: print complete")
             .setContentText(detail.ifBlank { _snapshot.value.device?.name ?: "coroNET" })
             .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build()
-        runCatching { context.getSystemService(NotificationManager::class.java).notify(event.hashCode(), notification) }
+        runCatching {
+            getApplication<Application>().getSystemService(NotificationManager::class.java)
+                .notify(event.hashCode(), notification)
+        }
     }
 
-    override fun onCleared() { pollingJob?.cancel(); ble.disconnect(); super.onCleared() }
+    override fun onCleared() {
+        scanJob?.cancel()
+        pollingJob?.cancel()
+        ble.disconnect()
+        super.onCleared()
+    }
 
-    class Factory(private val context: Context) : ViewModelProvider.Factory {
+    class Factory(private val application: Application) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(CoronetViewModel::class.java)) { "Unsupported ViewModel" }
             @Suppress("UNCHECKED_CAST")
-            return CoronetViewModel(context.applicationContext) as T
+            return CoronetViewModel(application) as T
         }
     }
 }

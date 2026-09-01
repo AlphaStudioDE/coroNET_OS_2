@@ -18,14 +18,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
         setContent {
-            val model: CoronetViewModel = viewModel(factory = CoronetViewModel.Factory(applicationContext))
+            val model: CoronetViewModel = viewModel(factory = CoronetViewModel.Factory(application))
             CoronetApp(model)
         }
     }
 
     private fun requestRuntimePermissions() {
         val permissions = buildList {
-            if (Build.VERSION.SDK_INT in 23..30) add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (Build.VERSION.SDK_INT in 23..30) {
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_SCAN)
                 add(Manifest.permission.BLUETOOTH_CONNECT)

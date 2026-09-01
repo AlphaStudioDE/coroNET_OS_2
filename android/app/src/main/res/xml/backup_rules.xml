@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="device_sharedpref" path="." />
+</full-backup-content>

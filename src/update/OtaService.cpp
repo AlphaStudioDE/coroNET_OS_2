@@ -127,6 +127,9 @@ bool OtaService::checkLatestRelease() {
         setState(OtaState::Failed, "Wi-Fi connection required");
         return false;
     }
+    state().otaUpdateAvailable = false;
+    state().otaAvailableVersion[0] = '\0';
+    downloadUrl_[0] = '\0';
     setState(OtaState::Checking, "Checking GitHub releases");
     NetworkClientSecure client;
     client.setInsecure();
