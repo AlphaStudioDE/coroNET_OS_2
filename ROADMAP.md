@@ -22,6 +22,8 @@ This roadmap describes direction, not a promise of release dates. Features move 
 ## User Experience
 
 - [x] first-run setup wizard
+- [x] validated WiFi setup with nearby network selection and connection feedback
+- [x] automatic Snapmaker and Moonraker discovery during first setup
 - [ ] modern home dashboard
 - [ ] Coronet, Graphite, Aurora, and Minimal UI skins
 - [ ] dark and light mode for every skin
@@ -55,6 +57,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 ## Connectivity And Updates
 
 - [x] non-blocking printer polling worker with consecutive-failure tolerance
+- [x] non-blocking mDNS and local-subnet printer discovery
 - [ ] resilient printer connection lifecycle and reconnect telemetry
 - [ ] event-driven printer updates where supported
 - [ ] OTA update service with rollback

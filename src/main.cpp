@@ -34,6 +34,16 @@ void executeSerialCommand() {
         Serial.flush();
         delay(50);
         ESP.restart();
+    } else if (strcmp(serialCommand, "printer scan") == 0) {
+        Serial.printf("[console] printer discovery %s\n",
+                      coronet::printerService().requestDiscovery() ? "started" : "not started");
+    } else if (strcmp(serialCommand, "wifi test") == 0) {
+        const coronet::AppSettings& settings = coronet::settingsService().settings();
+        coronet::wifiService().requestConnectionTest(settings.wifiSsid, settings.wifiPassword);
+        Serial.println("[console] saved Wi-Fi connection test started");
+    } else if (strcmp(serialCommand, "wifi accept") == 0) {
+        coronet::wifiService().acceptConnectionTest();
+        Serial.println("[console] Wi-Fi connection test accepted");
     } else if (serialCommandLength > 0) {
         Serial.printf("[console] unknown command: %s\n", serialCommand);
     }

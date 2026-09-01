@@ -43,9 +43,10 @@ The repository is public early so that the architecture, documentation, hardware
 | Versioned NVS settings | Working, with live apply and write debounce |
 | Unique device identity and BLE peripheral | Working, framed protocol V1 |
 | Local WiFi HTTP API and mDNS | Token-authenticated implementation |
-| Moonraker HTTP polling | Background worker implementation |
+| First-run setup wizard | Working on hardware, with WiFi validation and printer discovery |
+| Moonraker HTTP polling and discovery | Background worker implementation |
 | Audio playback | Service boundary only |
-| Final touchscreen UI and setup wizard | In development |
+| Final touchscreen dashboard and settings UI | In development |
 | Android companion app for OS 2 | Planned |
 | Layered RGBW LED engine | Planned |
 | Fan, servo, OTA, SD assets, and release installer | Planned |

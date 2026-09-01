@@ -38,6 +38,10 @@ private:
         NetworkManual,
         NetworkChange,
         NetworkBase = 100,
+        PrinterRefresh = 30,
+        PrinterManual,
+        PrinterChange,
+        PrinterBase = 200,
     };
 
     void buildRoot();
@@ -49,6 +53,8 @@ private:
     void renderNetworkDiscovery();
     void renderNetworkCredentials();
     void renderPrinter();
+    void renderPrinterDiscovery();
+    void renderPrinterDetails();
     void renderReady();
     void commitCurrentStep();
     void moveNext();
@@ -79,10 +85,18 @@ private:
     Step step_ = Step::Welcome;
     bool networkCredentialsView_ = false;
     bool selectedNetworkSecured_ = true;
+    bool networkConnectionVerified_ = false;
+    bool printerDetailsView_ = false;
     bool renderPending_ = false;
     bool finished_ = false;
     uint32_t wifiScanRevisionSeen_ = 0;
+    uint32_t wifiConnectionRevisionSeen_ = 0;
+    uint32_t printerDiscoveryRevisionSeen_ = 0;
     char selectedSsid_[33] = "";
+    char networkPassword_[65] = "";
+    char selectedPrinterName_[49] = "";
+    char selectedPrinterHost_[65] = "";
+    uint16_t selectedPrinterPort_ = 7125;
 };
 
 }

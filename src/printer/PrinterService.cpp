@@ -1,8 +1,10 @@
 #include "PrinterService.h"
 
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
@@ -19,6 +21,9 @@ constexpr uint8_t kFailuresBeforeOffline = 3;
 constexpr uint32_t kWorkerStackBytes = 8192;
 constexpr UBaseType_t kWorkerPriority = 2;
 constexpr BaseType_t kWorkerCore = 0;
+constexpr uint16_t kDiscoveryPort = 7125;
+constexpr uint32_t kDiscoveryHttpTimeoutMs = 120;
+constexpr uint16_t kDiscoveryTargetLimit = 254;
 
 PrinterService gPrinterService;
 
@@ -83,10 +88,12 @@ PrinterService& printerService() {
 }
 
 void PrinterService::begin() {
-    requestQueue_ = xQueueCreate(1, sizeof(PollRequest));
+    requestQueue_ = xQueueCreate(2, sizeof(WorkerRequest));
     resultQueue_ = xQueueCreate(1, sizeof(PollResult));
     httpMutex_ = xSemaphoreCreateMutex();
-    if (!requestQueue_ || !resultQueue_ || !httpMutex_) {
+    discoveredPrinters_ = static_cast<DiscoveredPrinter*>(heap_caps_calloc(
+        MaxDiscoveredPrinters, sizeof(DiscoveredPrinter), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!requestQueue_ || !resultQueue_ || !httpMutex_ || !discoveredPrinters_) {
         Serial.println("[printer] queue or mutex allocation failed");
         setOffline("printer_worker_alloc_failed");
         return;
@@ -133,6 +140,9 @@ void PrinterService::loop() {
         setOffline("wifi_offline");
         return;
     }
+    PrinterDiscoverySnapshot discovery;
+    discoverySnapshot(discovery);
+    if (discovery.status == PrinterDiscoveryStatus::Scanning) return;
     if (pollInFlight_) return;
 
     const uint32_t now = millis();
@@ -147,6 +157,55 @@ void PrinterService::loop() {
     if (enqueuePoll() && !system.printerConnected && consecutiveFailures_ == 0) {
         strlcpy(system.printerStatusText, "connecting", sizeof(system.printerStatusText));
     }
+}
+
+bool PrinterService::requestDiscovery() {
+    if (!started_ || WiFi.status() != WL_CONNECTED || !discoveredPrinters_) {
+        updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi is not connected");
+        return false;
+    }
+
+    PrinterDiscoverySnapshot current;
+    discoverySnapshot(current);
+    if (current.status == PrinterDiscoveryStatus::Scanning) return false;
+
+    portENTER_CRITICAL(&discoveryMux_);
+    discoveryCount_ = 0;
+    discoveryProgress_ = 0;
+    discoveryStatus_ = PrinterDiscoveryStatus::Scanning;
+    strlcpy(discoveryMessage_, "Starting printer discovery...", sizeof(discoveryMessage_));
+    discoveryRevision_++;
+    portEXIT_CRITICAL(&discoveryMux_);
+
+    WorkerRequest request;
+    request.type = WorkerJobType::Discover;
+    if (xQueueSend(requestQueue_, &request, 0) != pdTRUE) {
+        updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Printer service is busy. Try again.");
+        return false;
+    }
+    Serial.println("[printer] discovery queued");
+    return true;
+}
+
+void PrinterService::discoverySnapshot(PrinterDiscoverySnapshot& output) const {
+    portENTER_CRITICAL(&discoveryMux_);
+    output.status = discoveryStatus_;
+    output.count = discoveryCount_;
+    output.progress = discoveryProgress_;
+    output.revision = discoveryRevision_;
+    strlcpy(output.message, discoveryMessage_, sizeof(output.message));
+    portEXIT_CRITICAL(&discoveryMux_);
+}
+
+bool PrinterService::discoveredPrinter(uint8_t index, DiscoveredPrinter& output) const {
+    bool valid = false;
+    portENTER_CRITICAL(&discoveryMux_);
+    if (discoveredPrinters_ && index < discoveryCount_) {
+        output = discoveredPrinters_[index];
+        valid = true;
+    }
+    portEXIT_CRITICAL(&discoveryMux_);
+    return valid;
 }
 
 PrinterTestResult PrinterService::testConnection() {
@@ -199,11 +258,142 @@ bool PrinterService::captureRequest(PollRequest& request) const {
 }
 
 bool PrinterService::enqueuePoll() {
-    PollRequest request;
-    if (!captureRequest(request)) return false;
+    WorkerRequest request;
+    request.type = WorkerJobType::Poll;
+    if (!captureRequest(request.poll)) return false;
     if (xQueueSend(requestQueue_, &request, 0) != pdTRUE) return false;
     pollInFlight_ = true;
     return true;
+}
+
+void PrinterService::updateDiscovery(PrinterDiscoveryStatus status,
+                                     uint8_t progress,
+                                     const char* message) {
+    portENTER_CRITICAL(&discoveryMux_);
+    discoveryStatus_ = status;
+    discoveryProgress_ = progress;
+    strlcpy(discoveryMessage_, message ? message : "", sizeof(discoveryMessage_));
+    discoveryRevision_++;
+    portEXIT_CRITICAL(&discoveryMux_);
+}
+
+bool PrinterService::addDiscoveredPrinter(const char* host, uint16_t port, const char* name) {
+    if (!host || !host[0] || !discoveredPrinters_) return false;
+    bool added = false;
+    portENTER_CRITICAL(&discoveryMux_);
+    bool duplicate = false;
+    for (uint8_t index = 0; index < discoveryCount_; ++index) {
+        if (strncmp(discoveredPrinters_[index].host, host,
+                    sizeof(discoveredPrinters_[index].host)) == 0) {
+            duplicate = true;
+            break;
+        }
+    }
+    if (!duplicate && discoveryCount_ < MaxDiscoveredPrinters) {
+        DiscoveredPrinter& printer = discoveredPrinters_[discoveryCount_++];
+        strlcpy(printer.host, host, sizeof(printer.host));
+        strlcpy(printer.name, name && name[0] ? name : "Moonraker printer", sizeof(printer.name));
+        printer.port = port ? port : kDiscoveryPort;
+        discoveryRevision_++;
+        added = true;
+    }
+    portEXIT_CRITICAL(&discoveryMux_);
+    return added;
+}
+
+bool PrinterService::probeMoonraker(const char* host, uint16_t port) {
+    if (!host || !host[0] || WiFi.status() != WL_CONNECTED) return false;
+    HTTPClient http;
+    const String url = baseUrl(host, port) + "/printer/info";
+    http.setConnectTimeout(kDiscoveryHttpTimeoutMs);
+    http.setTimeout(kDiscoveryHttpTimeoutMs);
+    if (!http.begin(url)) return false;
+    const int code = http.GET();
+    http.end();
+    return code == 200;
+}
+
+void PrinterService::performDiscovery() {
+    if (WiFi.status() != WL_CONNECTED) {
+        updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
+        return;
+    }
+
+    updateDiscovery(PrinterDiscoveryStatus::Scanning, 2, "Checking Snapmaker discovery...");
+    const int mdnsCount = MDNS.queryService("snapmaker", "tcp");
+    for (int index = 0; index < mdnsCount; ++index) {
+        const IPAddress address = MDNS.address(index);
+        if (!address) continue;
+        const String host = address.toString();
+        if (!probeMoonraker(host.c_str(), kDiscoveryPort)) continue;
+        String name = MDNS.instanceName(index);
+        if (name.isEmpty()) name = MDNS.hostname(index);
+        addDiscoveredPrinter(host.c_str(), kDiscoveryPort,
+                             name.isEmpty() ? "Snapmaker" : name.c_str());
+    }
+
+    IPAddress local = WiFi.localIP();
+    IPAddress gateway = WiFi.gatewayIP();
+    uint8_t targets[kDiscoveryTargetLimit] = {};
+    uint16_t targetCount = 0;
+    auto addTarget = [&](int host) {
+        if (host < 1 || host > 254 || targetCount >= kDiscoveryTargetLimit) return;
+        for (uint16_t index = 0; index < targetCount; ++index) {
+            if (targets[index] == host) return;
+        }
+        targets[targetCount++] = static_cast<uint8_t>(host);
+    };
+
+    const AppSettings& settings = settingsService().settings();
+    IPAddress saved;
+    if (saved.fromString(settings.printerHost) && saved[0] == local[0] &&
+        saved[1] == local[1] && saved[2] == local[2]) {
+        addTarget(saved[3]);
+    }
+    addTarget(gateway[3]);
+    addTarget(local[3]);
+    for (int distance = 1; distance <= 12; ++distance) {
+        addTarget(static_cast<int>(local[3]) - distance);
+        addTarget(static_cast<int>(local[3]) + distance);
+    }
+    static constexpr uint8_t CommonHosts[] = {
+        2, 3, 4, 5, 6, 8, 10, 11, 12, 15, 20, 25, 30, 40, 50, 60, 75, 80, 100, 120, 150, 200,
+    };
+    for (uint8_t host : CommonHosts) addTarget(host);
+    for (int host = 1; host <= 254; ++host) addTarget(host);
+
+    char host[16] = "";
+    for (uint16_t index = 0; index < targetCount; ++index) {
+        if (WiFi.status() != WL_CONNECTED) {
+            updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
+            return;
+        }
+        snprintf(host, sizeof(host), "%u.%u.%u.%u",
+                 local[0], local[1], local[2], targets[index]);
+        if (probeMoonraker(host, kDiscoveryPort)) {
+            addDiscoveredPrinter(host, kDiscoveryPort, "Moonraker printer");
+        }
+        if ((index % 16) == 0 || index + 1 == targetCount) {
+            const uint8_t progress = static_cast<uint8_t>(5 +
+                (static_cast<uint16_t>(index + 1) * 94U / (targetCount ? targetCount : 1)));
+            char message[72] = "";
+            snprintf(message, sizeof(message), "Scanning local network... %u%%",
+                     static_cast<unsigned>(progress));
+            updateDiscovery(PrinterDiscoveryStatus::Scanning, progress, message);
+        }
+    }
+
+    PrinterDiscoverySnapshot completed;
+    discoverySnapshot(completed);
+    char message[72] = "";
+    if (completed.count > 0) {
+        snprintf(message, sizeof(message), "Found %u compatible printer%s",
+                 static_cast<unsigned>(completed.count), completed.count == 1 ? "" : "s");
+    } else {
+        strlcpy(message, "No printer found. You can enter it manually.", sizeof(message));
+    }
+    updateDiscovery(PrinterDiscoveryStatus::Complete, 100, message);
+    Serial.printf("[printer] discovery complete found=%u\n", static_cast<unsigned>(completed.count));
 }
 
 void PrinterService::consumeResults() {
@@ -352,14 +542,24 @@ void PrinterService::workerTaskEntry(void* context) {
 }
 
 void PrinterService::workerLoop() {
-    PollRequest request;
+    WorkerRequest request;
     for (;;) {
         if (xQueueReceive(requestQueue_, &request, portMAX_DELAY) != pdTRUE) continue;
 
+        if (request.type == WorkerJobType::Discover) {
+            if (xSemaphoreTake(httpMutex_, portMAX_DELAY) == pdTRUE) {
+                performDiscovery();
+                xSemaphoreGive(httpMutex_);
+            } else {
+                updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Printer discovery failed");
+            }
+            continue;
+        }
+
         PollResult result;
-        result.settingsRevision = request.settingsRevision;
+        result.settingsRevision = request.poll.settingsRevision;
         if (xSemaphoreTake(httpMutex_, portMAX_DELAY) == pdTRUE) {
-            result.ok = performPoll(request, result);
+            result.ok = performPoll(request.poll, result);
             xSemaphoreGive(httpMutex_);
         } else {
             strlcpy(result.message, "http_mutex_failed", sizeof(result.message));

@@ -2,6 +2,7 @@
 
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <esp_wifi.h>
 
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
@@ -10,6 +11,9 @@ namespace coronet {
 
 namespace {
 WifiService gWifiService;
+constexpr uint32_t ConnectionTimeoutMs = 15000;
+constexpr uint32_t ScanTimeoutMs = 15000;
+constexpr uint32_t RadioSettleMs = 60;
 }
 
 WifiService& wifiService() {
@@ -25,7 +29,13 @@ void WifiService::begin() {
 
 void WifiService::loop() {
     pollScan();
-    if (started_) {
+    pollConnectionTest();
+    if (restoreConnectionAfterScan_ && scanStatus_ != WifiScanStatus::Scanning &&
+        !connectionTestActive_) {
+        restoreConnectionAfterScan_ = false;
+        applySettings();
+    }
+    if (started_ && !connectionTestActive_) {
         const AppSettings& cfg = settingsService().settings();
         if (strncmp(activeSsid_, cfg.wifiSsid, sizeof(activeSsid_)) != 0 ||
             strncmp(activePassword_, cfg.wifiPassword, sizeof(activePassword_)) != 0) {
@@ -33,6 +43,67 @@ void WifiService::loop() {
         }
     }
     state().wifiConnected = WiFi.status() == WL_CONNECTED;
+}
+
+void WifiService::requestConnectionTest(const char* ssid, const char* password) {
+    if (!ssid || !ssid[0]) {
+        connectionTestActive_ = false;
+        connectionStartPending_ = false;
+        connectionStatus_ = WifiConnectStatus::NoNetwork;
+        connectionRevision_++;
+        return;
+    }
+
+    if (scanStatus_ == WifiScanStatus::Scanning) {
+        esp_wifi_scan_stop();
+        WiFi.scanDelete();
+        scanStartPending_ = false;
+        restoreConnectionAfterScan_ = false;
+        scanStatus_ = WifiScanStatus::Idle;
+        scanRevision_++;
+    }
+
+    strlcpy(testSsid_, ssid, sizeof(testSsid_));
+    strlcpy(testPassword_, password ? password : "", sizeof(testPassword_));
+    strlcpy(activeSsid_, testSsid_, sizeof(activeSsid_));
+    strlcpy(activePassword_, testPassword_, sizeof(activePassword_));
+    connectionTestActive_ = true;
+    connectionStartPending_ = true;
+    connectionStatus_ = WifiConnectStatus::Connecting;
+    connectionPrepareStartedMs_ = millis();
+    connectionRevision_++;
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(false, false);
+    Serial.printf("[wifi] test scheduled ssid=%s\n", testSsid_);
+}
+
+void WifiService::acceptConnectionTest() {
+    if (!connectionTestActive_ || connectionStatus_ != WifiConnectStatus::Connected) return;
+    const AppSettings& cfg = settingsService().settings();
+    strlcpy(activeSsid_, cfg.wifiSsid, sizeof(activeSsid_));
+    strlcpy(activePassword_, cfg.wifiPassword, sizeof(activePassword_));
+    connectionTestActive_ = false;
+    connectionStartPending_ = false;
+    connectionStatus_ = WifiConnectStatus::Idle;
+    connectionRevision_++;
+}
+
+void WifiService::cancelConnectionTest() {
+    if (!connectionTestActive_) return;
+    connectionTestActive_ = false;
+    connectionStartPending_ = false;
+    connectionStatus_ = WifiConnectStatus::Idle;
+    connectionRevision_++;
+    applySettings();
+}
+
+void WifiService::connectionIp(char* output, size_t outputSize) const {
+    if (!output || outputSize == 0) return;
+    output[0] = '\0';
+    if (connectionStatus_ != WifiConnectStatus::Connected) return;
+    const IPAddress ip = WiFi.localIP();
+    snprintf(output, outputSize, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
 }
 
 void WifiService::requestScan() {
@@ -49,6 +120,18 @@ void WifiService::requestScan() {
     }
 
     scanCount_ = 0;
+    restoreConnectionAfterScan_ = WiFi.status() != WL_CONNECTED && activeSsid_[0];
+    esp_wifi_scan_stop();
+    if (WiFi.status() != WL_CONNECTED) WiFi.disconnect(false, false);
+    scanStartPending_ = true;
+    scanPrepareStartedMs_ = millis();
+    scanStatus_ = WifiScanStatus::Scanning;
+    scanRevision_++;
+    Serial.println("[wifi] scan scheduled");
+}
+
+void WifiService::startPreparedScan() {
+    scanStartPending_ = false;
     WiFi.scanDelete();
     const int16_t result = WiFi.scanNetworks(true, true);
     if (result == WIFI_SCAN_FAILED) {
@@ -57,8 +140,6 @@ void WifiService::requestScan() {
         Serial.println("[wifi] scan start failed");
         return;
     }
-    scanStatus_ = WifiScanStatus::Scanning;
-    scanRevision_++;
     Serial.println("[wifi] scan started");
     if (result >= 0) collectScanResults(result);
 }
@@ -70,6 +151,19 @@ const WifiNetworkInfo* WifiService::network(uint8_t index) const {
 
 void WifiService::pollScan() {
     if (scanStatus_ != WifiScanStatus::Scanning) return;
+    if (scanStartPending_) {
+        if (millis() - scanPrepareStartedMs_ < RadioSettleMs) return;
+        startPreparedScan();
+        return;
+    }
+    if (millis() - scanPrepareStartedMs_ >= ScanTimeoutMs) {
+        esp_wifi_scan_stop();
+        WiFi.scanDelete();
+        scanStatus_ = WifiScanStatus::Failed;
+        scanRevision_++;
+        Serial.println("[wifi] scan timeout");
+        return;
+    }
     const int16_t result = WiFi.scanComplete();
     if (result == WIFI_SCAN_RUNNING) return;
     if (result == WIFI_SCAN_FAILED) {
@@ -80,6 +174,41 @@ void WifiService::pollScan() {
         return;
     }
     collectScanResults(result);
+}
+
+void WifiService::pollConnectionTest() {
+    if (!connectionTestActive_ || connectionStatus_ != WifiConnectStatus::Connecting) return;
+
+    if (connectionStartPending_) {
+        if (millis() - connectionPrepareStartedMs_ < RadioSettleMs) return;
+        connectionStartPending_ = false;
+        connectionStartedMs_ = millis();
+        WiFi.begin(testSsid_, testPassword_);
+        Serial.printf("[wifi] testing ssid=%s\n", testSsid_);
+        return;
+    }
+
+    const wl_status_t status = WiFi.status();
+    WifiConnectStatus completedStatus = WifiConnectStatus::Connecting;
+    if (status == WL_CONNECTED) completedStatus = WifiConnectStatus::Connected;
+    else if (status == WL_NO_SSID_AVAIL) completedStatus = WifiConnectStatus::NoNetwork;
+    else if (status == WL_CONNECT_FAILED) completedStatus = WifiConnectStatus::AuthenticationFailed;
+    else if (millis() - connectionStartedMs_ >= ConnectionTimeoutMs) {
+        completedStatus = WifiConnectStatus::Timeout;
+    }
+
+    if (completedStatus == WifiConnectStatus::Connecting) return;
+    connectionStatus_ = completedStatus;
+    connectionRevision_++;
+    if (completedStatus == WifiConnectStatus::Connected) {
+        char ip[16] = "";
+        connectionIp(ip, sizeof(ip));
+        Serial.printf("[wifi] test connected ssid=%s ip=%s\n", testSsid_, ip);
+    } else {
+        WiFi.disconnect(false, false);
+        Serial.printf("[wifi] test failed ssid=%s status=%u\n",
+                      testSsid_, static_cast<unsigned>(completedStatus));
+    }
 }
 
 void WifiService::collectScanResults(int16_t count) {

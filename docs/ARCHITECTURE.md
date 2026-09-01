@@ -81,5 +81,6 @@ The measured steady state retained approximately 127 KB of free DMA-capable memo
 
 - NimBLE callbacks enqueue fixed-size commands through a FreeRTOS queue; command parsing and settings mutation remain in the main service loop.
 - Moonraker HTTP polling runs in a low-priority Core 0 worker and returns immutable results through a queue.
+- WiFi credentials are verified before the setup wizard commits them. Snapmaker mDNS discovery and the Moonraker subnet fallback scan reuse the printer worker, while discovered-device storage remains in PSRAM.
 - A single failed printer poll does not erase the last valid state; three consecutive failures are required before the device is marked offline.
 - Settings changes become visible immediately through an in-memory revision, while NVS writes are debounced and bounded by a maximum delay.

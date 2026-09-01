@@ -5,6 +5,7 @@
 
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemState.h"
+#include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 #include "../wifi/WifiService.h"
 
@@ -25,6 +26,7 @@ constexpr uint32_t ColorMuted = 0x8FAAB7;
 constexpr uint32_t ColorCyan = 0x27D3C2;
 constexpr uint32_t ColorCyanDark = 0x0F665F;
 constexpr uint32_t ColorAmber = 0xF1B84B;
+constexpr uint32_t ColorRed = 0xFF6B6B;
 
 SetupWizard* gActiveSetupWizard = nullptr;
 
@@ -168,6 +170,22 @@ void SetupWizard::loop() {
         wifiScanRevisionSeen_ = wifiService().scanRevision();
         renderPending_ = true;
     }
+    if (step_ == Step::Network && networkCredentialsView_ &&
+        wifiConnectionRevisionSeen_ != wifiService().connectionRevision()) {
+        wifiConnectionRevisionSeen_ = wifiService().connectionRevision();
+        if (wifiService().connectionStatus() == WifiConnectStatus::Connected) {
+            networkConnectionVerified_ = true;
+        }
+        renderPending_ = true;
+    }
+    if (step_ == Step::Printer && !printerDetailsView_) {
+        PrinterDiscoverySnapshot discovery;
+        printerService().discoverySnapshot(discovery);
+        if (printerDiscoveryRevisionSeen_ != discovery.revision) {
+            printerDiscoveryRevisionSeen_ = discovery.revision;
+            renderPending_ = true;
+        }
+    }
     if (renderPending_) {
         renderPending_ = false;
         renderStep();
@@ -190,8 +208,16 @@ void SetupWizard::reset() {
     printerPortField_ = nullptr;
     networkCredentialsView_ = false;
     selectedNetworkSecured_ = true;
+    networkConnectionVerified_ = false;
+    printerDetailsView_ = false;
     wifiScanRevisionSeen_ = 0;
+    wifiConnectionRevisionSeen_ = 0;
+    printerDiscoveryRevisionSeen_ = 0;
     selectedSsid_[0] = '\0';
+    networkPassword_[0] = '\0';
+    selectedPrinterName_[0] = '\0';
+    selectedPrinterHost_[0] = '\0';
+    selectedPrinterPort_ = 7125;
     for (lv_obj_t*& segment : progress_) segment = nullptr;
     renderPending_ = false;
 }
@@ -459,6 +485,35 @@ void SetupWizard::renderNetworkCredentials() {
     lv_label_set_text(changeLabel, "Change");
     lv_obj_center(changeLabel);
 
+    const WifiConnectStatus connection = wifiService().connectionStatus();
+    const char* connectionText = "Enter the credentials, then test the connection.";
+    uint32_t connectionColor = ColorMuted;
+    char connectedText[80] = "";
+    if (networkConnectionVerified_ || connection == WifiConnectStatus::Connected) {
+        char ip[16] = "";
+        wifiService().connectionIp(ip, sizeof(ip));
+        snprintf(connectedText, sizeof(connectedText), "Connected successfully%s%s",
+                 ip[0] ? "  |  " : "", ip);
+        connectionText = connectedText;
+        connectionColor = ColorCyan;
+    } else if (connection == WifiConnectStatus::Connecting) {
+        connectionText = "Connecting and validating the network...";
+        connectionColor = ColorAmber;
+    } else if (connection == WifiConnectStatus::NoNetwork) {
+        connectionText = "Network not found. Move closer or refresh the list.";
+        connectionColor = ColorRed;
+    } else if (connection == WifiConnectStatus::AuthenticationFailed) {
+        connectionText = "Connection rejected. Check the Wi-Fi password.";
+        connectionColor = ColorRed;
+    } else if (connection == WifiConnectStatus::Timeout) {
+        connectionText = "Connection timed out. Check the password and signal.";
+        connectionColor = ColorRed;
+    } else if (connection == WifiConnectStatus::Failed) {
+        connectionText = "Could not connect to this network.";
+        connectionColor = ColorRed;
+    }
+    makeLabel(content_, connectionText, connectionColor, &lv_font_montserrat_10, 0, 39, 340);
+
     const AppSettings& settings = settingsService().settings();
     makeLabel(content_, "NETWORK NAME", ColorCyan, &lv_font_montserrat_10, 0, 70);
     ssidField_ = lv_textarea_create(content_);
@@ -469,7 +524,9 @@ void SetupWizard::renderNetworkCredentials() {
     lv_textarea_set_max_length(ssidField_, 32);
     lv_textarea_set_placeholder_text(ssidField_, "Wi-Fi SSID");
     lv_textarea_set_text(ssidField_, selectedSsid_[0] ? selectedSsid_ : settings.wifiSsid);
-    if (selectedSsid_[0]) lv_obj_add_state(ssidField_, LV_STATE_DISABLED);
+    if (selectedSsid_[0] || connection == WifiConnectStatus::Connecting || networkConnectionVerified_) {
+        lv_obj_add_state(ssidField_, LV_STATE_DISABLED);
+    }
     lv_obj_add_event_cb(ssidField_, fieldEvent, LV_EVENT_FOCUSED, this);
 
     makeLabel(content_, selectedNetworkSecured_ ? "PASSWORD" : "OPEN NETWORK",
@@ -487,11 +544,14 @@ void SetupWizard::renderNetworkCredentials() {
     const bool selectedSavedNetwork = selectedSsid_[0] &&
                                       strncmp(selectedSsid_, settings.wifiSsid,
                                               sizeof(selectedSsid_)) == 0;
-    lv_textarea_set_text(passwordField_, selectedNetworkSecured_ &&
-                                             (!selectedSsid_[0] || selectedSavedNetwork)
-                                         ? settings.wifiPassword
-                                         : "");
-    if (!selectedNetworkSecured_) lv_obj_add_state(passwordField_, LV_STATE_DISABLED);
+    const char* passwordText = networkPassword_[0]
+                                   ? networkPassword_
+                                   : (selectedSavedNetwork ? settings.wifiPassword : "");
+    lv_textarea_set_text(passwordField_, selectedNetworkSecured_ ? passwordText : "");
+    if (!selectedNetworkSecured_ || connection == WifiConnectStatus::Connecting ||
+        networkConnectionVerified_) {
+        lv_obj_add_state(passwordField_, LV_STATE_DISABLED);
+    }
     lv_obj_add_event_cb(passwordField_, fieldEvent, LV_EVENT_FOCUSED, this);
 
     makeLabel(content_, selectedNetworkSecured_
@@ -501,9 +561,112 @@ void SetupWizard::renderNetworkCredentials() {
 }
 
 void SetupWizard::renderPrinter() {
-    makeLabel(content_, "Connect your printer", ColorText, &lv_font_montserrat_26, 0, 0);
-    makeLabel(content_, "Enter the Moonraker address. You can skip this and finish it later.",
-              ColorMuted, &lv_font_montserrat_12, 0, 34, 420);
+    if (printerDetailsView_) renderPrinterDetails();
+    else renderPrinterDiscovery();
+}
+
+void SetupWizard::renderPrinterDiscovery() {
+    makeLabel(content_, "Find your printer", ColorText, &lv_font_montserrat_24, 0, 0);
+    makeLabel(content_, "coroNET searches this network for Snapmaker and Moonraker devices.",
+              ColorMuted, &lv_font_montserrat_10, 0, 31, 420);
+
+    PrinterDiscoverySnapshot discovery;
+    printerService().discoverySnapshot(discovery);
+    if (discovery.status == PrinterDiscoveryStatus::Idle && state().wifiConnected) {
+        printerService().requestDiscovery();
+        printerService().discoverySnapshot(discovery);
+    }
+    printerDiscoveryRevisionSeen_ = discovery.revision;
+
+    const char* statusText = discovery.message[0] ? discovery.message : "Ready to search";
+    uint32_t statusColor = ColorCyan;
+    if (!state().wifiConnected) {
+        statusText = "Wi-Fi is not connected. Go back or enter the printer manually.";
+        statusColor = ColorRed;
+    } else if (discovery.status == PrinterDiscoveryStatus::Scanning) {
+        statusColor = ColorAmber;
+    } else if (discovery.status == PrinterDiscoveryStatus::Failed) {
+        statusColor = ColorRed;
+    }
+    makeLabel(content_, statusText, statusColor, &lv_font_montserrat_10, 0, 54, 330);
+
+    lv_obj_t* refresh = lv_btn_create(content_);
+    lv_obj_set_size(refresh, 66, 24);
+    lv_obj_set_pos(refresh, 366, 47);
+    styleButton(refresh, false);
+    if (!state().wifiConnected || discovery.status == PrinterDiscoveryStatus::Scanning) {
+        lv_obj_add_state(refresh, LV_STATE_DISABLED);
+    }
+    lv_obj_add_event_cb(refresh, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::PrinterRefresh)));
+    lv_obj_t* refreshLabel = lv_label_create(refresh);
+    styleText(refreshLabel, ColorText, &lv_font_montserrat_10);
+    lv_label_set_text(refreshLabel, "Refresh");
+    lv_obj_center(refreshLabel);
+
+    lv_obj_t* list = lv_obj_create(content_);
+    lv_obj_set_size(list, 432, 111);
+    lv_obj_set_pos(list, 0, 76);
+    lv_obj_set_style_radius(list, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(list, lv_color_hex(ColorSurface), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(list, lv_color_hex(ColorBorder), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+
+    for (uint8_t index = 0; index < discovery.count; ++index) {
+        DiscoveredPrinter printer;
+        if (!printerService().discoveredPrinter(index, printer)) continue;
+        lv_obj_t* row = lv_btn_create(list);
+        lv_obj_set_width(row, lv_pct(100));
+        lv_obj_set_height(row, 42);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        styleButton(row, false);
+        lv_obj_set_flex_grow(row, 0);
+        lv_obj_add_event_cb(
+            row, actionEvent, LV_EVENT_CLICKED,
+            reinterpret_cast<void*>(static_cast<uintptr_t>(Action::PrinterBase) + index));
+        makeLabel(row, printer.name, ColorText, &lv_font_montserrat_14, 10, 5, 250);
+        lv_obj_t* hostLabel = makeLabel(row, printer.host, ColorMuted,
+                                        &lv_font_montserrat_10, 270, 13, 135);
+        lv_obj_set_style_text_align(hostLabel, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    }
+
+    lv_obj_t* manual = lv_btn_create(list);
+    lv_obj_set_width(manual, lv_pct(100));
+    lv_obj_set_height(manual, 36);
+    lv_obj_clear_flag(manual, LV_OBJ_FLAG_SCROLLABLE);
+    styleButton(manual, false);
+    lv_obj_set_flex_grow(manual, 0);
+    lv_obj_add_event_cb(manual, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::PrinterManual)));
+    lv_obj_t* manualLabel = lv_label_create(manual);
+    styleText(manualLabel, ColorCyan, &lv_font_montserrat_12);
+    lv_label_set_text(manualLabel, "Enter printer manually");
+    lv_obj_center(manualLabel);
+}
+
+void SetupWizard::renderPrinterDetails() {
+    makeLabel(content_, selectedPrinterHost_[0] ? "Connect your printer" : "Enter printer address",
+              ColorText, &lv_font_montserrat_24, 0, 0);
+    makeLabel(content_, selectedPrinterName_[0] ? selectedPrinterName_ : "Moonraker connection",
+              selectedPrinterHost_[0] ? ColorCyan : ColorMuted,
+              &lv_font_montserrat_10, 0, 39, 300);
+
+    lv_obj_t* change = lv_btn_create(content_);
+    lv_obj_set_size(change, 78, 28);
+    lv_obj_set_pos(change, 354, 1);
+    styleButton(change, false);
+    lv_obj_add_event_cb(change, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::PrinterChange)));
+    lv_obj_t* changeLabel = lv_label_create(change);
+    styleText(changeLabel, ColorText, &lv_font_montserrat_10);
+    lv_label_set_text(changeLabel, "Change");
+    lv_obj_center(changeLabel);
 
     const AppSettings& settings = settingsService().settings();
     makeLabel(content_, "HOST OR IP ADDRESS", ColorCyan, &lv_font_montserrat_10, 0, 70);
@@ -514,7 +677,9 @@ void SetupWizard::renderPrinter() {
     lv_textarea_set_one_line(printerHostField_, true);
     lv_textarea_set_max_length(printerHostField_, 64);
     lv_textarea_set_placeholder_text(printerHostField_, "192.168.1.50");
-    lv_textarea_set_text(printerHostField_, settings.printerHost);
+    lv_textarea_set_text(printerHostField_,
+                         selectedPrinterHost_[0] ? selectedPrinterHost_ : settings.printerHost);
+    if (selectedPrinterHost_[0]) lv_obj_add_state(printerHostField_, LV_STATE_DISABLED);
     lv_obj_add_event_cb(printerHostField_, fieldEvent, LV_EVENT_FOCUSED, this);
 
     makeLabel(content_, "PORT", ColorCyan, &lv_font_montserrat_10, 326, 70);
@@ -526,11 +691,18 @@ void SetupWizard::renderPrinter() {
     lv_textarea_set_max_length(printerPortField_, 5);
     lv_textarea_set_accepted_chars(printerPortField_, "0123456789");
     char portText[6] = "";
-    snprintf(portText, sizeof(portText), "%u", static_cast<unsigned>(settings.printerPort));
+    snprintf(portText, sizeof(portText), "%u",
+             static_cast<unsigned>(selectedPrinterHost_[0]
+                                       ? selectedPrinterPort_
+                                       : settings.printerPort));
     lv_textarea_set_text(printerPortField_, portText);
+    if (selectedPrinterHost_[0]) lv_obj_add_state(printerPortField_, LV_STATE_DISABLED);
     lv_obj_add_event_cb(printerPortField_, fieldEvent, LV_EVENT_FOCUSED, this);
 
-    makeLabel(content_, "Default Moonraker port: 7125", ColorMuted,
+    makeLabel(content_, selectedPrinterHost_[0]
+                            ? "Printer was detected and its Moonraker endpoint was verified."
+                            : "Default Moonraker port: 7125",
+              ColorMuted,
               &lv_font_montserrat_10, 0, 149);
 }
 
@@ -568,20 +740,19 @@ void SetupWizard::commitCurrentStep() {
             break;
         }
         case Step::Network:
-            if (networkCredentialsView_) {
+            if (networkCredentialsView_ && networkConnectionVerified_) {
                 strlcpy(settings.wifiSsid,
                         selectedSsid_[0]
                             ? selectedSsid_
                             : (ssidField_ ? lv_textarea_get_text(ssidField_) : ""),
                         sizeof(settings.wifiSsid));
                 strlcpy(settings.wifiPassword,
-                        selectedNetworkSecured_ && passwordField_
-                            ? lv_textarea_get_text(passwordField_)
-                            : "",
+                        selectedNetworkSecured_ ? networkPassword_ : "",
                         sizeof(settings.wifiPassword));
             }
             break;
         case Step::Printer: {
+            if (!printerDetailsView_) break;
             uint16_t port = settings.printerPort ? settings.printerPort : 7125;
             if (printerPortField_) {
                 const int parsed = atoi(lv_textarea_get_text(printerPortField_));
@@ -605,6 +776,30 @@ void SetupWizard::commitCurrentStep() {
 
 void SetupWizard::moveNext() {
     hideKeyboard();
+
+    if (step_ == Step::Network && networkCredentialsView_) {
+        if (!networkConnectionVerified_) {
+            const char* ssid = selectedSsid_[0]
+                                   ? selectedSsid_
+                                   : (ssidField_ ? lv_textarea_get_text(ssidField_) : "");
+            const char* password = selectedNetworkSecured_ && passwordField_
+                                       ? lv_textarea_get_text(passwordField_)
+                                       : "";
+            strlcpy(selectedSsid_, ssid ? ssid : "", sizeof(selectedSsid_));
+            strlcpy(networkPassword_, password ? password : "", sizeof(networkPassword_));
+            wifiService().requestConnectionTest(selectedSsid_, networkPassword_);
+            wifiConnectionRevisionSeen_ = wifiService().connectionRevision();
+            renderPending_ = true;
+            return;
+        }
+        commitCurrentStep();
+        settingsService().flush();
+        wifiService().acceptConnectionTest();
+        step_ = Step::Printer;
+        renderPending_ = true;
+        return;
+    }
+
     commitCurrentStep();
     if (step_ == Step::Ready) {
         finish();
@@ -617,6 +812,10 @@ void SetupWizard::moveNext() {
 void SetupWizard::moveBack() {
     if (step_ == Step::Welcome) return;
     hideKeyboard();
+    if (step_ == Step::Network && wifiService().connectionStatus() != WifiConnectStatus::Idle) {
+        wifiService().cancelConnectionTest();
+        networkConnectionVerified_ = false;
+    }
     commitCurrentStep();
     step_ = static_cast<Step>(static_cast<uint8_t>(step_) - 1);
     renderPending_ = true;
@@ -675,9 +874,20 @@ void SetupWizard::updateNavigation() {
     if (step_ == Step::Welcome) lv_obj_add_flag(backButton_, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_clear_flag(backButton_, LV_OBJ_FLAG_HIDDEN);
 
+    lv_obj_clear_state(nextButton_, LV_STATE_DISABLED);
     const char* nextText = "Continue";
     if (step_ == Step::Welcome) nextText = "Start";
     else if (step_ == Step::Network && !networkCredentialsView_) nextText = "Skip";
+    else if (step_ == Step::Network && networkCredentialsView_) {
+        if (wifiService().connectionStatus() == WifiConnectStatus::Connecting) {
+            nextText = "Connecting...";
+            lv_obj_add_state(nextButton_, LV_STATE_DISABLED);
+        } else if (!networkConnectionVerified_) {
+            nextText = "Connect";
+        }
+    } else if (step_ == Step::Printer && !printerDetailsView_) {
+        nextText = "Skip";
+    }
     else if (step_ == Step::Ready) nextText = "Finish";
     lv_label_set_text(nextButtonLabel_, nextText);
     lv_obj_center(nextButtonLabel_);
@@ -707,13 +917,31 @@ void SetupWizard::actionEvent(lv_event_t* event) {
     if (!wizard) return;
     markTouch();
 
+    const uintptr_t printerBase = static_cast<uintptr_t>(Action::PrinterBase);
+    if (rawAction >= printerBase) {
+        const uint8_t index = static_cast<uint8_t>(rawAction - printerBase);
+        DiscoveredPrinter printer;
+        if (printerService().discoveredPrinter(index, printer)) {
+            strlcpy(wizard->selectedPrinterName_, printer.name,
+                    sizeof(wizard->selectedPrinterName_));
+            strlcpy(wizard->selectedPrinterHost_, printer.host,
+                    sizeof(wizard->selectedPrinterHost_));
+            wizard->selectedPrinterPort_ = printer.port;
+            wizard->printerDetailsView_ = true;
+            wizard->renderPending_ = true;
+        }
+        return;
+    }
+
     const uintptr_t networkBase = static_cast<uintptr_t>(Action::NetworkBase);
-    if (rawAction >= networkBase) {
+    if (rawAction >= networkBase && rawAction < printerBase) {
         const uint8_t index = static_cast<uint8_t>(rawAction - networkBase);
         const WifiNetworkInfo* network = wifiService().network(index);
         if (network) {
             strlcpy(wizard->selectedSsid_, network->ssid, sizeof(wizard->selectedSsid_));
             wizard->selectedNetworkSecured_ = network->secured;
+            wizard->networkConnectionVerified_ = false;
+            wizard->networkPassword_[0] = '\0';
             wizard->networkCredentialsView_ = true;
             wizard->renderPending_ = true;
         }
@@ -753,15 +981,35 @@ void SetupWizard::actionEvent(lv_event_t* event) {
             break;
         case Action::NetworkManual:
             wizard->selectedSsid_[0] = '\0';
+            wizard->networkPassword_[0] = '\0';
             wizard->selectedNetworkSecured_ = true;
+            wizard->networkConnectionVerified_ = false;
             wizard->networkCredentialsView_ = true;
             wizard->renderPending_ = true;
             break;
         case Action::NetworkChange:
+            wifiService().cancelConnectionTest();
+            wizard->networkConnectionVerified_ = false;
             wizard->networkCredentialsView_ = false;
             wizard->renderPending_ = true;
             break;
+        case Action::PrinterRefresh:
+            printerService().requestDiscovery();
+            wizard->renderPending_ = true;
+            break;
+        case Action::PrinterManual:
+            wizard->selectedPrinterName_[0] = '\0';
+            wizard->selectedPrinterHost_[0] = '\0';
+            wizard->selectedPrinterPort_ = 7125;
+            wizard->printerDetailsView_ = true;
+            wizard->renderPending_ = true;
+            break;
+        case Action::PrinterChange:
+            wizard->printerDetailsView_ = false;
+            wizard->renderPending_ = true;
+            break;
         case Action::NetworkBase:
+        case Action::PrinterBase:
             break;
     }
 }
