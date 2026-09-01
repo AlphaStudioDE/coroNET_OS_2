@@ -6,6 +6,7 @@
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
+#include "../wifi/WifiService.h"
 
 namespace coronet {
 
@@ -116,6 +117,13 @@ const char* transportName(CompanionTransport transport) {
     }
 }
 
+const char* signalName(int32_t rssi) {
+    if (rssi >= -55) return "Excellent";
+    if (rssi >= -67) return "Good";
+    if (rssi >= -75) return "Fair";
+    return "Weak";
+}
+
 void normalizePrinterHost(const char* input, char* output, size_t outputSize, uint16_t& port) {
     if (!output || outputSize == 0) return;
     output[0] = '\0';
@@ -155,6 +163,11 @@ void SetupWizard::loop() {
         finished_ = true;
         return;
     }
+    if (step_ == Step::Network && !networkCredentialsView_ &&
+        wifiScanRevisionSeen_ != wifiService().scanRevision()) {
+        wifiScanRevisionSeen_ = wifiService().scanRevision();
+        renderPending_ = true;
+    }
     if (renderPending_) {
         renderPending_ = false;
         renderStep();
@@ -175,6 +188,10 @@ void SetupWizard::reset() {
     passwordField_ = nullptr;
     printerHostField_ = nullptr;
     printerPortField_ = nullptr;
+    networkCredentialsView_ = false;
+    selectedNetworkSecured_ = true;
+    wifiScanRevisionSeen_ = 0;
+    selectedSsid_[0] = '\0';
     for (lv_obj_t*& segment : progress_) segment = nullptr;
     renderPending_ = false;
 }
@@ -300,9 +317,12 @@ void SetupWizard::renderIdentity() {
 }
 
 void SetupWizard::renderConnection() {
-    makeLabel(content_, "Choose your connection", ColorText, &lv_font_montserrat_26, 0, 2);
-    makeLabel(content_, "Automatic keeps the fastest available path and retains BLE recovery.",
-              ColorMuted, &lv_font_montserrat_14, 0, 38, 420);
+    makeLabel(content_, "Connect the companion app", ColorText, &lv_font_montserrat_26, 0, 0);
+    makeLabel(content_,
+              "Choose how the coroNET mobile app communicates with this device.",
+              ColorMuted, &lv_font_montserrat_12, 0, 34, 420);
+    makeLabel(content_, "Printer connection is configured in a separate step.",
+              ColorAmber, &lv_font_montserrat_10, 0, 59, 420);
 
     const CompanionTransport selected = settingsService().settings().companionTransport;
     struct Choice {
@@ -312,16 +332,16 @@ void SetupWizard::renderConnection() {
         Action action;
     };
     static constexpr Choice choices[] = {
-        {"AUTO", "Recommended", CompanionTransport::Auto, Action::TransportAuto},
-        {"BLE", "Direct phone link", CompanionTransport::Ble, Action::TransportBle},
-        {"WI-FI", "Fast local control", CompanionTransport::Wifi, Action::TransportWifi},
+        {"AUTO", "Wi-Fi + BLE fallback", CompanionTransport::Auto, Action::TransportAuto},
+        {"BLE", "App connects directly", CompanionTransport::Ble, Action::TransportBle},
+        {"WI-FI", "App uses local network", CompanionTransport::Wifi, Action::TransportWifi},
     };
 
     for (uint8_t index = 0; index < 3; ++index) {
         const bool active = selected == choices[index].transport;
         lv_obj_t* button = lv_btn_create(content_);
-        lv_obj_set_size(button, 136, 82);
-        lv_obj_set_pos(button, index * 148, 88);
+        lv_obj_set_size(button, 136, 84);
+        lv_obj_set_pos(button, index * 148, 84);
         styleButton(button, active);
         lv_obj_set_style_border_color(button,
                                       lv_color_hex(active ? ColorCyan : ColorBorder),
@@ -330,19 +350,114 @@ void SetupWizard::renderConnection() {
                             reinterpret_cast<void*>(static_cast<uintptr_t>(choices[index].action)));
         lv_obj_t* title = makeLabel(button, choices[index].title,
                                     active ? ColorBackground : ColorText,
-                                    &lv_font_montserrat_18, 12, 13, 110);
+                                    &lv_font_montserrat_18, 12, 12, 110);
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_t* detail = makeLabel(button, choices[index].detail,
                                      active ? ColorCyanDark : ColorMuted,
-                                     &lv_font_montserrat_10, 8, 47, 118);
+                                     &lv_font_montserrat_10, 8, 44, 118);
         lv_obj_set_style_text_align(detail, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     }
 }
 
 void SetupWizard::renderNetwork() {
-    makeLabel(content_, "Join your network", ColorText, &lv_font_montserrat_26, 0, 0);
-    makeLabel(content_, "Optional now. Wi-Fi enables faster local control and printer updates.",
-              ColorMuted, &lv_font_montserrat_12, 0, 34, 420);
+    if (networkCredentialsView_) renderNetworkCredentials();
+    else renderNetworkDiscovery();
+}
+
+void SetupWizard::renderNetworkDiscovery() {
+    makeLabel(content_, "Choose a Wi-Fi network", ColorText, &lv_font_montserrat_24, 0, 0);
+    makeLabel(content_, "Used by coroNET for local app control and printer communication.",
+              ColorMuted, &lv_font_montserrat_10, 0, 31, 420);
+
+    WifiService& wifi = wifiService();
+    if (wifi.scanStatus() == WifiScanStatus::Idle) wifi.requestScan();
+    wifiScanRevisionSeen_ = wifi.scanRevision();
+
+    const char* statusText = "Select a nearby network";
+    if (wifi.scanStatus() == WifiScanStatus::Scanning) statusText = "Scanning for networks...";
+    else if (wifi.scanStatus() == WifiScanStatus::Failed) statusText = "Scan failed. Try again or enter it manually.";
+    else if (wifi.scanStatus() == WifiScanStatus::Complete && wifi.scanCount() == 0) {
+        statusText = "No networks found. Try again or enter it manually.";
+    }
+    makeLabel(content_, statusText, ColorCyan, &lv_font_montserrat_10, 0, 54, 295);
+
+    lv_obj_t* refresh = lv_btn_create(content_);
+    lv_obj_set_size(refresh, 66, 24);
+    lv_obj_set_pos(refresh, 366, 47);
+    styleButton(refresh, false);
+    lv_obj_add_event_cb(refresh, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::NetworkRefresh)));
+    lv_obj_t* refreshLabel = lv_label_create(refresh);
+    styleText(refreshLabel, ColorText, &lv_font_montserrat_10);
+    lv_label_set_text(refreshLabel, "Refresh");
+    lv_obj_center(refreshLabel);
+
+    lv_obj_t* list = lv_obj_create(content_);
+    lv_obj_set_size(list, 432, 111);
+    lv_obj_set_pos(list, 0, 76);
+    lv_obj_set_style_radius(list, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(list, lv_color_hex(ColorSurface), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(list, lv_color_hex(ColorBorder), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+
+    if (wifi.scanStatus() == WifiScanStatus::Complete) {
+        for (uint8_t index = 0; index < wifi.scanCount(); ++index) {
+            const WifiNetworkInfo* network = wifi.network(index);
+            if (!network) continue;
+            lv_obj_t* row = lv_btn_create(list);
+            lv_obj_set_width(row, lv_pct(100));
+            lv_obj_set_height(row, 42);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+            styleButton(row, false);
+            lv_obj_set_flex_grow(row, 0);
+            lv_obj_add_event_cb(
+                row, actionEvent, LV_EVENT_CLICKED,
+                reinterpret_cast<void*>(static_cast<uintptr_t>(Action::NetworkBase) + index));
+
+            makeLabel(row, network->ssid, ColorText, &lv_font_montserrat_14, 10, 5, 245);
+            char detail[48] = "";
+            snprintf(detail, sizeof(detail), "%s  |  %s",
+                     signalName(network->rssi), network->secured ? "Secured" : "Open");
+            lv_obj_t* detailLabel = makeLabel(row, detail, ColorMuted,
+                                              &lv_font_montserrat_10, 260, 13, 145);
+            lv_obj_set_style_text_align(detailLabel, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+        }
+    }
+
+    lv_obj_t* manual = lv_btn_create(list);
+    lv_obj_set_width(manual, lv_pct(100));
+    lv_obj_set_height(manual, 36);
+    lv_obj_clear_flag(manual, LV_OBJ_FLAG_SCROLLABLE);
+    styleButton(manual, false);
+    lv_obj_set_flex_grow(manual, 0);
+    lv_obj_add_event_cb(manual, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::NetworkManual)));
+    lv_obj_t* manualLabel = lv_label_create(manual);
+    styleText(manualLabel, ColorCyan, &lv_font_montserrat_12);
+    lv_label_set_text(manualLabel, "Enter network manually");
+    lv_obj_center(manualLabel);
+}
+
+void SetupWizard::renderNetworkCredentials() {
+    makeLabel(content_, selectedSsid_[0] ? "Connect to network" : "Enter Wi-Fi network",
+              ColorText, &lv_font_montserrat_24, 0, 0);
+
+    lv_obj_t* change = lv_btn_create(content_);
+    lv_obj_set_size(change, 78, 28);
+    lv_obj_set_pos(change, 354, 1);
+    styleButton(change, false);
+    lv_obj_add_event_cb(change, actionEvent, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(Action::NetworkChange)));
+    lv_obj_t* changeLabel = lv_label_create(change);
+    styleText(changeLabel, ColorText, &lv_font_montserrat_10);
+    lv_label_set_text(changeLabel, "Change");
+    lv_obj_center(changeLabel);
 
     const AppSettings& settings = settingsService().settings();
     makeLabel(content_, "NETWORK NAME", ColorCyan, &lv_font_montserrat_10, 0, 70);
@@ -353,10 +468,12 @@ void SetupWizard::renderNetwork() {
     lv_textarea_set_one_line(ssidField_, true);
     lv_textarea_set_max_length(ssidField_, 32);
     lv_textarea_set_placeholder_text(ssidField_, "Wi-Fi SSID");
-    lv_textarea_set_text(ssidField_, settings.wifiSsid);
+    lv_textarea_set_text(ssidField_, selectedSsid_[0] ? selectedSsid_ : settings.wifiSsid);
+    if (selectedSsid_[0]) lv_obj_add_state(ssidField_, LV_STATE_DISABLED);
     lv_obj_add_event_cb(ssidField_, fieldEvent, LV_EVENT_FOCUSED, this);
 
-    makeLabel(content_, "PASSWORD", ColorCyan, &lv_font_montserrat_10, 224, 70);
+    makeLabel(content_, selectedNetworkSecured_ ? "PASSWORD" : "OPEN NETWORK",
+              ColorCyan, &lv_font_montserrat_10, 224, 70);
     passwordField_ = lv_textarea_create(content_);
     lv_obj_set_size(passwordField_, 208, 42);
     lv_obj_set_pos(passwordField_, 224, 88);
@@ -365,11 +482,21 @@ void SetupWizard::renderNetwork() {
     lv_textarea_set_max_length(passwordField_, 64);
     lv_textarea_set_password_mode(passwordField_, true);
     lv_textarea_set_password_show_time(passwordField_, 800);
-    lv_textarea_set_placeholder_text(passwordField_, "Optional for open network");
-    lv_textarea_set_text(passwordField_, settings.wifiPassword);
+    lv_textarea_set_placeholder_text(passwordField_,
+                                     selectedNetworkSecured_ ? "Wi-Fi password" : "No password needed");
+    const bool selectedSavedNetwork = selectedSsid_[0] &&
+                                      strncmp(selectedSsid_, settings.wifiSsid,
+                                              sizeof(selectedSsid_)) == 0;
+    lv_textarea_set_text(passwordField_, selectedNetworkSecured_ &&
+                                             (!selectedSsid_[0] || selectedSavedNetwork)
+                                         ? settings.wifiPassword
+                                         : "");
+    if (!selectedNetworkSecured_) lv_obj_add_state(passwordField_, LV_STATE_DISABLED);
     lv_obj_add_event_cb(passwordField_, fieldEvent, LV_EVENT_FOCUSED, this);
 
-    makeLabel(content_, "Leave both fields empty to configure Wi-Fi later from the companion app.",
+    makeLabel(content_, selectedNetworkSecured_
+                            ? "Credentials stay on this device and are never sent to the cloud."
+                            : "This network does not require a password.",
               ColorMuted, &lv_font_montserrat_10, 0, 149, 420);
 }
 
@@ -441,12 +568,18 @@ void SetupWizard::commitCurrentStep() {
             break;
         }
         case Step::Network:
-            strlcpy(settings.wifiSsid,
-                    ssidField_ ? lv_textarea_get_text(ssidField_) : "",
-                    sizeof(settings.wifiSsid));
-            strlcpy(settings.wifiPassword,
-                    passwordField_ ? lv_textarea_get_text(passwordField_) : "",
-                    sizeof(settings.wifiPassword));
+            if (networkCredentialsView_) {
+                strlcpy(settings.wifiSsid,
+                        selectedSsid_[0]
+                            ? selectedSsid_
+                            : (ssidField_ ? lv_textarea_get_text(ssidField_) : ""),
+                        sizeof(settings.wifiSsid));
+                strlcpy(settings.wifiPassword,
+                        selectedNetworkSecured_ && passwordField_
+                            ? lv_textarea_get_text(passwordField_)
+                            : "",
+                        sizeof(settings.wifiPassword));
+            }
             break;
         case Step::Printer: {
             uint16_t port = settings.printerPort ? settings.printerPort : 7125;
@@ -544,6 +677,7 @@ void SetupWizard::updateNavigation() {
 
     const char* nextText = "Continue";
     if (step_ == Step::Welcome) nextText = "Start";
+    else if (step_ == Step::Network && !networkCredentialsView_) nextText = "Skip";
     else if (step_ == Step::Ready) nextText = "Finish";
     lv_label_set_text(nextButtonLabel_, nextText);
     lv_obj_center(nextButtonLabel_);
@@ -567,10 +701,24 @@ void SetupWizard::updateProgress() {
 
 void SetupWizard::actionEvent(lv_event_t* event) {
     if (!event || lv_event_get_code(event) != LV_EVENT_CLICKED) return;
-    const Action action = static_cast<Action>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(event)));
+    const uintptr_t rawAction = reinterpret_cast<uintptr_t>(lv_event_get_user_data(event));
+    const Action action = static_cast<Action>(rawAction);
     SetupWizard* wizard = gActiveSetupWizard;
     if (!wizard) return;
     markTouch();
+
+    const uintptr_t networkBase = static_cast<uintptr_t>(Action::NetworkBase);
+    if (rawAction >= networkBase) {
+        const uint8_t index = static_cast<uint8_t>(rawAction - networkBase);
+        const WifiNetworkInfo* network = wifiService().network(index);
+        if (network) {
+            strlcpy(wizard->selectedSsid_, network->ssid, sizeof(wizard->selectedSsid_));
+            wizard->selectedNetworkSecured_ = network->secured;
+            wizard->networkCredentialsView_ = true;
+            wizard->renderPending_ = true;
+        }
+        return;
+    }
 
     AppSettings& settings = settingsService().mutableSettings();
     switch (action) {
@@ -597,6 +745,23 @@ void SetupWizard::actionEvent(lv_event_t* event) {
             settings.bleEnabled = true;
             settingsService().save();
             wizard->renderPending_ = true;
+            break;
+        case Action::NetworkRefresh:
+            wifiService().requestScan();
+            wizard->wifiScanRevisionSeen_ = wifiService().scanRevision();
+            wizard->renderPending_ = true;
+            break;
+        case Action::NetworkManual:
+            wizard->selectedSsid_[0] = '\0';
+            wizard->selectedNetworkSecured_ = true;
+            wizard->networkCredentialsView_ = true;
+            wizard->renderPending_ = true;
+            break;
+        case Action::NetworkChange:
+            wizard->networkCredentialsView_ = false;
+            wizard->renderPending_ = true;
+            break;
+        case Action::NetworkBase:
             break;
     }
 }

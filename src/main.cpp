@@ -16,7 +16,6 @@ namespace {
 
 coronet::DisplayService displayService;
 coronet::AudioService audioService;
-coronet::WifiService wifiService;
 coronet::BleService bleService;
 coronet::SystemHealth systemHealth;
 coronet::WebControlService webControlService;
@@ -43,7 +42,7 @@ void setup() {
     systemHealth.checkpoint("display-touch");
     audioService.begin();
     systemHealth.checkpoint("audio");
-    wifiService.begin();
+    coronet::wifiService().begin();
     systemHealth.checkpoint("wifi");
     coronet::printerService().begin();
     systemHealth.checkpoint("printer");
@@ -58,7 +57,7 @@ void loop() {
     coronet::settingsService().loop();
     displayService.loop();
     audioService.loop();
-    wifiService.loop();
+    coronet::wifiService().loop();
     coronet::printerService().loop();
     webControlService.loop();
     bleService.loop();

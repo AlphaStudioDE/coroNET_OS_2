@@ -34,6 +34,10 @@ private:
         TransportAuto = 10,
         TransportBle,
         TransportWifi,
+        NetworkRefresh = 20,
+        NetworkManual,
+        NetworkChange,
+        NetworkBase = 100,
     };
 
     void buildRoot();
@@ -42,6 +46,8 @@ private:
     void renderIdentity();
     void renderConnection();
     void renderNetwork();
+    void renderNetworkDiscovery();
+    void renderNetworkCredentials();
     void renderPrinter();
     void renderReady();
     void commitCurrentStep();
@@ -71,8 +77,12 @@ private:
     lv_obj_t* printerPortField_ = nullptr;
     lv_obj_t* progress_[static_cast<uint8_t>(Step::Count)] = {};
     Step step_ = Step::Welcome;
+    bool networkCredentialsView_ = false;
+    bool selectedNetworkSecured_ = true;
     bool renderPending_ = false;
     bool finished_ = false;
+    uint32_t wifiScanRevisionSeen_ = 0;
+    char selectedSsid_[33] = "";
 };
 
 }
