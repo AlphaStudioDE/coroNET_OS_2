@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "ProductTypes.h"
+
 namespace coronet {
 
 enum class PrinterState : uint8_t {
@@ -21,6 +23,23 @@ struct SystemState {
     bool bleConnected = false;
     bool webReady = false;
     bool audioReady = false;
+    bool sdReady = false;
+    bool audioPlaying = false;
+    SoundScenario activeSoundScenario = SoundScenario::Start;
+    char activeSoundPath[65] = "";
+    bool ledReady = false;
+    uint32_t ledFrameCount = 0;
+    uint32_t ledDroppedFrames = 0;
+    bool ventReady = false;
+    bool fanReady = false;
+    bool servoReady = false;
+    uint8_t fanPercent = 0;
+    uint8_t flapPercent = 0;
+    bool ventFailsafe = false;
+    char ventStatusText[72] = "disabled";
+    bool pandaConnected = false;
+    PandaWorkflowPhase pandaPhase = PandaWorkflowPhase::Idle;
+    char pandaStatusText[72] = "disabled";
     bool displayReady = false;
     bool touchReady = false;
     bool setupDone = false;
@@ -34,12 +53,20 @@ struct SystemState {
     uint32_t lastPrinterUpdateMs = 0;
     PrinterState printerState = PrinterState::Unknown;
     uint8_t printProgress = 0;
+    uint32_t printDurationSec = 0;
+    uint32_t printEtaSec = 0;
     uint8_t activeTool = 0;
     float activeToolTempC = NAN;
     float bedTempC = NAN;
     float chamberTempC = NAN;
     char printFilename[65] = "";
+    char materialName[25] = "";
+    uint32_t filamentColorRgb = 0xFFFFFF;
     char printerStatusText[96] = "";
+
+    bool screenSaverActive = false;
+    bool displaySleeping = false;
+    bool quietActive = false;
 
     uint32_t heapFree = 0;
     uint32_t heapLargest = 0;

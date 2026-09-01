@@ -7,10 +7,12 @@
 #include "core/SystemState.h"
 #include "core/SystemHealth.h"
 #include "display/DisplayService.h"
+#include "led/LedService.h"
 #include "printer/PrinterService.h"
 #include "settings/SettingsService.h"
 #include "web/WebControlService.h"
 #include "wifi/WifiService.h"
+#include "vent/VentService.h"
 
 namespace {
 
@@ -68,6 +70,45 @@ void executeSerialCommand() {
     } else if (strcmp(serialCommand, "ui settings") == 0) {
         displayService.requestPage(coronet::ui::Page::Settings);
         Serial.println("[console] Settings screen requested");
+    } else if (strcmp(serialCommand, "led status") == 0) {
+        coronet::ledService().logStatus();
+    } else if (strcmp(serialCommand, "led preview stop") == 0) {
+        coronet::ledService().cancelPreview();
+        Serial.println("[console] LED preview stopped");
+    } else if (strncmp(serialCommand, "led preview ", 12) == 0) {
+        unsigned category = 0;
+        unsigned animation = 0;
+        if (sscanf(serialCommand + 12, "%u %u", &category, &animation) == 2 && category < 6U) {
+            coronet::ledService().requestPreview(
+                static_cast<coronet::LedCategory>(category), static_cast<uint8_t>(animation));
+            Serial.printf("[console] LED preview category=%u animation=%u\n", category, animation);
+        } else {
+            Serial.println("[console] usage: led preview <category 0-5> <animation>");
+        }
+    } else if (strcmp(serialCommand, "vent status") == 0) {
+        coronet::ventService().logStatus();
+    } else if (strncmp(serialCommand, "vent mode ", 10) == 0) {
+        const int mode = atoi(serialCommand + 10);
+        if (mode >= 0 && mode <= 2) {
+            coronet::settingsService().mutableSettings().ventMode = static_cast<coronet::VentMode>(mode);
+            coronet::settingsService().save();
+            coronet::ventService().applyNow();
+            Serial.printf("[console] vent mode=%d\n", mode);
+        }
+    } else if (strncmp(serialCommand, "vent manual ", 12) == 0) {
+        unsigned fan = 0;
+        unsigned flap = 0;
+        if (sscanf(serialCommand + 12, "%u %u", &fan, &flap) == 2 && fan <= 100U && flap <= 100U) {
+            coronet::AppSettings& settings = coronet::settingsService().mutableSettings();
+            settings.ventMode = coronet::VentMode::Manual;
+            settings.manualFanPercent = static_cast<uint8_t>(fan);
+            settings.manualFlapPercent = static_cast<uint8_t>(flap);
+            coronet::settingsService().save();
+            coronet::ventService().applyNow();
+            Serial.printf("[console] vent manual fan=%u flap=%u\n", fan, flap);
+        } else {
+            Serial.println("[console] usage: vent manual <fan 0-100> <flap 0-100>");
+        }
     } else if (serialCommandLength > 0) {
         Serial.printf("[console] unknown command: %s\n", serialCommand);
     }
@@ -107,12 +148,16 @@ void setup() {
     systemHealth.begin();
     displayService.begin();
     systemHealth.checkpoint("display-touch");
+    coronet::ledService().begin();
+    systemHealth.checkpoint("led");
     audioService.begin();
     systemHealth.checkpoint("audio");
     coronet::wifiService().begin();
     systemHealth.checkpoint("wifi");
     coronet::printerService().begin();
     systemHealth.checkpoint("printer");
+    coronet::ventService().begin();
+    systemHealth.checkpoint("vent");
     webControlService.begin();
     systemHealth.checkpoint("web");
     bleService.begin();
@@ -124,9 +169,11 @@ void loop() {
     systemHealth.loop();
     coronet::settingsService().loop();
     displayService.loop();
+    coronet::ledService().loop();
     audioService.loop();
     coronet::wifiService().loop();
     coronet::printerService().loop();
+    coronet::ventService().loop();
     webControlService.loop();
     bleService.loop();
     delay(10);
