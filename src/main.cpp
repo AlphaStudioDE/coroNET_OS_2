@@ -47,6 +47,7 @@ void setup() {
 
 void loop() {
     systemHealth.loop();
+    coronet::settingsService().loop();
     displayService.loop();
     audioService.loop();
     wifiService.loop();

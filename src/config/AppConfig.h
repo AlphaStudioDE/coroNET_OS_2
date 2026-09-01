@@ -10,7 +10,12 @@ static constexpr const char* FirmwareVersion = "0.0.1-dev";
 
 static constexpr uint32_t SerialBaud = 115200;
 static constexpr uint32_t HealthLogIntervalMs = 5000;
+static constexpr uint32_t HealthSampleIntervalMs = 500;
 static constexpr uint32_t BleStateNotifyIntervalMs = 1000;
+static constexpr uint32_t BleWifiFallbackDelayMs = 45000;
+static constexpr uint32_t SettingsSaveDebounceMs = 1500;
+static constexpr uint32_t SettingsSaveMaxDelayMs = 5000;
+static constexpr size_t WebMaxJsonBodyBytes = 1024;
 static constexpr size_t PsramMallocThresholdBytes = 256;
 static constexpr size_t DeviceIdLength = 12;
 static constexpr size_t DeviceNameMaxLength = 24;

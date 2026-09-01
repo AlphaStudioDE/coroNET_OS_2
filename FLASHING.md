@@ -55,6 +55,8 @@ After `pio run`, PlatformIO creates the following development artifacts under `.
 
 The `.pio` directory is intentionally excluded from Git. Build products are reproducible outputs, not source files.
 
+The current 16 MB flash layout reserves two 6 MB OTA application slots, 3 MB for the local filesystem, and dedicated NVS, OTA metadata, and coredump partitions. Changing from an older development partition table requires a complete USB flash that includes `partitions.bin`; an application-only OTA cannot safely redefine its own slot layout.
+
 ## Release Distribution Policy
 
 - Source code and documentation live in the Git repository.

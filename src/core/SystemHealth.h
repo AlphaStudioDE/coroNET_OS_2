@@ -10,6 +10,7 @@ public:
     void log() const;
 
 private:
+    unsigned long lastSampleMs_ = 0;
     unsigned long lastLogMs_ = 0;
 };
 

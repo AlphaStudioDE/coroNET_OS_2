@@ -45,10 +45,13 @@ struct SystemState {
     uint32_t heapLargest = 0;
     uint32_t internalFree = 0;
     uint32_t internalLargest = 0;
+    uint32_t internalMinFree = 0;
     uint32_t dmaFree = 0;
     uint32_t dmaLargest = 0;
+    uint32_t dmaMinFree = 0;
     uint32_t psramFree = 0;
     uint32_t psramLargest = 0;
+    uint32_t psramMinFree = 0;
 };
 
 SystemState& state();

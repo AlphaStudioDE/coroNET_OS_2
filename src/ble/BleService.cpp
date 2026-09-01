@@ -1,8 +1,11 @@
 #include "BleService.h"
 
+#include <algorithm>
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 
+#include "BleProtocol.h"
 #include "../config/AppConfig.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemState.h"
@@ -17,73 +20,6 @@ BleService* gActiveService = nullptr;
 NimBLECharacteristic* gStateChr = nullptr;
 NimBLECharacteristic* gCommandChr = nullptr;
 NimBLECharacteristic* gEventChr = nullptr;
-
-bool extractJsonStringValue(const char* command, const char* key, char* out, size_t outSize) {
-    if (!command || !key || !out || outSize == 0) return false;
-    out[0] = '\0';
-
-    char needle[32];
-    snprintf(needle, sizeof(needle), "\"%s\"", key);
-    const char* p = strstr(command, needle);
-    if (!p) return false;
-
-    p = strchr(p + strlen(needle), ':');
-    if (!p) return false;
-    p++;
-    while (*p == ' ' || *p == '\t') p++;
-    if (*p != '"') return false;
-    p++;
-
-    size_t n = 0;
-    while (*p && *p != '"' && n + 1 < outSize) {
-        if (*p == '\\' && p[1]) p++;
-        out[n++] = *p++;
-    }
-    out[n] = '\0';
-    return true;
-}
-
-bool extractJsonUInt16Value(const char* command, const char* key, uint16_t& out) {
-    if (!command || !key) return false;
-
-    char needle[32];
-    snprintf(needle, sizeof(needle), "\"%s\"", key);
-    const char* p = strstr(command, needle);
-    if (!p) return false;
-
-    p = strchr(p + strlen(needle), ':');
-    if (!p) return false;
-    p++;
-    while (*p == ' ' || *p == '\t' || *p == '"') p++;
-    char* endPtr = nullptr;
-    const unsigned long value = strtoul(p, &endPtr, 10);
-    if (endPtr == p || value == 0 || value > 65535UL) return false;
-    out = static_cast<uint16_t>(value);
-    return true;
-}
-
-bool extractJsonBoolValue(const char* command, const char* key, bool& out) {
-    if (!command || !key) return false;
-
-    char needle[32];
-    snprintf(needle, sizeof(needle), "\"%s\"", key);
-    const char* p = strstr(command, needle);
-    if (!p) return false;
-
-    p = strchr(p + strlen(needle), ':');
-    if (!p) return false;
-    p++;
-    while (*p == ' ' || *p == '\t' || *p == '"') p++;
-    if (strncmp(p, "true", 4) == 0 || *p == '1') {
-        out = true;
-        return true;
-    }
-    if (strncmp(p, "false", 5) == 0 || *p == '0') {
-        out = false;
-        return true;
-    }
-    return false;
-}
 
 void normalizePrinterHost(const char* input, char* out, size_t outSize, uint16_t* port) {
     if (!out || outSize == 0) return;
@@ -145,33 +81,32 @@ int16_t tempToTenths(float value) {
     return static_cast<int16_t>(value * 10.0f);
 }
 
-const char* printerStateName(PrinterState state) {
-    switch (state) {
-        case PrinterState::Idle: return "idle";
-        case PrinterState::Printing: return "printing";
-        case PrinterState::Paused: return "paused";
-        case PrinterState::Error: return "error";
-        case PrinterState::Complete: return "complete";
-        case PrinterState::Unknown:
-        default: return "unknown";
-    }
+bool readBoundedString(JsonVariantConst value, char* out, size_t outSize, bool required) {
+    if (!out || outSize == 0) return false;
+    if (!value.is<const char*>()) return !required;
+
+    const char* text = value.as<const char*>();
+    if (!text || strlen(text) >= outSize) return false;
+    strlcpy(out, text, outSize);
+    return true;
 }
 
 class ServerCallbacks final : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* server, NimBLEConnInfo& connInfo) override {
         (void)server;
-        (void)connInfo;
-        if (gActiveService) {
-            gActiveService->publishEvent("ble", "connected");
-        }
-        state().bleConnected = true;
+        if (gActiveService) gActiveService->onConnected(connInfo.getMTU());
     }
 
     void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
         (void)connInfo;
         (void)reason;
-        state().bleConnected = false;
-        if (server) server->startAdvertising();
+        if (gActiveService) gActiveService->onDisconnected();
+        if (server && gActiveService && gActiveService->active()) server->startAdvertising();
+    }
+
+    void onMTUChange(uint16_t mtu, NimBLEConnInfo& connInfo) override {
+        (void)connInfo;
+        if (gActiveService) gActiveService->onMtuChanged(mtu);
     }
 };
 
@@ -180,37 +115,93 @@ class CommandCallbacks final : public NimBLECharacteristicCallbacks {
         (void)connInfo;
         if (!gActiveService || !characteristic) return;
 
-        std::string value = characteristic->getValue();
-        if (value.empty()) return;
-
-        gActiveService->queueCommand(value.data(), value.size());
+        const std::string value = characteristic->getValue();
+        if (!value.empty()) gActiveService->queueCommand(value.data(), value.size());
     }
 };
 
 }
 
 void BleService::begin() {
-    if (started_) return;
-    const AppSettings& cfg = settingsService().settings();
-    if (!cfg.bleEnabled || cfg.companionTransport == CompanionTransport::Wifi) {
-        Serial.println("[ble] disabled by companion transport settings");
-        return;
+    if (!commandQueue_) {
+        commandQueue_ = xQueueCreate(CommandQueueDepth, sizeof(QueuedCommand));
+        if (!commandQueue_) {
+            Serial.println("[ble] command queue allocation failed");
+            state().bleReady = false;
+            return;
+        }
     }
 
+    gActiveService = this;
     strlcpy(deviceId_, deviceIdentity().id(), sizeof(deviceId_));
-    refreshAdvertisedName();
+    appliedSettingsRevision_ = settingsService().revision();
+    applySettings();
+}
 
+void BleService::loop() {
+    applySettings();
+    if (!started_) return;
+
+    bool connectedEvent = false;
+    bool disconnectedEvent = false;
+    bool overflowEvent = false;
+    portENTER_CRITICAL(&connectionMux_);
+    connectedEvent = connectionEventPending_;
+    disconnectedEvent = disconnectEventPending_;
+    overflowEvent = commandOverflowPending_;
+    connectionEventPending_ = false;
+    disconnectEventPending_ = false;
+    commandOverflowPending_ = false;
+    portEXIT_CRITICAL(&connectionMux_);
+
+    if (connectedEvent) {
+        state().bleConnected = true;
+        publishEvent("ble", fallbackActive_ ? "connected_fallback" : "connected");
+        publishState(true);
+    }
+    if (disconnectedEvent) {
+        state().bleConnected = false;
+        stateDirty_ = true;
+        pairingTokenIssued_ = false;
+    }
+    if (overflowEvent) publishEvent("error", "command_queue_full");
+
+    QueuedCommand queued{};
+    uint8_t handled = 0;
+    while (handled < CommandQueueDepth && xQueueReceive(commandQueue_, &queued, 0) == pdTRUE) {
+        handleCommand(queued.data, queued.length);
+        handled++;
+    }
+
+    publishState(false);
+}
+
+void BleService::startStack() {
+    if (started_) return;
+
+    portENTER_CRITICAL(&connectionMux_);
+    connectionEventPending_ = false;
+    disconnectEventPending_ = false;
+    portEXIT_CRITICAL(&connectionMux_);
+
+    refreshAdvertisedName();
     NimBLEDevice::init(advertisedName_);
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
     NimBLEDevice::setMTU(247);
 
     NimBLEServer* server = NimBLEDevice::createServer();
-    if (!server) return;
+    if (!server) {
+        NimBLEDevice::deinit(true);
+        return;
+    }
     server->setCallbacks(new ServerCallbacks());
     server->advertiseOnDisconnect(true);
 
     NimBLEService* service = server->createService(config::BleServiceUuid);
-    if (!service) return;
+    if (!service) {
+        NimBLEDevice::deinit(true);
+        return;
+    }
 
     gStateChr = service->createCharacteristic(
         config::BleStateUuid,
@@ -219,233 +210,389 @@ void BleService::begin() {
     gCommandChr = service->createCharacteristic(
         config::BleCommandUuid,
         NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR,
-        192);
+        CommandMaxLength);
     gEventChr = service->createCharacteristic(
         config::BleEventUuid,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY,
         512);
 
-    if (!gStateChr || !gCommandChr || !gEventChr) return;
-    gActiveService = this;
-    gCommandChr->setCallbacks(new CommandCallbacks());
+    if (!gStateChr || !gCommandChr || !gEventChr) {
+        NimBLEDevice::deinit(true);
+        gStateChr = nullptr;
+        gCommandChr = nullptr;
+        gEventChr = nullptr;
+        return;
+    }
 
+    gCommandChr->setCallbacks(new CommandCallbacks());
     server->start();
+
     NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
     advertising->enableScanResponse(true);
     const bool uuidOk = advertising->addServiceUUID(config::BleServiceUuid);
     const bool nameOk = advertising->setName(advertisedName_);
     const bool startOk = advertising->start();
-    Serial.printf("[ble] advertising id=%s name=%s uuid=%u nameOk=%u start=%u\n",
-                  deviceId_,
-                  advertisedName_,
-                  uuidOk ? 1 : 0,
-                  nameOk ? 1 : 0,
-                  startOk ? 1 : 0);
 
-    started_ = true;
-    state().bleReady = true;
-    publishEvent("boot", "coroNET OS 2 ready");
-    publishState(true);
+    portENTER_CRITICAL(&connectionMux_);
+    started_ = startOk;
+    portEXIT_CRITICAL(&connectionMux_);
+    state().bleReady = startOk;
+    stateDirty_ = true;
+    Serial.printf("[ble] advertising id=%s name=%s uuid=%u nameOk=%u start=%u fallback=%u\n",
+                  deviceId_, advertisedName_, uuidOk ? 1 : 0, nameOk ? 1 : 0,
+                  startOk ? 1 : 0, fallbackActive_ ? 1 : 0);
+
+    if (!startOk) {
+        NimBLEDevice::deinit(true);
+        gStateChr = nullptr;
+        gCommandChr = nullptr;
+        gEventChr = nullptr;
+    }
 }
 
-void BleService::loop() {
-    if (!started_) return;
-    connected_ = state().bleConnected;
-    if (commandPending_) {
-        char command[sizeof(pendingCommand_)] = "";
-        noInterrupts();
-        strlcpy(command, pendingCommand_, sizeof(command));
-        pendingCommand_[0] = '\0';
-        commandPending_ = false;
-        interrupts();
-        handleCommand(command);
+void BleService::stopStack() {
+    if (!started_ && !state().bleReady) return;
+
+    portENTER_CRITICAL(&connectionMux_);
+    started_ = false;
+    connected_ = false;
+    portEXIT_CRITICAL(&connectionMux_);
+    state().bleReady = false;
+    state().bleConnected = false;
+    NimBLEDevice::deinit(true);
+    portENTER_CRITICAL(&connectionMux_);
+    connectionEventPending_ = false;
+    disconnectEventPending_ = false;
+    portEXIT_CRITICAL(&connectionMux_);
+    gStateChr = nullptr;
+    gCommandChr = nullptr;
+    gEventChr = nullptr;
+    Serial.println("[ble] stopped");
+}
+
+void BleService::applySettings() {
+    const AppSettings& cfg = settingsService().settings();
+    const uint32_t now = millis();
+    const bool wifiConnected = state().wifiConnected;
+
+    if (cfg.companionTransport == CompanionTransport::Wifi && !wifiConnected) {
+        if (wifiOfflineSinceMs_ == 0) wifiOfflineSinceMs_ = now ? now : 1;
+        fallbackActive_ = now - wifiOfflineSinceMs_ >= config::BleWifiFallbackDelayMs;
+    } else {
+        wifiOfflineSinceMs_ = 0;
+        fallbackActive_ = false;
     }
-    publishState(false);
+
+    bool shouldStart = !cfg.apiPaired ||
+                       (cfg.bleEnabled && cfg.companionTransport != CompanionTransport::Wifi) ||
+                       fallbackActive_;
+    if (!shouldStart && isConnected()) shouldStart = true;
+
+    if (shouldStart && !started_) startStack();
+    else if (!shouldStart && started_) stopStack();
+
+    const uint32_t revision = settingsService().revision();
+    if (started_ && revision != appliedSettingsRevision_) {
+        updateAdvertisingName();
+        stateDirty_ = true;
+    }
+    appliedSettingsRevision_ = revision;
 }
 
 void BleService::refreshAdvertisedName() {
     deviceIdentity().effectiveName(settingsService().settings().deviceName, advertisedName_, sizeof(advertisedName_));
 }
 
-void BleService::publishEvent(const char* type, const char* message) {
-    if (!gEventChr) return;
-    char safeType[48];
-    char safeMessage[320];
-    jsonStringCopy(type ? type : "event", safeType, sizeof(safeType));
-    jsonStringCopy(message ? message : "", safeMessage, sizeof(safeMessage));
+void BleService::updateAdvertisingName() {
+    char previousName[sizeof(advertisedName_)];
+    strlcpy(previousName, advertisedName_, sizeof(previousName));
+    refreshAdvertisedName();
+    if (strcmp(previousName, advertisedName_) == 0) return;
 
-    char payload[512];
-    snprintf(payload, sizeof(payload),
-             "{\"t\":\"e\",\"r\":%lu,\"type\":\"%s\",\"msg\":\"%s\"}",
-             ++revision_,
-             safeType,
-             safeMessage);
-    gEventChr->setValue(payload);
-    if (connected_) gEventChr->notify();
+    NimBLEDevice::setDeviceName(advertisedName_);
+    if (NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising()) {
+        advertising->enableScanResponse(true);
+        advertising->setName(advertisedName_);
+        advertising->refreshAdvertisingData();
+    }
+}
+
+void BleService::onConnected(uint16_t mtu) {
+    portENTER_CRITICAL(&connectionMux_);
+    connected_ = true;
+    connectionMtu_ = mtu >= 23 ? mtu : 23;
+    connectionEventPending_ = true;
+    portEXIT_CRITICAL(&connectionMux_);
+}
+
+void BleService::onDisconnected() {
+    portENTER_CRITICAL(&connectionMux_);
+    connected_ = false;
+    connectionMtu_ = 23;
+    disconnectEventPending_ = true;
+    portEXIT_CRITICAL(&connectionMux_);
+}
+
+bool BleService::active() {
+    portENTER_CRITICAL(&connectionMux_);
+    const bool value = started_;
+    portEXIT_CRITICAL(&connectionMux_);
+    return value;
+}
+
+bool BleService::isConnected() {
+    portENTER_CRITICAL(&connectionMux_);
+    const bool value = connected_;
+    portEXIT_CRITICAL(&connectionMux_);
+    return value;
+}
+
+void BleService::onMtuChanged(uint16_t mtu) {
+    portENTER_CRITICAL(&connectionMux_);
+    connectionMtu_ = mtu >= 23 ? mtu : 23;
+    portEXIT_CRITICAL(&connectionMux_);
 }
 
 void BleService::queueCommand(const char* command, size_t length) {
-    if (!command || length == 0) return;
-    const size_t n = min(length, sizeof(pendingCommand_) - 1U);
-    memcpy(pendingCommand_, command, n);
-    pendingCommand_[n] = '\0';
-    commandPending_ = true;
+    if (!command || length == 0 || !commandQueue_) return;
+    if (length >= CommandMaxLength) {
+        portENTER_CRITICAL(&connectionMux_);
+        commandOverflowPending_ = true;
+        portEXIT_CRITICAL(&connectionMux_);
+        return;
+    }
+
+    QueuedCommand queued{};
+    queued.length = static_cast<uint16_t>(length);
+    memcpy(queued.data, command, length);
+    queued.data[length] = '\0';
+    if (xQueueSend(commandQueue_, &queued, 0) != pdTRUE) {
+        portENTER_CRITICAL(&connectionMux_);
+        commandOverflowPending_ = true;
+        portEXIT_CRITICAL(&connectionMux_);
+    }
 }
 
-void BleService::handleCommand(const char* command) {
-    if (!command || !*command) return;
+void BleService::handleCommand(const char* command, size_t length) {
+    if (!command || length == 0) return;
 
-    if (strcmp(command, "snapshot") == 0 || strstr(command, "\"snapshot\"")) {
+    JsonDocument doc;
+    const char* cmd = nullptr;
+    if (strcmp(command, "snapshot") == 0 || strcmp(command, "ping") == 0 || strcmp(command, "getSettings") == 0) {
+        cmd = command;
+    } else {
+        const DeserializationError error = deserializeJson(doc, command, length);
+        if (error || !doc.is<JsonObject>()) {
+            publishEvent("error", "invalid_json");
+            return;
+        }
+        cmd = doc["cmd"].as<const char*>();
+        if (!cmd || !*cmd) {
+            publishEvent("error", "command_missing");
+            return;
+        }
+    }
+
+    if (strcmp(cmd, "snapshot") == 0) {
         publishState(true);
         publishEvent("ack", "snapshot");
         return;
     }
-
-    if (strcmp(command, "ping") == 0 || strstr(command, "\"ping\"")) {
+    if (strcmp(cmd, "ping") == 0) {
         publishEvent("ack", "pong");
         return;
     }
-
-    if (strcmp(command, "getSettings") == 0 || strstr(command, "getSettings")) {
+    if (strcmp(cmd, "getSettings") == 0) {
         publishSettings();
         publishEvent("ack", "settings");
         return;
     }
-
-    if (strstr(command, "setWifi")) {
-        char ssid[sizeof(settingsService().mutableSettings().wifiSsid)] = "";
-        char password[sizeof(settingsService().mutableSettings().wifiPassword)] = "";
-        if (!extractJsonStringValue(command, "ssid", ssid, sizeof(ssid))) {
-            publishEvent("ack", "wifi_ssid_missing");
+    if (strcmp(cmd, "getPairingToken") == 0) {
+        publishPairingToken();
+        return;
+    }
+    if (strcmp(cmd, "confirmPairing") == 0) {
+        if (!pairingTokenIssued_) {
+            publishEvent("error", "pairing_not_started");
             return;
         }
-        extractJsonStringValue(command, "password", password, sizeof(password));
-
         AppSettings& cfg = settingsService().mutableSettings();
+        if (!cfg.apiPaired) {
+            cfg.apiPaired = true;
+            settingsService().save();
+            settingsService().flush();
+        }
+        pairingTokenIssued_ = false;
+        publishEvent("ack", "pairing_confirmed");
+        return;
+    }
+
+    if (strcmp(cmd, "setWifi") == 0) {
+        AppSettings& cfg = settingsService().mutableSettings();
+        char ssid[sizeof(cfg.wifiSsid)] = "";
+        char password[sizeof(cfg.wifiPassword)] = "";
+        if (!readBoundedString(doc["ssid"], ssid, sizeof(ssid), true)) {
+            publishEvent("error", "wifi_ssid_invalid");
+            return;
+        }
+        const bool passwordProvided = doc["password"].is<const char*>();
+        if (passwordProvided && !readBoundedString(doc["password"], password, sizeof(password), false)) {
+            publishEvent("error", "wifi_password_invalid");
+            return;
+        }
         strlcpy(cfg.wifiSsid, ssid, sizeof(cfg.wifiSsid));
-        strlcpy(cfg.wifiPassword, password, sizeof(cfg.wifiPassword));
+        if (passwordProvided) strlcpy(cfg.wifiPassword, password, sizeof(cfg.wifiPassword));
         settingsService().save();
         publishSettings();
         publishEvent("ack", "wifi_saved");
         return;
     }
 
-    if (strstr(command, "setPrinter")) {
-        char rawHost[sizeof(settingsService().mutableSettings().printerHost) + 16] = "";
-        char cleanHost[sizeof(settingsService().mutableSettings().printerHost)] = "";
-        char apiKey[sizeof(settingsService().mutableSettings().printerApiKey)] = "";
-        uint16_t port = settingsService().settings().printerPort ? settingsService().settings().printerPort : 7125;
-        if (!extractJsonStringValue(command, "host", rawHost, sizeof(rawHost))) {
-            publishEvent("ack", "printer_host_missing");
-            return;
-        }
-        extractJsonUInt16Value(command, "port", port);
-        extractJsonStringValue(command, "apiKey", apiKey, sizeof(apiKey));
-        normalizePrinterHost(rawHost, cleanHost, sizeof(cleanHost), &port);
-        if (!cleanHost[0]) {
-            publishEvent("ack", "printer_host_invalid");
+    if (strcmp(cmd, "setPrinter") == 0) {
+        AppSettings& cfg = settingsService().mutableSettings();
+        char rawHost[sizeof(cfg.printerHost) + 16] = "";
+        char cleanHost[sizeof(cfg.printerHost)] = "";
+        char apiKey[sizeof(cfg.printerApiKey)] = "";
+        if (!readBoundedString(doc["host"], rawHost, sizeof(rawHost), true)) {
+            publishEvent("error", "printer_host_invalid");
             return;
         }
 
-        AppSettings& cfg = settingsService().mutableSettings();
+        uint16_t port = cfg.printerPort ? cfg.printerPort : 7125;
+        if (doc["port"].is<int>()) {
+            const int requestedPort = doc["port"].as<int>();
+            if (requestedPort < 1 || requestedPort > 65535) {
+                publishEvent("error", "printer_port_invalid");
+                return;
+            }
+            port = static_cast<uint16_t>(requestedPort);
+        }
+        const bool apiKeyProvided = doc["apiKey"].is<const char*>();
+        if (apiKeyProvided && !readBoundedString(doc["apiKey"], apiKey, sizeof(apiKey), false)) {
+            publishEvent("error", "printer_key_invalid");
+            return;
+        }
+
+        normalizePrinterHost(rawHost, cleanHost, sizeof(cleanHost), &port);
+        if (!cleanHost[0]) {
+            publishEvent("error", "printer_host_invalid");
+            return;
+        }
         strlcpy(cfg.printerHost, cleanHost, sizeof(cfg.printerHost));
         cfg.printerPort = port;
-        strlcpy(cfg.printerApiKey, apiKey, sizeof(cfg.printerApiKey));
+        if (apiKeyProvided) strlcpy(cfg.printerApiKey, apiKey, sizeof(cfg.printerApiKey));
         settingsService().save();
         publishSettings();
         publishEvent("ack", "printer_saved");
         return;
     }
 
-    if (strstr(command, "testPrinterConnection")) {
-        PrinterTestResult result = printerService().testConnection();
+    if (strcmp(cmd, "testPrinterConnection") == 0) {
+        const PrinterTestResult result = printerService().testConnection();
         publishState(true);
-        char msg[128];
-        snprintf(msg, sizeof(msg), "%s:%d", result.message, result.httpCode);
-        publishEvent(result.ok ? "printer_test_ok" : "printer_test_failed", msg);
+        char message[128];
+        snprintf(message, sizeof(message), "%s:%d", result.message, result.httpCode);
+        publishEvent(result.ok ? "printer_test_ok" : "printer_test_failed", message);
         return;
     }
 
-    if (strstr(command, "setSetupDone")) {
-        bool done = true;
-        extractJsonBoolValue(command, "done", done);
+    if (strcmp(cmd, "setSetupDone") == 0) {
+        if (!doc["done"].is<bool>()) {
+            publishEvent("error", "setup_done_invalid");
+            return;
+        }
         AppSettings& cfg = settingsService().mutableSettings();
-        cfg.setupDone = done;
+        cfg.setupDone = doc["done"].as<bool>();
+        state().setupDone = cfg.setupDone;
         settingsService().save();
-        state().setupDone = done;
         publishSettings();
         publishState(true);
-        publishEvent("ack", done ? "setup_done" : "setup_open");
+        publishEvent("ack", cfg.setupDone ? "setup_done" : "setup_open");
         return;
     }
 
-    if (strstr(command, "resetDeviceName")) {
-        AppSettings& cfg = settingsService().mutableSettings();
-        cfg.deviceName[0] = '\0';
+    if (strcmp(cmd, "resetDeviceName") == 0) {
+        settingsService().mutableSettings().deviceName[0] = '\0';
         settingsService().save();
-        refreshAdvertisedName();
-        NimBLEDevice::setDeviceName(advertisedName_);
-        if (NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising()) {
-            advertising->enableScanResponse(true);
-            advertising->setName(advertisedName_);
-            advertising->refreshAdvertisingData();
-        }
+        updateAdvertisingName();
         publishState(true);
         publishEvent("ack", "device_name_reset");
         return;
     }
 
-    if (strstr(command, "setDeviceName") || strstr(command, "setName")) {
-        char requestedName[sizeof(settingsService().mutableSettings().deviceName)] = "";
-        char cleanName[sizeof(settingsService().mutableSettings().deviceName)] = "";
-        if (extractJsonStringValue(command, "name", requestedName, sizeof(requestedName))) {
-            deviceIdentity().sanitizeName(requestedName, cleanName, sizeof(cleanName));
-            AppSettings& cfg = settingsService().mutableSettings();
-            strlcpy(cfg.deviceName, cleanName, sizeof(cfg.deviceName));
-            settingsService().save();
-            refreshAdvertisedName();
-            NimBLEDevice::setDeviceName(advertisedName_);
-            if (NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising()) {
-                advertising->enableScanResponse(true);
-                advertising->setName(advertisedName_);
-                advertising->refreshAdvertisingData();
-            }
-            publishState(true);
-            publishEvent("ack", cleanName[0] ? "device_name_saved" : "device_name_reset");
+    if (strcmp(cmd, "setDeviceName") == 0 || strcmp(cmd, "setName") == 0) {
+        AppSettings& cfg = settingsService().mutableSettings();
+        char requestedName[sizeof(cfg.deviceName)] = "";
+        char cleanName[sizeof(cfg.deviceName)] = "";
+        if (!readBoundedString(doc["name"], requestedName, sizeof(requestedName), true)) {
+            publishEvent("error", "device_name_invalid");
             return;
         }
-        publishEvent("ack", "device_name_missing");
+        deviceIdentity().sanitizeName(requestedName, cleanName, sizeof(cleanName));
+        strlcpy(cfg.deviceName, cleanName, sizeof(cfg.deviceName));
+        settingsService().save();
+        updateAdvertisingName();
+        publishState(true);
+        publishEvent("ack", cleanName[0] ? "device_name_saved" : "device_name_reset");
         return;
     }
 
-    if (strstr(command, "setCompanionTransport")) {
-        char mode[16] = "";
-        if (!extractJsonStringValue(command, "mode", mode, sizeof(mode))) {
-            publishEvent("ack", "transport_mode_missing");
+    if (strcmp(cmd, "setCompanionTransport") == 0) {
+        const char* mode = doc["mode"].as<const char*>();
+        if (!mode) {
+            publishEvent("error", "transport_mode_missing");
             return;
         }
-        for (char* p = mode; *p; ++p) {
-            if (*p >= 'A' && *p <= 'Z') *p = static_cast<char>(*p - 'A' + 'a');
-        }
+
         AppSettings& cfg = settingsService().mutableSettings();
-        if (strcmp(mode, "auto") == 0) cfg.companionTransport = CompanionTransport::Auto;
-        else if (strcmp(mode, "ble") == 0 || strcmp(mode, "bt") == 0) cfg.companionTransport = CompanionTransport::Ble;
-        else if (strcmp(mode, "wifi") == 0) cfg.companionTransport = CompanionTransport::Wifi;
+        if (strcasecmp(mode, "auto") == 0) cfg.companionTransport = CompanionTransport::Auto;
+        else if (strcasecmp(mode, "ble") == 0 || strcasecmp(mode, "bt") == 0) cfg.companionTransport = CompanionTransport::Ble;
+        else if (strcasecmp(mode, "wifi") == 0) cfg.companionTransport = CompanionTransport::Wifi;
         else {
-            publishEvent("ack", "transport_mode_invalid");
+            publishEvent("error", "transport_mode_invalid");
             return;
         }
         settingsService().save();
         publishSettings();
-        publishEvent("ack", "transport_saved_restart_ble_if_needed");
+        publishEvent("ack", "transport_saved");
         return;
     }
 
-    publishEvent("ack", "unknown_command");
+    publishEvent("error", "unknown_command");
+}
+
+void BleService::publishEvent(const char* type, const char* message) {
+    if (!gEventChr || !isConnected()) return;
+
+    char safeType[48];
+    char safeMessage[320];
+    jsonStringCopy(type ? type : "event", safeType, sizeof(safeType));
+    jsonStringCopy(message ? message : "", safeMessage, sizeof(safeMessage));
+
+    char payload[512];
+    const int written = snprintf(payload, sizeof(payload),
+                                 "{\"v\":%u,\"t\":\"e\",\"r\":%lu,\"type\":\"%s\",\"msg\":\"%s\"}",
+                                 bleprotocol::Version,
+                                 static_cast<unsigned long>(++revision_),
+                                 safeType,
+                                 safeMessage);
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(payload)) {
+        static constexpr char Fallback[] = "{\"v\":1,\"t\":\"e\",\"type\":\"error\",\"msg\":\"event_too_large\"}";
+        sendFramed(gEventChr,
+                   static_cast<uint8_t>(bleprotocol::MessageType::EventJson),
+                   reinterpret_cast<const uint8_t*>(Fallback),
+                   strlen(Fallback));
+        return;
+    }
+
+    sendFramed(gEventChr,
+               static_cast<uint8_t>(bleprotocol::MessageType::EventJson),
+               reinterpret_cast<const uint8_t*>(payload),
+               static_cast<size_t>(written));
 }
 
 void BleService::publishSettings() {
-    if (!gEventChr) return;
+    if (!gEventChr || !isConnected()) return;
 
     const AppSettings& cfg = settingsService().settings();
     char safeName[64];
@@ -456,71 +603,139 @@ void BleService::publishSettings() {
     jsonStringCopy(cfg.printerHost, safePrinterHost, sizeof(safePrinterHost));
 
     char payload[512];
-    snprintf(payload, sizeof(payload),
-             "{\"t\":\"settings\",\"r\":%lu,\"id\":\"%s\",\"name\":\"%s\","
-             "\"setupDone\":%u,\"bleEnabled\":%u,\"transport\":%u,\"brightness\":%u,"
-             "\"uiSkin\":%u,\"uiColor\":%u,\"wifiSsid\":\"%s\","
-             "\"printerHost\":\"%s\",\"printerPort\":%u,\"printerApiKeySet\":%u}",
-             ++revision_,
-             deviceId_,
-             safeName,
-             cfg.setupDone ? 1 : 0,
-             cfg.bleEnabled ? 1 : 0,
-             static_cast<unsigned>(cfg.companionTransport),
-             static_cast<unsigned>(cfg.displayBrightness),
-             static_cast<unsigned>(cfg.uiSkin),
-             static_cast<unsigned>(cfg.uiColorMode),
-             safeSsid,
-             safePrinterHost,
-             static_cast<unsigned>(cfg.printerPort),
-             cfg.printerApiKey[0] ? 1 : 0);
+    const int written = snprintf(payload, sizeof(payload),
+                                 "{\"v\":%u,\"t\":\"settings\",\"r\":%lu,\"id\":\"%s\",\"name\":\"%s\","
+                                 "\"setupDone\":%u,\"bleEnabled\":%u,\"apiPaired\":%u,\"transport\":%u,\"brightness\":%u,"
+                                 "\"uiSkin\":%u,\"uiColor\":%u,\"wifiSsid\":\"%s\",\"wifiPasswordSet\":%u,"
+                                 "\"printerHost\":\"%s\",\"printerPort\":%u,\"printerApiKeySet\":%u}",
+                                 bleprotocol::Version,
+                                 static_cast<unsigned long>(++revision_),
+                                 deviceId_, safeName,
+                                 cfg.setupDone ? 1 : 0,
+                                 cfg.bleEnabled ? 1 : 0,
+                                 cfg.apiPaired ? 1 : 0,
+                                 static_cast<unsigned>(cfg.companionTransport),
+                                 static_cast<unsigned>(cfg.displayBrightness),
+                                 static_cast<unsigned>(cfg.uiSkin),
+                                 static_cast<unsigned>(cfg.uiColorMode),
+                                 safeSsid,
+                                 cfg.wifiPassword[0] ? 1 : 0,
+                                 safePrinterHost,
+                                 static_cast<unsigned>(cfg.printerPort),
+                                 cfg.printerApiKey[0] ? 1 : 0);
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(payload)) {
+        publishEvent("error", "settings_too_large");
+        return;
+    }
 
-    gEventChr->setValue(payload);
-    if (connected_) gEventChr->notify();
+    sendFramed(gEventChr,
+               static_cast<uint8_t>(bleprotocol::MessageType::SettingsJson),
+               reinterpret_cast<const uint8_t*>(payload),
+               static_cast<size_t>(written));
+}
+
+void BleService::publishPairingToken() {
+    if (!gEventChr || !isConnected()) return;
+
+    const AppSettings& cfg = settingsService().settings();
+    if (cfg.apiPaired) {
+        publishEvent("error", "pairing_closed");
+        return;
+    }
+    char payload[160];
+    const int written = snprintf(payload, sizeof(payload),
+                                 "{\"v\":%u,\"t\":\"pairing\",\"id\":\"%s\",\"token\":\"%s\"}",
+                                 bleprotocol::Version, deviceId_, cfg.apiToken);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(payload)) return;
+
+    pairingTokenIssued_ = sendFramed(gEventChr,
+                                     static_cast<uint8_t>(bleprotocol::MessageType::PairingJson),
+                                     reinterpret_cast<const uint8_t*>(payload),
+                                     static_cast<size_t>(written));
 }
 
 void BleService::publishState(bool force) {
-    if (!gStateChr) return;
-    const unsigned long now = millis();
+    if (!gStateChr || !isConnected()) return;
+    const uint32_t now = millis();
     if (!force && !stateDirty_ && now - lastNotifyMs_ < config::BleStateNotifyIntervalMs) return;
 
     const SystemState& s = state();
-    char safeName[32];
-    char safePrinterStatus[48];
-    jsonStringCopy(advertisedName_, safeName, sizeof(safeName));
-    jsonStringCopy(s.printerStatusText, safePrinterStatus, sizeof(safePrinterStatus));
+    bleprotocol::StateSnapshotV1 snapshot{};
+    snapshot.version = bleprotocol::Version;
+    snapshot.messageType = static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot);
+    snapshot.size = sizeof(snapshot);
+    snapshot.revision = ++revision_;
+    snapshot.uptimeMs = s.uptimeMs;
+    if (s.setupDone) snapshot.flags |= bleprotocol::SetupDone;
+    if (s.wifiConnected) snapshot.flags |= bleprotocol::WifiConnected;
+    if (s.webReady) snapshot.flags |= bleprotocol::WebReady;
+    if (s.bleConnected) snapshot.flags |= bleprotocol::BleConnected;
+    if (s.displayReady) snapshot.flags |= bleprotocol::DisplayReady;
+    if (s.touchReady) snapshot.flags |= bleprotocol::TouchReady;
+    if (s.printerConfigured) snapshot.flags |= bleprotocol::PrinterConfigured;
+    if (s.printerConnected) snapshot.flags |= bleprotocol::PrinterConnected;
+    if (s.audioReady) snapshot.flags |= bleprotocol::AudioReady;
+    if (fallbackActive_) snapshot.flags |= bleprotocol::BleFallbackActive;
+    snapshot.printerState = static_cast<uint8_t>(s.printerState);
+    snapshot.printProgress = s.printProgress;
+    snapshot.activeTool = s.activeTool;
+    snapshot.activeToolTempTenths = tempToTenths(s.activeToolTempC);
+    snapshot.bedTempTenths = tempToTenths(s.bedTempC);
+    snapshot.chamberTempTenths = tempToTenths(s.chamberTempC);
+    strlcpy(snapshot.deviceId, deviceId_, sizeof(snapshot.deviceId));
+    strlcpy(snapshot.deviceName, advertisedName_, sizeof(snapshot.deviceName));
+    strlcpy(snapshot.printerStatus, s.printerStatusText, sizeof(snapshot.printerStatus));
+    strlcpy(snapshot.printFilename, s.printFilename, sizeof(snapshot.printFilename));
 
-    char payload[256];
-    snprintf(payload, sizeof(payload),
-             "{\"t\":\"s\",\"r\":%lu,\"id\":\"%s\",\"n\":\"%s\",\"fw\":\"%s\","
-             "\"up\":%lu,\"setup\":%u,\"wifi\":%u,\"web\":%u,\"ble\":%u,\"disp\":%u,\"touch\":%u,"
-             "\"pcfg\":%u,\"pon\":%u,\"ps\":\"%s\",\"stat\":\"%s\",\"p\":%u,"
-             "\"tool\":%u,\"tt\":%d,\"bt\":%d,\"ct\":%d}",
-             ++revision_,
-             deviceId_,
-             safeName,
-             config::FirmwareVersion,
-             static_cast<unsigned long>(s.uptimeMs),
-             s.setupDone ? 1 : 0,
-             s.wifiConnected ? 1 : 0,
-             s.webReady ? 1 : 0,
-             s.bleConnected ? 1 : 0,
-             s.displayReady ? 1 : 0,
-             s.touchReady ? 1 : 0,
-             s.printerConfigured ? 1 : 0,
-             s.printerConnected ? 1 : 0,
-             printerStateName(s.printerState),
-             safePrinterStatus,
-             static_cast<unsigned>(s.printProgress),
-             static_cast<unsigned>(s.activeTool),
-             tempToTenths(s.activeToolTempC),
-             tempToTenths(s.bedTempC),
-             tempToTenths(s.chamberTempC));
+    if (sendFramed(gStateChr,
+                   static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot),
+                   reinterpret_cast<const uint8_t*>(&snapshot),
+                   sizeof(snapshot))) {
+        lastNotifyMs_ = now;
+        stateDirty_ = false;
+    }
+}
 
-    gStateChr->setValue(payload);
-    if (connected_) gStateChr->notify();
-    lastNotifyMs_ = now;
-    stateDirty_ = false;
+bool BleService::sendFramed(NimBLECharacteristic* characteristic,
+                            uint8_t messageType,
+                            const uint8_t* payload,
+                            size_t length) {
+    if (!characteristic || !payload || length == 0 || length > UINT16_MAX || !isConnected()) return false;
+
+    uint16_t mtu = 23;
+    portENTER_CRITICAL(&connectionMux_);
+    mtu = connectionMtu_;
+    portEXIT_CRITICAL(&connectionMux_);
+
+    const size_t attPayload = std::min<size_t>(bleprotocol::MaxAttPayload, mtu > 3 ? mtu - 3 : 20);
+    if (attPayload <= sizeof(bleprotocol::FrameHeader)) return false;
+    const size_t chunkPayload = attPayload - sizeof(bleprotocol::FrameHeader);
+    const size_t chunkCountRaw = (length + chunkPayload - 1) / chunkPayload;
+    if (chunkCountRaw == 0 || chunkCountRaw > UINT8_MAX) return false;
+
+    const uint8_t chunkCount = static_cast<uint8_t>(chunkCountRaw);
+    const uint16_t messageId = ++messageId_;
+    uint8_t frame[bleprotocol::MaxAttPayload];
+
+    for (uint8_t index = 0; index < chunkCount; ++index) {
+        const size_t offset = static_cast<size_t>(index) * chunkPayload;
+        const size_t bytes = std::min(chunkPayload, length - offset);
+        const bleprotocol::FrameHeader header{
+            bleprotocol::Version,
+            messageType,
+            messageId,
+            static_cast<uint16_t>(length),
+            index,
+            chunkCount,
+        };
+        memcpy(frame, &header, sizeof(header));
+        memcpy(frame + sizeof(header), payload + offset, bytes);
+        const size_t frameLength = sizeof(header) + bytes;
+        characteristic->setValue(frame, frameLength);
+        if (!characteristic->notify(frame, frameLength)) return false;
+        if (index + 1 < chunkCount) vTaskDelay(1);
+    }
+    return true;
 }
 
 }

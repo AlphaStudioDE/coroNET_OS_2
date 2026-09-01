@@ -74,8 +74,8 @@ void updateBootScreen() {
     }
     if (memoryLabel) {
         lv_label_set_text_fmt(memoryLabel,
-                              "heap %lu KB   dma %lu KB   psram %lu KB",
-                              static_cast<unsigned long>(s.heapFree / 1024UL),
+                              "internal %lu KB   dma %lu KB   psram %lu KB",
+                              static_cast<unsigned long>(s.internalFree / 1024UL),
                               static_cast<unsigned long>(s.dmaLargest / 1024UL),
                               static_cast<unsigned long>(s.psramFree / 1024UL));
     }
@@ -135,6 +135,7 @@ void DisplayService::begin() {
 
     bsp_display_backlight_on();
     applyBrightness(settingsService().settings().displayBrightness);
+    appliedBrightness_ = settingsService().settings().displayBrightness;
     started_ = true;
 
     Serial.printf("DisplayService ready, brightness=%u%%, touch=%s\n",
@@ -144,6 +145,12 @@ void DisplayService::begin() {
 
 void DisplayService::loop() {
     if (!started_) return;
+    const uint8_t requestedBrightness = settingsService().settings().displayBrightness;
+    if (requestedBrightness != appliedBrightness_) {
+        applyBrightness(requestedBrightness);
+        appliedBrightness_ = requestedBrightness;
+    }
+
     const uint32_t now = millis();
     if (now - lastUiUpdateMs_ < kUiUpdateIntervalMs) return;
     lastUiUpdateMs_ = now;

@@ -284,8 +284,8 @@ lv_disp_t *lvgl_port_add_disp(const lvgl_port_display_cfg_t *disp_cfg)
 
     disp_ctx->disp_drv.draw_buf = disp_buf;
     disp_ctx->disp_drv.user_data = disp_ctx;
-    /* Force full_fresh */
-    disp_ctx->disp_drv.full_refresh = 1;
+    /* Dirty-area rendering keeps small UI changes from redrawing the full panel. */
+    disp_ctx->disp_drv.full_refresh = 0;
 
 #if LVGL_PORT_HANDLE_FLUSH_READY
     /* Register done callback */
@@ -546,7 +546,7 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
             case LV_DISP_ROT_90:
                 for (int y = 0; y < height; y++) {
                     for (int x = 0; x < trans_width; x++) {
-                        *(to + x * height + (height - y - 1)) = *(from + y * width + x_start_tmp + x);
+                        *(to + x * height + (height - y - 1)) = *(from + y * width + (x_start_tmp - x_start) + x);
                     }
                 }
                 x_draw_start = drv->ver_res - y_end - 1;
@@ -557,7 +557,7 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
             case LV_DISP_ROT_270:
                 for (int y = 0; y < height; y++) {
                     for (int x = 0; x < trans_width; x++) {
-                        *(to + (trans_width - x - 1) * height + y) = *(from + y * width + x_start_tmp + x);
+                        *(to + (trans_width - x - 1) * height + y) = *(from + y * width + (x_start_tmp - x_start) + x);
                     }
                 }
                 x_draw_start = y_start;
@@ -568,7 +568,7 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
             case LV_DISP_ROT_180:
                 for (int y = 0; y < trans_height; y++) {
                     for (int x = 0; x < width; x++) {
-                        *(to + (trans_height - y - 1)*width + (width - x - 1)) = *(from + y_start_tmp * width + y * (width) + x);
+                        *(to + (trans_height - y - 1)*width + (width - x - 1)) = *(from + (y_start_tmp - y_start) * width + y * width + x);
                     }
                 }
                 x_draw_start = drv->hor_res - x_end - 1;
@@ -579,7 +579,7 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
             case LV_DISP_ROT_NONE:
                 for (int y = 0; y < trans_height; y++) {
                     for (int x = 0; x < width; x++) {
-                        *(to + y * (width) + x) = *(from + y_start_tmp * width + y * (width) + x);
+                        *(to + y * width + x) = *(from + (y_start_tmp - y_start) * width + y * width + x);
                     }
                 }
                 x_draw_start = x_start;
@@ -605,9 +605,9 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
                 x_start_tmp += max_width;
             } else if (LV_DISP_ROT_270 == rotate) {
                 x_end_tmp -= max_width;
-            } if (LV_DISP_ROT_NONE == rotate) {
+            } else if (LV_DISP_ROT_NONE == rotate) {
                 y_start_tmp += max_height;
-            } else {
+            } else if (LV_DISP_ROT_180 == rotate) {
                 y_end_tmp -= max_height;
             }
         }

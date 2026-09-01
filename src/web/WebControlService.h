@@ -23,7 +23,8 @@ private:
     void stop();
     bool shouldRun() const;
 
-    void sendCors();
+    bool authorizeRequest();
+    void sendCommonHeaders();
     void sendJson(int code, const String& payload);
     void sendNoContent();
     void handleRoot();

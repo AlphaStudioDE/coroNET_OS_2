@@ -14,6 +14,26 @@ namespace coronet {
 
 namespace {
 
+const char* CollectedHeaders[] = {
+    "Authorization",
+    "X-coroNET-Token",
+    "Content-Length",
+};
+
+bool constantTimeEquals(const char* expected, const String& supplied) {
+    if (!expected) return false;
+    const size_t expectedLength = strlen(expected);
+    const size_t suppliedLength = supplied.length();
+    size_t difference = expectedLength ^ suppliedLength;
+    const size_t compareLength = max(expectedLength, suppliedLength);
+    for (size_t i = 0; i < compareLength; ++i) {
+        const uint8_t a = i < expectedLength ? static_cast<uint8_t>(expected[i]) : 0;
+        const uint8_t b = i < suppliedLength ? static_cast<uint8_t>(supplied[i]) : 0;
+        difference |= a ^ b;
+    }
+    return difference == 0;
+}
+
 const char* printerStateName(PrinterState state) {
     switch (state) {
         case PrinterState::Idle: return "idle";
@@ -152,11 +172,13 @@ void WebControlService::loop() {
 void WebControlService::registerRoutes() {
     if (routesReady_) return;
 
+    server_.collectHeaders(CollectedHeaders, sizeof(CollectedHeaders) / sizeof(CollectedHeaders[0]));
+
     server_.on("/", HTTP_GET, [this]() { handleRoot(); });
-    server_.on("/api/state", HTTP_GET, [this]() { handleState(); });
-    server_.on("/api/settings", HTTP_GET, [this]() { handleSettings(); });
-    server_.on("/api/settings", HTTP_POST, [this]() { handleUpdateSettings(); });
-    server_.on("/api/printer/test", HTTP_POST, [this]() { handlePrinterTest(); });
+    server_.on("/api/state", HTTP_GET, [this]() { if (authorizeRequest()) handleState(); });
+    server_.on("/api/settings", HTTP_GET, [this]() { if (authorizeRequest()) handleSettings(); });
+    server_.on("/api/settings", HTTP_POST, [this]() { if (authorizeRequest()) handleUpdateSettings(); });
+    server_.on("/api/printer/test", HTTP_POST, [this]() { if (authorizeRequest()) handlePrinterTest(); });
     server_.on("/api/state", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/settings", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/printer/test", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -208,20 +230,36 @@ bool WebControlService::shouldRun() const {
     return WiFi.status() == WL_CONNECTED;
 }
 
-void WebControlService::sendCors() {
-    server_.sendHeader("Access-Control-Allow-Origin", "*");
-    server_.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    server_.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+bool WebControlService::authorizeRequest() {
+    const char* expected = settingsService().settings().apiToken;
+    String supplied = server_.header("X-coroNET-Token");
+    if (supplied.isEmpty()) {
+        supplied = server_.header("Authorization");
+        static constexpr char BearerPrefix[] = "Bearer ";
+        if (supplied.startsWith(BearerPrefix)) supplied.remove(0, strlen(BearerPrefix));
+    }
+    supplied.trim();
+    if (constantTimeEquals(expected, supplied)) return true;
+
+    server_.sendHeader("WWW-Authenticate", "Bearer");
+    sendJson(401, "{\"ok\":false,\"error\":\"unauthorized\"}");
+    return false;
+}
+
+void WebControlService::sendCommonHeaders() {
     server_.sendHeader("Cache-Control", "no-store");
+    server_.sendHeader("X-Content-Type-Options", "nosniff");
 }
 
 void WebControlService::sendJson(int code, const String& payload) {
-    sendCors();
+    sendCommonHeaders();
     server_.send(code, "application/json", payload);
 }
 
 void WebControlService::sendNoContent() {
-    sendCors();
+    sendCommonHeaders();
+    server_.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    server_.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-coroNET-Token");
     server_.send(204);
 }
 
@@ -231,6 +269,7 @@ void WebControlService::handleRoot() {
     doc["api"] = "/api/state";
     doc["settings"] = "/api/settings";
     doc["printerTest"] = "/api/printer/test";
+    doc["authentication"] = "Bearer or X-coroNET-Token";
 
     String payload;
     serializeJson(doc, payload);
@@ -262,6 +301,7 @@ void WebControlService::handleSettings() {
     doc["hostname"] = deviceIdentity().hostname();
     doc["setupDone"] = cfg.setupDone;
     doc["bleEnabled"] = cfg.bleEnabled;
+    doc["apiPaired"] = cfg.apiPaired;
     doc["transport"] = transportName(cfg.companionTransport);
     doc["transportValue"] = static_cast<uint8_t>(cfg.companionTransport);
     doc["displayBrightness"] = cfg.displayBrightness;
@@ -280,6 +320,10 @@ void WebControlService::handleSettings() {
 
 void WebControlService::handleUpdateSettings() {
     const String body = server_.arg("plain");
+    if (body.length() > config::WebMaxJsonBodyBytes) {
+        sendJson(413, "{\"ok\":false,\"error\":\"payload_too_large\"}");
+        return;
+    }
     JsonDocument doc;
     const DeserializationError err = deserializeJson(doc, body);
     if (err) {

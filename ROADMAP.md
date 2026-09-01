@@ -14,10 +14,10 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] initial NimBLE peripheral and local WiFi API
 - [x] initial Moonraker HTTP polling
 - [x] automated GitHub firmware build
-- [ ] harden BLE framing, command queue, and exact JSON parsing
-- [ ] secure and pair the local WiFi control API
-- [ ] add WiFi-to-BLE recovery fallback
-- [ ] finalize flash partitions before the first public firmware image
+- [x] harden BLE framing, command queue, and exact JSON parsing
+- [x] secure and pair the local WiFi control API
+- [x] add WiFi-to-BLE recovery fallback
+- [x] finalize flash partitions before the first public firmware image
 
 ## User Experience
 
@@ -25,7 +25,8 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [ ] modern home dashboard
 - [ ] Coronet, Graphite, Aurora, and Minimal UI skins
 - [ ] dark and light mode for every skin
-- [ ] settings shared consistently between display, BLE, and WiFi
+- [x] revisioned settings with immediate service application and debounced NVS persistence
+- [ ] physical pairing reset/confirmation screen
 - [ ] screen saver and low-power behavior
 - [ ] accessibility, localization, and touch calibration review
 
@@ -53,7 +54,8 @@ This roadmap describes direction, not a promise of release dates. Features move 
 
 ## Connectivity And Updates
 
-- [ ] resilient printer connection lifecycle
+- [x] non-blocking printer polling worker with consecutive-failure tolerance
+- [ ] resilient printer connection lifecycle and reconnect telemetry
 - [ ] event-driven printer updates where supported
 - [ ] OTA update service with rollback
 - [ ] SD recovery update path

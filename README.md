@@ -40,10 +40,10 @@ The repository is public early so that the architecture, documentation, hardware
 | PlatformIO project and MIT licensing | Working |
 | JC3248W535 display and touch | Working on hardware |
 | PSRAM canvas and small DMA transfer windows | Working on hardware |
-| Versioned NVS settings | Initial implementation |
-| Unique device identity and BLE peripheral | Initial implementation |
-| Local WiFi HTTP API and mDNS | Initial implementation |
-| Moonraker HTTP polling | Initial implementation |
+| Versioned NVS settings | Working, with live apply and write debounce |
+| Unique device identity and BLE peripheral | Working, framed protocol V1 |
+| Local WiFi HTTP API and mDNS | Token-authenticated implementation |
+| Moonraker HTTP polling | Background worker implementation |
 | Audio playback | Service boundary only |
 | Final touchscreen UI and setup wizard | In development |
 | Android companion app for OS 2 | Planned |

@@ -24,7 +24,7 @@ enum class CompanionTransport : uint8_t {
 };
 
 struct AppSettings {
-    uint16_t schemaVersion = 3;
+    uint16_t schemaVersion = 4;
     bool setupDone = false;
     bool bleEnabled = true;
     uint8_t displayBrightness = 80;
@@ -37,6 +37,8 @@ struct AppSettings {
     char printerHost[65] = "";
     uint16_t printerPort = 7125;
     char printerApiKey[97] = "";
+    char apiToken[33] = "";
+    bool apiPaired = false;
 };
 
 class SettingsService {
@@ -45,13 +47,21 @@ public:
     void loop();
     const AppSettings& settings() const { return settings_; }
     AppSettings& mutableSettings() { return settings_; }
+    uint32_t revision() const { return revision_; }
     void save();
+    void flush();
     void resetToDefaults();
 
 private:
     void load();
+    void saveNow();
+    void ensureApiToken();
     AppSettings settings_;
     bool loaded_ = false;
+    bool savePending_ = false;
+    uint32_t revision_ = 1;
+    uint32_t dirtySinceMs_ = 0;
+    uint32_t lastChangeMs_ = 0;
 };
 
 SettingsService& settingsService();
