@@ -47,7 +47,8 @@ The repository is public early so that the architecture, documentation, hardware
 | Moonraker HTTP polling and discovery | Background worker implementation |
 | I2S audio output | Working on hardware, with PSRAM staging and diagnostic tone |
 | SD-backed WAV playback | In development |
-| Final touchscreen dashboard and settings UI | In development |
+| Home dashboard | Working on hardware, with live printer and connectivity state |
+| Remaining touchscreen tabs and settings UI | In development |
 | Android companion app for OS 2 | Planned |
 | Layered RGBW LED engine | Planned |
 | Fan, servo, OTA, SD assets, and release installer | Planned |

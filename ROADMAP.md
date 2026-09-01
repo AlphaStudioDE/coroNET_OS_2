@@ -24,7 +24,8 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] first-run setup wizard
 - [x] validated WiFi setup with nearby network selection and connection feedback
 - [x] automatic Snapmaker and Moonraker discovery during first setup
-- [ ] modern home dashboard
+- [x] modern home dashboard with live printer, progress, temperature, and connectivity state
+- [ ] LED, ventilation, sound, and settings tabs
 - [ ] Coronet, Graphite, Aurora, and Minimal UI skins
 - [ ] dark and light mode for every skin
 - [x] revisioned settings with immediate service application and debounced NVS persistence

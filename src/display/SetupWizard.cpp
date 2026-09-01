@@ -8,25 +8,26 @@
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 #include "../wifi/WifiService.h"
+#include "UiTheme.h"
 
 namespace coronet {
 
 namespace {
 
 constexpr uint8_t kStepCount = 6;
-constexpr lv_coord_t kScreenWidth = 480;
-constexpr lv_coord_t kScreenHeight = 320;
+constexpr lv_coord_t kScreenWidth = ui::ScreenWidth;
+constexpr lv_coord_t kScreenHeight = ui::ScreenHeight;
 
-constexpr uint32_t ColorBackground = 0x071018;
-constexpr uint32_t ColorSurface = 0x0D1A24;
-constexpr uint32_t ColorSurfaceRaised = 0x132531;
-constexpr uint32_t ColorBorder = 0x29414F;
-constexpr uint32_t ColorText = 0xF4F8FA;
-constexpr uint32_t ColorMuted = 0x8FAAB7;
-constexpr uint32_t ColorCyan = 0x27D3C2;
-constexpr uint32_t ColorCyanDark = 0x0F665F;
-constexpr uint32_t ColorAmber = 0xF1B84B;
-constexpr uint32_t ColorRed = 0xFF6B6B;
+constexpr uint32_t ColorBackground = ui::ColorBackground;
+constexpr uint32_t ColorSurface = ui::ColorSurface;
+constexpr uint32_t ColorSurfaceRaised = ui::ColorSurfaceRaised;
+constexpr uint32_t ColorBorder = ui::ColorBorder;
+constexpr uint32_t ColorText = ui::ColorText;
+constexpr uint32_t ColorMuted = ui::ColorMuted;
+constexpr uint32_t ColorCyan = ui::ColorCyan;
+constexpr uint32_t ColorCyanDark = ui::ColorCyanDark;
+constexpr uint32_t ColorAmber = ui::ColorAmber;
+constexpr uint32_t ColorRed = ui::ColorRed;
 
 SetupWizard* gActiveSetupWizard = nullptr;
 

@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "HomeScreen.h"
 #include "SetupWizard.h"
 
 namespace coronet {
@@ -12,9 +13,10 @@ public:
     void loop();
 
 private:
-    void buildDashboardScreen(bool animate = false);
+    void buildHomeScreen(bool animate = false);
     void applyBrightness(uint8_t percent);
 
+    HomeScreen homeScreen_;
     SetupWizard setupWizard_;
     bool started_ = false;
     bool wizardActive_ = false;

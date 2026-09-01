@@ -50,6 +50,8 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - The UI has two independent settings: `UiSkin` for the visual style and `UiColorMode` for dark/light/auto.
 - Every skin must support both dark and light rendering from the same screen logic.
 - Screens should render from shared state and theme tokens, not hard-coded per-screen color islands.
+- The setup wizard and operational Home screen share the same `UiTheme` tokens, geometry language, and restrained cyan/amber visual hierarchy.
+- Live screens cache their last rendered values and only invalidate LVGL objects when state changes.
 - Planned skins start as `Coronet` (the original simple cyan/amber dashboard direction), `Graphite`, `Aurora`, and `Minimal`; names can still change before public OS 2 release.
 
 ## Memory Policy
