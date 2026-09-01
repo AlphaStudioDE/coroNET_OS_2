@@ -19,6 +19,39 @@ coronet::AudioService audioService;
 coronet::BleService bleService;
 coronet::SystemHealth systemHealth;
 coronet::WebControlService webControlService;
+char serialCommand[48] = "";
+size_t serialCommandLength = 0;
+
+void executeSerialCommand() {
+    serialCommand[serialCommandLength] = '\0';
+    if (strcmp(serialCommand, "wizard reset") == 0) {
+        coronet::AppSettings& settings = coronet::settingsService().mutableSettings();
+        settings.setupDone = false;
+        coronet::state().setupDone = false;
+        coronet::settingsService().save();
+        coronet::settingsService().flush();
+        Serial.println("[console] setup wizard reopened; restarting");
+        Serial.flush();
+        delay(50);
+        ESP.restart();
+    } else if (serialCommandLength > 0) {
+        Serial.printf("[console] unknown command: %s\n", serialCommand);
+    }
+    serialCommandLength = 0;
+}
+
+void processSerialConsole() {
+    while (Serial.available() > 0) {
+        const char input = static_cast<char>(Serial.read());
+        if (input == '\r' || input == '\n') {
+            if (serialCommandLength > 0) executeSerialCommand();
+            continue;
+        }
+        if (input >= 32 && input <= 126 && serialCommandLength < sizeof(serialCommand) - 1) {
+            serialCommand[serialCommandLength++] = input;
+        }
+    }
+}
 
 }
 
@@ -53,6 +86,7 @@ void setup() {
 }
 
 void loop() {
+    processSerialConsole();
     systemHealth.loop();
     coronet::settingsService().loop();
     displayService.loop();
