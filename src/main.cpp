@@ -44,6 +44,24 @@ void executeSerialCommand() {
     } else if (strcmp(serialCommand, "wifi accept") == 0) {
         coronet::wifiService().acceptConnectionTest();
         Serial.println("[console] Wi-Fi connection test accepted");
+    } else if (strcmp(serialCommand, "audio test") == 0) {
+        audioService.playTestTone();
+    } else if (strcmp(serialCommand, "audio stop") == 0) {
+        audioService.stop();
+    } else if (strcmp(serialCommand, "audio status") == 0) {
+        audioService.logStatus();
+    } else if (strcmp(serialCommand, "audio release") == 0) {
+        audioService.release();
+    } else if (strcmp(serialCommand, "audio profile balanced") == 0) {
+        audioService.useDmaProfile(coronet::AudioDmaProfile::Balanced);
+    } else if (strcmp(serialCommand, "audio profile coronet1") == 0) {
+        audioService.useDmaProfile(coronet::AudioDmaProfile::Coronet1);
+    } else if (strcmp(serialCommand, "audio rate 22050") == 0) {
+        audioService.setSampleRate(22050);
+    } else if (strcmp(serialCommand, "audio rate 44100") == 0) {
+        audioService.setSampleRate(44100);
+    } else if (strcmp(serialCommand, "audio rate 48000") == 0) {
+        audioService.setSampleRate(48000);
     } else if (serialCommandLength > 0) {
         Serial.printf("[console] unknown command: %s\n", serialCommand);
     }

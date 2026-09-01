@@ -45,6 +45,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 ## Hardware Services
 
 - [ ] SD card service and asset validation
+- [x] modern I2S output driver with PSRAM staging and measured DMA profiles
 - [ ] non-blocking I2S WAV audio engine
 - [ ] layered RGBW LED engine
 - [ ] logical right, center, left, and inside mapping
