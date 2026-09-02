@@ -417,6 +417,10 @@ void LedService::render(uint32_t now) {
         context.filamentColorMask = system.filamentColorMask;
         context.printDurationSec = system.printDurationSec;
         context.printEtaSec = system.printEtaSec;
+        context.printerOnline = system.printerConnected && system.printerTelemetryValid;
+        context.ventFailsafe = system.ventFailsafe;
+        context.printerTelemetryAgeMs = system.lastPrinterUpdateMs
+            ? now - system.lastPrinterUpdateMs : UINT32_MAX;
         context.preview = preview;
         context.finishing = snakeFinishActive_;
         if (snakeFinishActive_) context.progress = 100U;
@@ -436,6 +440,9 @@ void LedService::render(uint32_t now) {
             context.filamentColorMask = 0x0FU;
             context.printDurationSec = 4260U;
             context.printEtaSec = 1740U;
+            context.printerOnline = true;
+            context.ventFailsafe = false;
+            context.printerTelemetryAgeMs = 0U;
         }
         renderCategory(category, animation, context);
         applyInsidePolicy();
@@ -511,6 +518,10 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             context.filamentColorMask = system.filamentColorMask;
             context.printDurationSec = system.printDurationSec;
             context.printEtaSec = system.printEtaSec;
+            context.printerOnline = system.printerConnected && system.printerTelemetryValid;
+            context.ventFailsafe = system.ventFailsafe;
+            context.printerTelemetryAgeMs = system.lastPrinterUpdateMs
+                ? context.nowMs - system.lastPrinterUpdateMs : UINT32_MAX;
             renderCategory(category,
                            settings.ledAnimation[static_cast<uint8_t>(category)], context);
             applyInsidePolicy();
@@ -710,6 +721,10 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
         context.filamentColorMask = system.filamentColorMask;
         context.printDurationSec = system.printDurationSec;
         context.printEtaSec = system.printEtaSec;
+        context.printerOnline = system.printerConnected && system.printerTelemetryValid;
+        context.ventFailsafe = system.ventFailsafe;
+        context.printerTelemetryAgeMs = system.lastPrinterUpdateMs
+            ? context.nowMs - system.lastPrinterUpdateMs : UINT32_MAX;
         renderCategory(category,
                        settings.ledAnimation[static_cast<uint8_t>(category)], context);
         applyInsidePolicy();
@@ -818,6 +833,302 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
     if (animationChanged) lastPrintAnimation_ = animation;
 
     switch (static_cast<PrintAnimation>(animation)) {
+        case PrintAnimation::ThermalBalance: {
+            const uint8_t bedPercent = temperaturePercent(context.bedTempC, 20.0f, 110.0f, 45U);
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 35U);
+            const RgbwColor bed = temperatureColor(bedPercent);
+            const RgbwColor chamber = temperatureColor(chamberPercent);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t bedCoverage = progressCoverage(bedPercent, hw::LeftCount, i);
+                const uint8_t chamberCoverage = progressCoverage(chamberPercent, hw::RightCount, i);
+                const uint8_t leftValue = bedCoverage
+                    ? static_cast<uint8_t>(58U + static_cast<uint16_t>(bedCoverage) * 145U / 255U) : 12U;
+                const uint8_t rightValue = chamberCoverage
+                    ? static_cast<uint8_t>(58U + static_cast<uint16_t>(chamberCoverage) * 145U / 255U) : 12U;
+                setSection(LedSection::Left, i, scaled(bed, leftValue));
+                setSection(LedSection::Right, i, scaled(chamber, rightValue));
+            }
+            const uint16_t thermalTotal = static_cast<uint16_t>(bedPercent) + chamberPercent;
+            const uint16_t balance = thermalTotal
+                ? static_cast<uint16_t>(static_cast<uint32_t>(bedPercent) *
+                    (hw::CenterCount - 1U) / thermalTotal)
+                : hw::CenterCount / 2U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t amount = static_cast<uint8_t>(i * 255U / (hw::CenterCount - 1U));
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                uint8_t value = static_cast<uint8_t>(38U + static_cast<uint16_t>(coverage) * 82U / 255U);
+                const uint16_t distance = i > balance ? i - balance : balance - i;
+                if (distance <= 1U) {
+                    const uint8_t pulse = static_cast<uint8_t>(165U + wave8(now / 31U) * 90U / 255U);
+                    value = max<uint8_t>(value, distance ? pulse / 2U : pulse);
+                }
+                setSection(LedSection::Center, i, scaled(blend(bed, chamber, amount), value));
+            }
+            break;
+        }
+
+        case PrintAnimation::MaterialCore: {
+            const uint8_t breath = static_cast<uint8_t>(36U + wave8(now / 42U) / 5U);
+            fillSection(LedSection::Left, scaled(filament, breath));
+            fillSection(LedSection::Right, scaled(filament, breath));
+            RgbwColor coreColor = complementary(filament);
+            if (coreColor.r == 0U && coreColor.g == 0U && coreColor.b == 0U) {
+                coreColor = decorativeHsv(LedCategory::Print, 138U, 245U, 255U);
+            }
+            const uint16_t half = hw::CenterCount / 2U;
+            const uint16_t travelSpan = max<uint16_t>(1U, half - 1U);
+            const uint16_t cycle = travelSpan * 2U;
+            const uint16_t phase = static_cast<uint16_t>((now / 78U) % cycle);
+            const uint16_t travel = phase <= travelSpan ? phase : cycle - phase;
+            const uint16_t leftCore = travel;
+            const uint16_t rightCore = hw::CenterCount - 1U - travel;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                setSection(LedSection::Center, i,
+                           scaled(filament, static_cast<uint8_t>(16U + coverage * 55U / 255U)));
+                const uint16_t leftDistance = i > leftCore ? i - leftCore : leftCore - i;
+                const uint16_t rightDistance = i > rightCore ? i - rightCore : rightCore - i;
+                const uint16_t distance = min<uint16_t>(leftDistance, rightDistance);
+                if (distance <= 3U) {
+                    const uint8_t value = static_cast<uint8_t>(255U - distance * 64U);
+                    setSection(LedSection::Center, i,
+                               blend(scaled(filament, value), scaled(coreColor, value), 120U));
+                }
+            }
+            break;
+        }
+
+        case PrintAnimation::HeatSoak: {
+            float chamberC = isnan(context.chamberTempC) ? 30.0f : context.chamberTempC;
+            chamberC = max<float>(0.0f, min<float>(80.0f, chamberC));
+            const uint8_t heatPercent = temperaturePercent(chamberC, 20.0f, 60.0f, 25U);
+            const RgbwColor heat = temperatureColor(heatPercent);
+            const uint16_t halfPath = (hw::OuterCount + 1U) / 2U;
+            const uint32_t front = static_cast<uint32_t>(heatPercent) * halfPath * 255U / 100U;
+            const uint8_t breathing = static_cast<uint8_t>(165U + wave8(now / 48U) * 70U / 255U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distanceFromEnd = min<uint16_t>(path, hw::OuterCount - 1U - path);
+                const uint32_t pixelStart = static_cast<uint32_t>(distanceFromEnd) * 255U;
+                const uint8_t coverage = front <= pixelStart ? 0U
+                    : front >= pixelStart + 255U ? 255U
+                    : static_cast<uint8_t>(front - pixelStart);
+                const uint8_t value = coverage
+                    ? static_cast<uint8_t>(25U + static_cast<uint16_t>(coverage) * breathing / 255U)
+                    : 8U;
+                setOuterVisualPathPixel(path, scaled(heat, value));
+            }
+            break;
+        }
+
+        case PrintAnimation::StabilityMonitor: {
+            if (animationChanged) {
+                stabilitySampleMs_ = now;
+                stabilityLastToolC_ = context.activeToolTempC;
+                stabilityLastChamberC_ = context.chamberTempC;
+                stabilityJitter_ = 0U;
+            }
+            if (context.preview) {
+                stabilityJitter_ = static_cast<uint8_t>(12U + wave8(now / 19U) * 54U / 255U);
+            } else if (now - stabilitySampleMs_ >= 1000U) {
+                float jitter = 0.0f;
+                if (!isnan(context.activeToolTempC) && !isnan(stabilityLastToolC_)) {
+                    jitter += fabsf(context.activeToolTempC - stabilityLastToolC_) * 18.0f;
+                }
+                if (!isnan(context.chamberTempC) && !isnan(stabilityLastChamberC_)) {
+                    jitter += fabsf(context.chamberTempC - stabilityLastChamberC_) * 35.0f;
+                }
+                stabilityJitter_ = static_cast<uint8_t>(min<float>(100.0f, jitter));
+                stabilityLastToolC_ = context.activeToolTempC;
+                stabilityLastChamberC_ = context.chamberTempC;
+                stabilitySampleMs_ = now;
+            }
+            const RgbwColor stable(0U, 190U, 150U);
+            const RgbwColor warning(255U, 92U, 0U);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                const uint8_t baseline = static_cast<uint8_t>(26U + coverage * 48U / 255U);
+                setSection(LedSection::Center, i, scaled(stable, baseline));
+                const uint8_t sample = hash8(i * 79U + now / 125U * 37U);
+                if (sample > static_cast<uint8_t>(250U - stabilityJitter_ / 2U)) {
+                    setSection(LedSection::Center, i, scaled(warning,
+                        static_cast<uint8_t>(130U + sample / 2U)));
+                }
+            }
+            const uint8_t calm = static_cast<uint8_t>(48U + wave8(now / 46U) / 5U);
+            const uint8_t alert = static_cast<uint8_t>(80U + stabilityJitter_ * 7U / 4U);
+            fillSection(LedSection::Left,
+                        scaled(stabilityJitter_ > 35U ? warning : stable,
+                               stabilityJitter_ > 35U ? alert : calm));
+            fillSection(LedSection::Right,
+                        scaled(stabilityJitter_ > 35U ? warning : stable,
+                               stabilityJitter_ > 35U ? alert : calm));
+            break;
+        }
+
+        case PrintAnimation::LayerEngine: {
+            RgbwColor phaseColor = complementary(filament);
+            if (phaseColor.r == 0U && phaseColor.g == 0U && phaseColor.b == 0U) {
+                phaseColor = decorativeHsv(LedCategory::Print, 145U, 235U, 255U);
+            }
+            const uint8_t phase = static_cast<uint8_t>(now / 68U);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t leftCoil = static_cast<uint8_t>((i + phase) % 6U);
+                const uint8_t rightCoil = static_cast<uint8_t>((hw::RightCount - 1U - i + phase) % 6U);
+                setSection(LedSection::Left, i,
+                           scaled(leftCoil < 2U ? phaseColor : filament, leftCoil < 2U ? 220U : 24U));
+                setSection(LedSection::Right, i,
+                           scaled(rightCoil < 2U ? phaseColor : filament, rightCoil < 2U ? 220U : 24U));
+            }
+            const uint16_t activeLayer = lit
+                ? static_cast<uint16_t>((now / 92U) % lit) : 0U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                if (!coverage) continue;
+                const bool seam = ((i + phase / 3U) % 4U) == 0U;
+                uint8_t value = static_cast<uint8_t>(32U + coverage * (seam ? 88U : 48U) / 255U);
+                const uint16_t distance = i > activeLayer ? i - activeLayer : activeLayer - i;
+                if (distance <= 2U) value = max<uint8_t>(value,
+                    static_cast<uint8_t>(238U - distance * 66U));
+                setSection(LedSection::Center, i,
+                           scaled(distance == 0U ? phaseColor : filament, value));
+            }
+            break;
+        }
+
+        case PrintAnimation::TimeTunnel: {
+            const uint32_t totalSeconds = context.printDurationSec + context.printEtaSec;
+            const uint8_t remainingPercent = totalSeconds
+                ? static_cast<uint8_t>(min<uint32_t>(100U,
+                    context.printEtaSec * 100U / totalSeconds))
+                : static_cast<uint8_t>(100U - progress);
+            const uint16_t stepMs = static_cast<uint16_t>(38U + remainingPercent);
+            const uint8_t phase = static_cast<uint8_t>(now / stepMs);
+            RgbwColor horizon = complementary(filament);
+            if (horizon.r == 0U && horizon.g == 0U && horizon.b == 0U) {
+                horizon = decorativeHsv(LedCategory::Print, 24U, 240U, 255U);
+            }
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t band = static_cast<uint8_t>((distance * 3U + phase) % 12U);
+                const uint8_t depth = static_cast<uint8_t>(255U -
+                    min<uint16_t>(210U, distance * 210U / max<uint16_t>(1U, center)));
+                const uint8_t value = band < 3U
+                    ? static_cast<uint8_t>(70U + depth * (3U - band) / 3U)
+                    : static_cast<uint8_t>(10U + depth / 10U);
+                setOuterVisualPathPixel(path, scaled(band == 0U ? horizon : filament, value));
+            }
+            break;
+        }
+
+        case PrintAnimation::ChamberAura: {
+            float chamberC = isnan(context.chamberTempC) ? 35.0f : context.chamberTempC;
+            chamberC = max<float>(0.0f, min<float>(80.0f, chamberC));
+            const uint8_t chamberPercent = temperaturePercent(chamberC, 20.0f, 60.0f, 35U);
+            const RgbwColor aura = temperatureColor(chamberPercent);
+            uint16_t divisor = 44U;
+            if (chamberC < 20.0f) divisor = max<uint16_t>(9U,
+                static_cast<uint16_t>(44.0f - (20.0f - chamberC) * 1.5f));
+            else if (chamberC > 60.0f) divisor = max<uint16_t>(9U,
+                static_cast<uint16_t>(44.0f - (chamberC - 60.0f) * 1.5f));
+            const uint8_t breathe = static_cast<uint8_t>(52U + wave8(now / divisor) * 128U / 255U);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t halo = static_cast<uint8_t>(breathe +
+                    wave8(static_cast<uint8_t>(now / 31U + i * 13U)) / 5U);
+                setSection(LedSection::Left, i, scaled(aura, halo));
+                setSection(LedSection::Right, hw::RightCount - 1U - i, scaled(aura, halo));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                const RgbwColor silhouette = blend(aura, filament, 155U);
+                setSection(LedSection::Center, i,
+                           scaled(silhouette, static_cast<uint8_t>(18U + coverage * 112U / 255U)));
+            }
+            break;
+        }
+
+        case PrintAnimation::FilamentFlow: {
+            constexpr uint16_t Sources[4] = {1U, 9U, 32U, 40U};
+            const uint8_t active = context.activeTool & 3U;
+            const uint16_t destination = static_cast<uint16_t>(hw::LeftCount +
+                min<uint16_t>(hw::CenterCount - 1U,
+                    static_cast<uint16_t>(progress * (hw::CenterCount - 1U) / 100U)));
+            for (uint8_t tool = 0; tool < 4U; ++tool) {
+                setOuterVisualPathPixel(Sources[tool], scaled(filamentPalette[tool],
+                    tool == active ? 230U : 58U));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                if (coverage) setSection(LedSection::Center, i,
+                    scaled(filamentPalette[active], static_cast<uint8_t>(20U + coverage * 62U / 255U)));
+            }
+            const uint16_t source = Sources[active];
+            const uint8_t travel = static_cast<uint8_t>((now / 18U) & 0xFFU);
+            const int32_t span = static_cast<int32_t>(destination) - source;
+            const int32_t headRaw = static_cast<int32_t>(source) + span * travel / 255;
+            const uint16_t head = static_cast<uint16_t>(max<int32_t>(0,
+                min<int32_t>(hw::OuterCount - 1U, headRaw)));
+            const int8_t direction = span >= 0 ? 1 : -1;
+            for (uint8_t tail = 0; tail < 5U; ++tail) {
+                const int32_t position = static_cast<int32_t>(head) - direction * tail;
+                if (position < 0 || position >= hw::OuterCount) continue;
+                setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                    scaled(filamentPalette[active], static_cast<uint8_t>(255U - tail * 45U)));
+            }
+            break;
+        }
+
+        case PrintAnimation::ProcessStack: {
+            const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 68U);
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 35U);
+            const RgbwColor toolHeat = temperatureColor(toolPercent);
+            const RgbwColor chamberHeat = temperatureColor(chamberPercent);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t toolCoverage = progressCoverage(toolPercent, hw::LeftCount, i);
+                const uint8_t chamberCoverage = progressCoverage(chamberPercent, hw::RightCount, i);
+                setSection(LedSection::Left, i, toolCoverage
+                    ? blend(scaled(filament, 105U), scaled(toolHeat, 220U), toolCoverage)
+                    : scaled(filament, 12U));
+                setSection(LedSection::Right, i, scaled(chamberHeat,
+                    chamberCoverage ? static_cast<uint8_t>(55U + chamberCoverage * 165U / 255U) : 12U));
+            }
+            RgbwColor progressColor = complementary(filament);
+            if (progressColor.r == 0U && progressColor.g == 0U && progressColor.b == 0U) {
+                progressColor = decorativeHsv(LedCategory::Print, 132U, 245U, 255U);
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                setSection(LedSection::Center, i,
+                           coverage ? scaled(progressColor, coverage) : RgbwColor(2U, 2U, 2U));
+            }
+            const uint16_t handoff = static_cast<uint16_t>((now / 105U) % hw::OuterCount);
+            setOuterVisualPathPixel(handoff, RgbwColor(230U, 230U, 230U));
+            break;
+        }
+
+        case PrintAnimation::HealthBeacon: {
+            const bool stale = context.printerTelemetryAgeMs > 20000U;
+            const bool healthy = context.printerOnline && !context.ventFailsafe && !stale;
+            const RgbwColor status = healthy ? RgbwColor(0U, 220U, 135U)
+                                            : RgbwColor(255U, 45U, 0U);
+            const uint32_t cycle = now % (healthy ? 2400U : 760U);
+            const bool firstBeat = cycle < (healthy ? 150U : 110U);
+            const bool secondBeat = cycle >= (healthy ? 270U : 200U) &&
+                                    cycle < (healthy ? 410U : 310U);
+            const uint8_t value = firstBeat || secondBeat ? 255U : healthy ? 28U : 16U;
+            fillSection(LedSection::Left, scaled(status, value));
+            fillSection(LedSection::Right, scaled(status, value));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                const uint8_t baseline = static_cast<uint8_t>((healthy ? 24U : 10U) + coverage / 4U);
+                setSection(LedSection::Center, i, scaled(status, baseline));
+            }
+            const uint16_t sweep = static_cast<uint16_t>((now / (healthy ? 135U : 62U)) % hw::CenterCount);
+            setSection(LedSection::Center, sweep,
+                       healthy ? RgbwColor(120U, 255U, 205U) : RgbwColor(255U, 120U, 0U));
+            break;
+        }
+
         case PrintAnimation::ExtruderSpark: {
             const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 68U);
             const RgbwColor heat = temperatureColor(toolPercent);

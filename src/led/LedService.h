@@ -87,6 +87,10 @@ private:
     uint16_t snakeFood_ = 0;
     uint8_t snakeLength_ = 2;
     uint8_t snakeGrowthBucket_ = 0;
+    uint32_t stabilitySampleMs_ = 0;
+    float stabilityLastToolC_ = NAN;
+    float stabilityLastChamberC_ = NAN;
+    uint8_t stabilityJitter_ = 0;
 };
 
 LedService& ledService();

@@ -37,6 +37,16 @@ enum class PrintAnimation : uint8_t {
     MicroSteps,
     FlowWave,
     ToolheadOrbit,
+    ThermalBalance,
+    MaterialCore,
+    HeatSoak,
+    StabilityMonitor,
+    LayerEngine,
+    TimeTunnel,
+    ChamberAura,
+    FilamentFlow,
+    ProcessStack,
+    HealthBeacon,
     Count,
 };
 
@@ -54,6 +64,9 @@ struct LedAnimationContext {
     uint8_t filamentColorMask = 0;
     uint32_t printDurationSec = 0;
     uint32_t printEtaSec = 0;
+    uint32_t printerTelemetryAgeMs = UINT32_MAX;
+    bool printerOnline = false;
+    bool ventFailsafe = false;
     bool preview = false;
     bool finishing = false;
 };
