@@ -21,12 +21,12 @@ constexpr const char* BootFeatures[] = {
     "OVER-THE-AIR UPDATES",
 };
 
-constexpr uint32_t FeatureStartMs = 7000U;
-constexpr uint32_t FeatureSlotMs = 3000U;
-constexpr uint32_t FeatureFadeInMs = 480U;
-constexpr uint32_t FeatureFadeOutMs = 620U;
-constexpr uint32_t LogoSpectrumStartMs = 5400U;
-constexpr uint32_t LogoSpectrumBlendMs = 900U;
+constexpr uint32_t FeatureStartMs = 5100U;
+constexpr uint32_t FeatureSlotMs = 3125U;
+constexpr uint32_t FeatureFadeInMs = 420U;
+constexpr uint32_t FeatureFadeOutMs = 550U;
+constexpr uint32_t LogoSpectrumStartMs = 4000U;
+constexpr uint32_t LogoSpectrumBlendMs = 650U;
 constexpr uint16_t LogoSpectrumBaseHue = 174U;
 
 uint8_t ramp(uint32_t elapsed, uint32_t start, uint32_t duration) {
@@ -178,12 +178,12 @@ void BootScreen::updatePrelude(uint32_t elapsedMs) {
 }
 
 void BootScreen::updateFull(uint32_t elapsedMs) {
-    const uint8_t coronaReveal = ramp(elapsedMs, 0U, 2000U);
-    const uint8_t coreReveal = ramp(elapsedMs, 2100U, 350U);
-    const uint8_t horizonReveal = ramp(elapsedMs, 2600U, 1700U);
-    const uint8_t endpointReveal = ramp(elapsedMs, 4300U, 300U);
-    const uint8_t wordReveal = ramp(elapsedMs, 4600U, 900U);
-    const uint8_t detailReveal = ramp(elapsedMs, 5600U, 1100U);
+    const uint8_t coronaReveal = ramp(elapsedMs, 0U, 1750U);
+    const uint8_t coreReveal = ramp(elapsedMs, 1850U, 220U);
+    const uint8_t horizonReveal = ramp(elapsedMs, 2160U, 900U);
+    const uint8_t endpointReveal = ramp(elapsedMs, 3060U, 200U);
+    const uint8_t wordReveal = ramp(elapsedMs, 3260U, 580U);
+    const uint8_t detailReveal = ramp(elapsedMs, 3920U, 700U);
     const uint8_t pulse = triangle(elapsedMs, 1680U);
 
     uint32_t color = 0x27D3C2;
