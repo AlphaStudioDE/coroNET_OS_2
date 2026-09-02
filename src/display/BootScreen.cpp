@@ -10,6 +10,22 @@ namespace coronet {
 
 namespace {
 
+constexpr const char* BootFeatures[] = {
+    "INTELLIGENT LED STATUS BAR",
+    "LIVE PRINTER TELEMETRY",
+    "ADAPTIVE VENTILATION CONTROL",
+    "PANDA BREATH INTEGRATION",
+    "SMARTPHONE COMPANION APP",
+    "WI-FI & BLUETOOTH CONTROL",
+    "AUDIO STATUS & ALERTS",
+    "OVER-THE-AIR UPDATES",
+};
+
+constexpr uint32_t FeatureStartMs = 6800U;
+constexpr uint32_t FeatureSlotMs = 3000U;
+constexpr uint32_t FeatureFadeInMs = 480U;
+constexpr uint32_t FeatureFadeOutMs = 620U;
+
 uint8_t ramp(uint32_t elapsed, uint32_t start, uint32_t duration) {
     if (elapsed <= start) return 0;
     if (!duration || elapsed >= start + duration) return 255;
@@ -46,7 +62,7 @@ void BootScreen::begin() {
 
     glowLine_ = lv_obj_create(root_);
     lv_obj_remove_style_all(glowLine_);
-    lv_obj_set_pos(glowLine_, 228, 153);
+    lv_obj_set_pos(glowLine_, 228, 113);
     lv_obj_set_size(glowLine_, 226, 1);
     lv_obj_set_style_bg_color(glowLine_, lv_color_hex(0x17333D), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -55,7 +71,7 @@ void BootScreen::begin() {
     lv_obj_remove_style(arc_, nullptr, LV_PART_KNOB);
     lv_obj_remove_style(arc_, nullptr, LV_PART_INDICATOR);
     lv_obj_clear_flag(arc_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_pos(arc_, 55, 82);
+    lv_obj_set_pos(arc_, 55, 42);
     lv_obj_set_size(arc_, 128, 128);
     lv_arc_set_bg_angles(arc_, 44, 46);
     lv_obj_set_style_arc_width(arc_, 13, LV_PART_MAIN);
@@ -63,14 +79,14 @@ void BootScreen::begin() {
 
     horizon_ = lv_obj_create(root_);
     lv_obj_remove_style_all(horizon_);
-    lv_obj_set_pos(horizon_, 119, 142);
+    lv_obj_set_pos(horizon_, 119, 102);
     lv_obj_set_size(horizon_, 0, 8);
     lv_obj_set_style_radius(horizon_, 4, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(horizon_, LV_OPA_COVER, LV_PART_MAIN);
 
     core_ = lv_obj_create(root_);
     lv_obj_remove_style_all(core_);
-    lv_obj_set_pos(core_, 112, 139);
+    lv_obj_set_pos(core_, 112, 99);
     lv_obj_set_size(core_, 14, 14);
     lv_obj_set_style_radius(core_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(core_, lv_color_hex(0xF4F8FA), LV_PART_MAIN);
@@ -78,7 +94,7 @@ void BootScreen::begin() {
 
     endpoint_ = lv_obj_create(root_);
     lv_obj_remove_style_all(endpoint_);
-    lv_obj_set_pos(endpoint_, 194, 139);
+    lv_obj_set_pos(endpoint_, 194, 99);
     lv_obj_set_size(endpoint_, 14, 14);
     lv_obj_set_style_radius(endpoint_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(endpoint_, lv_color_hex(0xF1B84B), LV_PART_MAIN);
@@ -86,7 +102,7 @@ void BootScreen::begin() {
 
     coroLabel_ = lv_label_create(root_);
     lv_label_set_text(coroLabel_, "coro");
-    lv_obj_set_pos(coroLabel_, 226, 105);
+    lv_obj_set_pos(coroLabel_, 226, 65);
     lv_obj_set_style_text_font(coroLabel_, &lv_font_montserrat_38, LV_PART_MAIN);
     lv_obj_set_style_text_color(coroLabel_, lv_color_hex(0xF4F8FA), LV_PART_MAIN);
 
@@ -99,15 +115,26 @@ void BootScreen::begin() {
 
     descriptorLabel_ = lv_label_create(root_);
     lv_label_set_text(descriptorLabel_, "CONNECTED PRINT ENVIRONMENT");
-    lv_obj_set_pos(descriptorLabel_, 228, 160);
+    lv_obj_set_pos(descriptorLabel_, 228, 120);
     lv_obj_set_style_text_font(descriptorLabel_, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_obj_set_style_text_color(descriptorLabel_, lv_color_hex(0x8FAAB7), LV_PART_MAIN);
 
     editionLabel_ = lv_label_create(root_);
     lv_label_set_text(editionLabel_, "OS 2  |  OPEN SOURCE");
-    lv_obj_set_pos(editionLabel_, 228, 188);
+    lv_obj_set_pos(editionLabel_, 228, 148);
     lv_obj_set_style_text_font(editionLabel_, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_obj_set_style_text_color(editionLabel_, lv_color_hex(0xF1B84B), LV_PART_MAIN);
+
+    featureLabel_ = lv_label_create(root_);
+    lv_label_set_text(featureLabel_, "");
+    lv_obj_set_pos(featureLabel_, 20, 226);
+    lv_obj_set_width(featureLabel_, 440);
+    lv_obj_set_style_text_align(featureLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(featureLabel_, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_color(featureLabel_, lv_color_hex(0xF4F8FA), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(featureLabel_, 1, LV_PART_MAIN);
+    lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
+    featureIndex_ = -1;
 
     setLogoColor(0x27D3C2);
     setOpacity(20, 0, 0);
@@ -136,15 +163,16 @@ void BootScreen::updatePrelude(uint32_t elapsedMs) {
     lv_obj_set_style_bg_opa(core_, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(endpoint_, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
 }
 
 void BootScreen::updateFull(uint32_t elapsedMs) {
-    const uint8_t coronaReveal = ramp(elapsedMs, 0U, 4300U);
-    const uint8_t coreReveal = ramp(elapsedMs, 4400U, 700U);
-    const uint8_t horizonReveal = ramp(elapsedMs, 5200U, 3300U);
-    const uint8_t endpointReveal = ramp(elapsedMs, 8500U, 500U);
-    const uint8_t wordReveal = ramp(elapsedMs, 9000U, 2200U);
-    const uint8_t detailReveal = ramp(elapsedMs, 12500U, 3500U);
+    const uint8_t coronaReveal = ramp(elapsedMs, 0U, 2400U);
+    const uint8_t coreReveal = ramp(elapsedMs, 2500U, 450U);
+    const uint8_t horizonReveal = ramp(elapsedMs, 3100U, 1900U);
+    const uint8_t endpointReveal = ramp(elapsedMs, 5000U, 350U);
+    const uint8_t wordReveal = ramp(elapsedMs, 5350U, 1100U);
+    const uint8_t detailReveal = ramp(elapsedMs, 6500U, 1700U);
     const uint8_t pulse = triangle(elapsedMs, 1680U);
 
     uint32_t color = 0x27D3C2;
@@ -184,6 +212,25 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
         lv_obj_set_style_arc_width(arc_, 13, LV_PART_MAIN);
     }
 
+    constexpr uint8_t FeatureCount = sizeof(BootFeatures) / sizeof(BootFeatures[0]);
+    const uint32_t featureTimeline = elapsedMs >= FeatureStartMs ? elapsedMs - FeatureStartMs : 0U;
+    const uint8_t feature = static_cast<uint8_t>(featureTimeline / FeatureSlotMs);
+    if (elapsedMs >= FeatureStartMs && feature < FeatureCount) {
+        if (featureIndex_ != static_cast<int8_t>(feature)) {
+            featureIndex_ = static_cast<int8_t>(feature);
+            lv_label_set_text_static(featureLabel_, BootFeatures[feature]);
+        }
+        const uint32_t local = featureTimeline % FeatureSlotMs;
+        uint8_t opacity = 255U;
+        if (local < FeatureFadeInMs) opacity = ramp(local, 0U, FeatureFadeInMs);
+        else if (local > FeatureSlotMs - FeatureFadeOutMs) {
+            opacity = static_cast<uint8_t>(255U - ramp(local, FeatureSlotMs - FeatureFadeOutMs, FeatureFadeOutMs));
+        }
+        lv_obj_set_style_text_opa(featureLabel_, opacity, LV_PART_MAIN);
+    } else {
+        lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
+    }
+
     if (elapsedMs >= 32600U) {
         const uint8_t handoff = ramp(elapsedMs, 32600U, 2400U);
         const uint8_t remaining = 255U - handoff;
@@ -207,6 +254,7 @@ void BootScreen::updateQuick(uint32_t elapsedMs) {
     lv_obj_set_width(horizon_, static_cast<lv_coord_t>(horizonReveal * 78U / 255U));
     lv_obj_set_style_bg_opa(endpoint_, endpointReveal, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(wordReveal / 6U), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
 
     if (elapsedMs >= 1950U) {
         const uint8_t handoff = ramp(elapsedMs, 1950U, 650U);
