@@ -365,8 +365,17 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             const uint16_t distance = path > hw::OuterCount / 2U ? path - hw::OuterCount / 2U
                                                                  : hw::OuterCount / 2U - path;
             if (distance * 12U <= reveal) {
+                uint16_t sectionPosition = path;
+                uint16_t sectionSize = hw::LeftCount;
+                if (path >= hw::LeftCount + hw::CenterCount) {
+                    sectionPosition = path - hw::LeftCount - hw::CenterCount;
+                    sectionSize = hw::RightCount;
+                } else if (path >= hw::LeftCount) {
+                    sectionPosition = path - hw::LeftCount;
+                    sectionSize = hw::CenterCount;
+                }
                 const uint8_t hue = static_cast<uint8_t>(
-                    static_cast<uint32_t>(path) * 255U / (hw::OuterCount - 1U));
+                    static_cast<uint32_t>(sectionPosition) * 255U / (sectionSize - 1U));
                 RgbwColor color = hsv(hue, 230U, static_cast<uint8_t>(80U + reveal / 2U));
                 if (path < hw::LeftCount) signature[sectionPhysicalIndex(LedSection::Left, path)] = color;
                 else if (path < hw::LeftCount + hw::CenterCount) signature[sectionPhysicalIndex(LedSection::Center, path - hw::LeftCount)] = color;
