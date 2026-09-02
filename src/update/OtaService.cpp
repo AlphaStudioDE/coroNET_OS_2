@@ -291,8 +291,17 @@ bool OtaService::checkLatestRelease() {
         return false;
     }
 
+    JsonDocument filter;
+    filter["tag_name"] = true;
+    filter["assets"][0]["name"] = true;
+    filter["assets"][0]["browser_download_url"] = true;
+    filter["assets"][0]["size"] = true;
+
     JsonDocument doc;
-    const DeserializationError error = deserializeJson(doc, http.getStream());
+    const DeserializationError error = deserializeJson(
+        doc,
+        http.getStream(),
+        DeserializationOption::Filter(filter));
     if (error) {
         http.end();
         setState(OtaState::Failed, "Invalid release metadata");
