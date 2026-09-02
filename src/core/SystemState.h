@@ -82,6 +82,7 @@ struct SystemState {
     bool timeReady = false;
     bool quietActive = false;
     bool maintenanceMode = false;
+    bool otaTlsWindowActive = false;
     OtaState otaState = OtaState::Idle;
     uint8_t otaProgress = 0;
     bool otaUpdateAvailable = false;

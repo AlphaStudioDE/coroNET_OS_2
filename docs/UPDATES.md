@@ -10,7 +10,7 @@
 - Added ESP32 bootloader rollback validation: a new image is marked valid only after 30 seconds of stable display, touch, and LED startup.
 - Deferred Arduino's automatic early OTA acceptance so the full hardware validation window now runs before an image is marked valid.
 - Reapplied certificate-bundle trust on every redirected TLS connection and verified a complete public GitHub OTA install on hardware.
-- Reduced the OTA worker stack to preserve the contiguous internal-RAM block required by TLS, eliminating intermittent `HTTP -1` GitHub checks while keeping every runtime service online.
+- Reduced the OTA worker stack and added a short BLE resource window around secure GitHub requests, preserving the contiguous internal-RAM block required by TLS and eliminating intermittent `HTTP -1` checks. BLE resumes automatically after a version check or failed update attempt.
 - Added complete firmware-update controls and confirmation dialogs to the Wi-Fi-connected Android companion.
 - Added tag-derived firmware versions and automatic GitHub Release assets, checksums, and release publication.
 

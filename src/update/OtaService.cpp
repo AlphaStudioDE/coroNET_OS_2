@@ -34,6 +34,47 @@ constexpr uint32_t kValidationDelayMs = 30000U;
 constexpr uint32_t kValidationRetryMs = 5000U;
 constexpr time_t kMinimumTrustedEpoch = 1700000000;
 
+class ScopedTlsResourceWindow {
+public:
+    explicit ScopedTlsResourceWindow(bool active) : active_(active) {
+        if (!active_) return;
+
+        const uint32_t freeBefore = heap_caps_get_free_size(
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const uint32_t largestBefore = heap_caps_get_largest_free_block(
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        state().otaTlsWindowActive = true;
+        const uint32_t started = millis();
+        while (state().bleReady && millis() - started < 1500U) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        prepared_ = !state().bleReady;
+        const uint32_t freeAfter = heap_caps_get_free_size(
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const uint32_t largestAfter = heap_caps_get_largest_free_block(
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        Serial.printf("[ota-tls] ble=%s internal=%lu/%lu->%lu/%lu\n",
+                      prepared_ ? "released" : "still-active",
+                      static_cast<unsigned long>(freeBefore),
+                      static_cast<unsigned long>(largestBefore),
+                      static_cast<unsigned long>(freeAfter),
+                      static_cast<unsigned long>(largestAfter));
+    }
+
+    ~ScopedTlsResourceWindow() {
+        if (active_) state().otaTlsWindowActive = false;
+    }
+
+    ScopedTlsResourceWindow(const ScopedTlsResourceWindow&) = delete;
+    ScopedTlsResourceWindow& operator=(const ScopedTlsResourceWindow&) = delete;
+
+    bool ready() const { return !active_ || prepared_; }
+
+private:
+    bool active_ = false;
+    bool prepared_ = false;
+};
+
 class TrustedNetworkClient final : public NetworkClientSecure {
 public:
     TrustedNetworkClient() {
@@ -217,6 +258,14 @@ void OtaService::taskEntry(void* context) {
 }
 
 void OtaService::taskLoop(Request request) {
+    const bool needsTls = request == Request::Check ||
+                          request == Request::Install ||
+                          request == Request::Reinstall;
+    ScopedTlsResourceWindow tlsWindow(needsTls);
+    if (!tlsWindow.ready()) {
+        setState(OtaState::Failed, "Could not reserve memory for secure update check");
+        return;
+    }
     bool ok = false;
     if (request == Request::Check) {
         checkLatestRelease();

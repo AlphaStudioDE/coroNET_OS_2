@@ -320,10 +320,11 @@ void BleService::applySettings() {
         fallbackActive_ = false;
     }
 
-    bool shouldStart = !state().maintenanceMode && (!cfg.apiPaired ||
+    const bool radioAllowed = !state().maintenanceMode && !state().otaTlsWindowActive;
+    bool shouldStart = radioAllowed && (!cfg.apiPaired ||
                        (cfg.bleEnabled && cfg.companionTransport != CompanionTransport::Wifi) ||
                        fallbackActive_);
-    if (!state().maintenanceMode && !shouldStart && isConnected()) shouldStart = true;
+    if (radioAllowed && !shouldStart && isConnected()) shouldStart = true;
 
     if (shouldStart && !started_) startStack();
     else if (!shouldStart && started_) stopStack();
