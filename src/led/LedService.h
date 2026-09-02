@@ -91,6 +91,7 @@ private:
     float stabilityLastToolC_ = NAN;
     float stabilityLastChamberC_ = NAN;
     uint8_t stabilityJitter_ = 0;
+    bool stabilityWasPreview_ = false;
 };
 
 LedService& ledService();

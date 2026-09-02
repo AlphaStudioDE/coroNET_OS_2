@@ -17,6 +17,9 @@ constexpr const char* PrintNames[] = {
     "Nozzle Trace", "Build Plate", "Micro Steps", "Flow Wave", "Toolhead Orbit",
     "Thermal Balance", "Material Core", "Heat Soak", "Stability Monitor", "Layer Engine",
     "Time Tunnel", "Chamber Aura", "Filament Flow", "Process Stack", "Health Beacon",
+    "Finish Pressure", "Dual Temp Meter", "Layer Pulse", "Toolpath Echo", "Thermal Ribbon",
+    "Infill Grid", "Filament Beads", "Time Flow", "Stepper Ticks", "Calm Build",
+    "Quality Guard", "Nozzle Heat", "Layer Fill",
 };
 
 constexpr const char* PauseNames[] = {
