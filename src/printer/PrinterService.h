@@ -17,7 +17,7 @@ enum class PrinterDiscoveryStatus : uint8_t {
 
 struct DiscoveredPrinter {
     char name[49] = "";
-    char host[16] = "";
+    char host[65] = "";
     uint16_t port = 7125;
 };
 
@@ -43,6 +43,7 @@ public:
     bool requestDiscovery();
     void discoverySnapshot(PrinterDiscoverySnapshot& output) const;
     bool discoveredPrinter(uint8_t index, DiscoveredPrinter& output) const;
+    void logStatus() const;
 
 private:
     struct PollRequest {
@@ -109,6 +110,9 @@ private:
     void setConnectionState(bool connected);
     void performDiscovery();
     bool probeMoonraker(const char* host, uint16_t port);
+    uint8_t discoverMdnsService(const char* service,
+                                const char* defaultName,
+                                bool useAdvertisedPort);
     bool addDiscoveredPrinter(const char* host, uint16_t port, const char* name);
     void updateDiscovery(PrinterDiscoveryStatus status, uint8_t progress, const char* message);
     void setOffline(const char* message, int httpCode = 0);

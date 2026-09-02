@@ -1,13 +1,14 @@
 #include "PrinterService.h"
 
 #include <ArduinoJson.h>
-#include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <mdns.h>
 
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
+#include "../wifi/WifiService.h"
 
 namespace coronet {
 
@@ -18,11 +19,15 @@ constexpr uint32_t kPollActiveMs = 2000;
 constexpr uint32_t kPollOfflineMs = 8000;
 constexpr uint32_t kHttpTimeoutMs = 700;
 constexpr uint8_t kFailuresBeforeOffline = 3;
-constexpr uint32_t kWorkerStackBytes = 8192;
+constexpr uint32_t kWorkerStackBytes = 6144;
 constexpr UBaseType_t kWorkerPriority = 2;
 constexpr BaseType_t kWorkerCore = 0;
 constexpr uint16_t kDiscoveryPort = 7125;
-constexpr uint32_t kDiscoveryHttpTimeoutMs = 120;
+constexpr uint32_t kDiscoveryTcpTimeoutMs = 140;
+constexpr uint32_t kDiscoveryHttpTimeoutMs = 900;
+constexpr uint32_t kDiscoveryMdnsReadyTimeoutMs = 1800;
+constexpr uint32_t kDiscoveryMdnsQueryTimeoutMs = 1200;
+constexpr uint16_t kQuickDiscoveryTargetLimit = 60;
 constexpr uint16_t kDiscoveryTargetLimit = 254;
 
 PrinterService gPrinterService;
@@ -92,6 +97,19 @@ void addAuthHeader(HTTPClient& http, const char* apiKey) {
     if (apiKey && apiKey[0]) http.addHeader("X-Api-Key", apiKey);
 }
 
+String mdnsTxtValueByKey(const mdns_result_t* result, const char* key) {
+    if (!result || !key || !key[0]) return String();
+    for (size_t index = 0; index < result->txt_count; ++index) {
+        const char* candidateKey = result->txt[index].key;
+        if (candidateKey && strcasecmp(candidateKey, key) == 0) {
+            String value(result->txt[index].value ? result->txt[index].value : "");
+            value.trim();
+            return value;
+        }
+    }
+    return String();
+}
+
 }
 
 PrinterService& printerService() {
@@ -131,6 +149,17 @@ void PrinterService::begin() {
     strlcpy(system.printerStatusText,
             system.printerConfigured ? "waiting_for_wifi" : "not_configured",
             sizeof(system.printerStatusText));
+}
+
+void PrinterService::logStatus() const {
+    const UBaseType_t stackHeadroom = workerTask_ ? uxTaskGetStackHighWaterMark(workerTask_) : 0;
+    Serial.printf("[printer] ready=%u configured=%u connected=%u telemetry=%u stackHeadroom=%uB failures=%u\n",
+                  started_ ? 1U : 0U,
+                  state().printerConfigured ? 1U : 0U,
+                  state().printerConnected ? 1U : 0U,
+                  state().printerTelemetryValid ? 1U : 0U,
+                  static_cast<unsigned>(stackHeadroom),
+                  static_cast<unsigned>(consecutiveFailures_));
 }
 
 void PrinterService::loop() {
@@ -322,6 +351,11 @@ bool PrinterService::addDiscoveredPrinter(const char* host, uint16_t port, const
 
 bool PrinterService::probeMoonraker(const char* host, uint16_t port) {
     if (!host || !host[0] || WiFi.status() != WL_CONNECTED) return false;
+
+    WiFiClient portProbe;
+    if (!portProbe.connect(host, port, kDiscoveryTcpTimeoutMs)) return false;
+    portProbe.stop();
+
     HTTPClient http;
     const String url = baseUrl(host, port) + "/printer/info";
     http.setConnectTimeout(kDiscoveryHttpTimeoutMs);
@@ -332,23 +366,114 @@ bool PrinterService::probeMoonraker(const char* host, uint16_t port) {
     return code == 200;
 }
 
+uint8_t PrinterService::discoverMdnsService(const char* service,
+                                            const char* defaultName,
+                                            bool useAdvertisedPort) {
+    if (!service || !service[0] || WiFi.status() != WL_CONNECTED) return 0;
+    if (!wifiService().acquireMdns(kDiscoveryMdnsReadyTimeoutMs, pdMS_TO_TICKS(250))) {
+        Serial.printf("[printer] mDNS unavailable for _%s._tcp\n", service);
+        return 0;
+    }
+
+    char serviceType[34] = "_";
+    strlcpy(serviceType + 1, service, sizeof(serviceType) - 1);
+    mdns_result_t* results = nullptr;
+    const esp_err_t queryResult = mdns_query_ptr(serviceType, "_tcp",
+                                                  kDiscoveryMdnsQueryTimeoutMs,
+                                                  MaxDiscoveredPrinters, &results);
+    uint8_t added = 0;
+    uint8_t resultCount = 0;
+    for (mdns_result_t* result = results; result; result = result->next) ++resultCount;
+    Serial.printf("[printer] mDNS _%s._tcp status=%d results=%u\n",
+                  service, static_cast<int>(queryResult), static_cast<unsigned>(resultCount));
+    for (mdns_result_t* result = results; result; result = result->next) {
+        String host = mdnsTxtValueByKey(result, "ip");
+        IPAddress parsedAddress;
+        if (host.isEmpty() || host == "0.0.0.0" || !parsedAddress.fromString(host)) {
+            IPAddress address;
+            for (mdns_ip_addr_t* item = result->addr; item; item = item->next) {
+                if (item->addr.type == ESP_IPADDR_TYPE_V4) {
+                    address = IPAddress(item->addr.u_addr.ip4.addr);
+                    break;
+                }
+            }
+            if (!address || address == IPAddress(0, 0, 0, 0)) continue;
+            host = address.toString();
+        }
+
+        String deviceName = mdnsTxtValueByKey(result, "device_name");
+        String machineType = mdnsTxtValueByKey(result, "machine_type");
+        String name = deviceName;
+        if (name.isEmpty()) name = machineType;
+        if (name.isEmpty() && result->instance_name) name = result->instance_name;
+        if (name.isEmpty() && result->hostname) name = result->hostname;
+        if (name.isEmpty()) name = defaultName ? defaultName : "Moonraker printer";
+        if (!deviceName.isEmpty() && !machineType.isEmpty() && deviceName != machineType) {
+            name += " - ";
+            name += machineType;
+        }
+
+        const uint16_t port = useAdvertisedPort && result->port ? result->port : kDiscoveryPort;
+        if (addDiscoveredPrinter(host.c_str(), port, name.c_str())) {
+            ++added;
+            Serial.printf("[printer] mDNS found name=%s host=%s port=%u\n",
+                          name.c_str(), host.c_str(), static_cast<unsigned>(port));
+        }
+    }
+    if (results) mdns_query_results_free(results);
+    wifiService().releaseMdns();
+    return added;
+}
+
 void PrinterService::performDiscovery() {
+    const uint32_t discoveryStartedMs = millis();
     if (WiFi.status() != WL_CONNECTED) {
         updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
         return;
     }
 
-    updateDiscovery(PrinterDiscoveryStatus::Scanning, 2, "Checking Snapmaker discovery...");
-    const int mdnsCount = MDNS.queryService("snapmaker", "tcp");
-    for (int index = 0; index < mdnsCount; ++index) {
-        const IPAddress address = MDNS.address(index);
-        if (!address) continue;
-        const String host = address.toString();
-        if (!probeMoonraker(host.c_str(), kDiscoveryPort)) continue;
-        String name = MDNS.instanceName(index);
-        if (name.isEmpty()) name = MDNS.hostname(index);
-        addDiscoveredPrinter(host.c_str(), kDiscoveryPort,
-                             name.isEmpty() ? "Snapmaker" : name.c_str());
+    auto completeDiscovery = [&]() {
+        PrinterDiscoverySnapshot completed;
+        discoverySnapshot(completed);
+        char message[72] = "";
+        if (completed.count > 0) {
+            snprintf(message, sizeof(message), "Found %u compatible printer%s",
+                     static_cast<unsigned>(completed.count), completed.count == 1 ? "" : "s");
+        } else {
+            strlcpy(message, "No printer found. You can enter it manually.", sizeof(message));
+        }
+        updateDiscovery(PrinterDiscoveryStatus::Complete, 100, message);
+        Serial.printf("[printer] discovery complete found=%u elapsed=%lums\n",
+                      static_cast<unsigned>(completed.count),
+                      static_cast<unsigned long>(millis() - discoveryStartedMs));
+    };
+
+    const AppSettings& settings = settingsService().settings();
+    if (settings.printerHost[0] && settings.printerPort) {
+        updateDiscovery(PrinterDiscoveryStatus::Scanning, 2, "Checking saved printer...");
+        if (probeMoonraker(settings.printerHost, settings.printerPort)) {
+            addDiscoveredPrinter(settings.printerHost, settings.printerPort, "Configured printer");
+            Serial.printf("[printer] saved printer reachable host=%s port=%u\n",
+                          settings.printerHost, static_cast<unsigned>(settings.printerPort));
+            completeDiscovery();
+            return;
+        }
+    }
+
+    updateDiscovery(PrinterDiscoveryStatus::Scanning, 6, "Searching local printer services...");
+    discoverMdnsService("snapmaker", "Snapmaker", false);
+
+    PrinterDiscoverySnapshot afterFastServices;
+    discoverySnapshot(afterFastServices);
+    if (afterFastServices.count > 0) {
+        completeDiscovery();
+        return;
+    }
+    discoverMdnsService("moonraker", "Moonraker printer", true);
+    discoverySnapshot(afterFastServices);
+    if (afterFastServices.count > 0) {
+        completeDiscovery();
+        return;
     }
 
     IPAddress local = WiFi.localIP();
@@ -363,7 +488,6 @@ void PrinterService::performDiscovery() {
         targets[targetCount++] = static_cast<uint8_t>(host);
     };
 
-    const AppSettings& settings = settingsService().settings();
     IPAddress saved;
     if (saved.fromString(settings.printerHost) && saved[0] == local[0] &&
         saved[1] == local[1] && saved[2] == local[2]) {
@@ -379,9 +503,12 @@ void PrinterService::performDiscovery() {
         2, 3, 4, 5, 6, 8, 10, 11, 12, 15, 20, 25, 30, 40, 50, 60, 75, 80, 100, 120, 150, 200,
     };
     for (uint8_t host : CommonHosts) addTarget(host);
-    for (int host = 1; host <= 254; ++host) addTarget(host);
+    for (int host = 2; host <= 60 && targetCount < kQuickDiscoveryTargetLimit; ++host) {
+        addTarget(host);
+    }
 
     char host[16] = "";
+    updateDiscovery(PrinterDiscoveryStatus::Scanning, 15, "Running quick local scan...");
     for (uint16_t index = 0; index < targetCount; ++index) {
         if (WiFi.status() != WL_CONNECTED) {
             updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
@@ -392,27 +519,49 @@ void PrinterService::performDiscovery() {
         if (probeMoonraker(host, kDiscoveryPort)) {
             addDiscoveredPrinter(host, kDiscoveryPort, "Moonraker printer");
         }
-        if ((index % 16) == 0 || index + 1 == targetCount) {
-            const uint8_t progress = static_cast<uint8_t>(5 +
-                (static_cast<uint16_t>(index + 1) * 94U / (targetCount ? targetCount : 1)));
+        if ((index % 6) == 0 || index + 1 == targetCount) {
+            const uint8_t progress = static_cast<uint8_t>(15 +
+                (static_cast<uint16_t>(index + 1) * 30U / (targetCount ? targetCount : 1)));
             char message[72] = "";
-            snprintf(message, sizeof(message), "Scanning local network... %u%%",
+            snprintf(message, sizeof(message), "Quick local scan... %u%%",
                      static_cast<unsigned>(progress));
             updateDiscovery(PrinterDiscoveryStatus::Scanning, progress, message);
         }
     }
 
-    PrinterDiscoverySnapshot completed;
-    discoverySnapshot(completed);
-    char message[72] = "";
-    if (completed.count > 0) {
-        snprintf(message, sizeof(message), "Found %u compatible printer%s",
-                 static_cast<unsigned>(completed.count), completed.count == 1 ? "" : "s");
-    } else {
-        strlcpy(message, "No printer found. You can enter it manually.", sizeof(message));
+    PrinterDiscoverySnapshot afterQuickScan;
+    discoverySnapshot(afterQuickScan);
+    if (afterQuickScan.count > 0) {
+        completeDiscovery();
+        return;
     }
-    updateDiscovery(PrinterDiscoveryStatus::Complete, 100, message);
-    Serial.printf("[printer] discovery complete found=%u\n", static_cast<unsigned>(completed.count));
+
+    const uint16_t quickTargetCount = targetCount;
+    for (int address = 1; address <= 254; ++address) addTarget(address);
+    updateDiscovery(PrinterDiscoveryStatus::Scanning, 46, "Quick scan empty. Running full scan...");
+    for (uint16_t index = quickTargetCount; index < targetCount; ++index) {
+        if (WiFi.status() != WL_CONNECTED) {
+            updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
+            return;
+        }
+        snprintf(host, sizeof(host), "%u.%u.%u.%u",
+                 local[0], local[1], local[2], targets[index]);
+        if (probeMoonraker(host, kDiscoveryPort)) {
+            addDiscoveredPrinter(host, kDiscoveryPort, "Moonraker printer");
+        }
+        if (((index - quickTargetCount) % 12) == 0 || index + 1 == targetCount) {
+            const uint16_t fullCount = targetCount - quickTargetCount;
+            const uint16_t fullDone = index - quickTargetCount + 1;
+            const uint8_t progress = static_cast<uint8_t>(46 + fullDone * 53U /
+                (fullCount ? fullCount : 1));
+            char message[72] = "";
+            snprintf(message, sizeof(message), "Full local scan... %u%%",
+                     static_cast<unsigned>(progress));
+            updateDiscovery(PrinterDiscoveryStatus::Scanning, progress, message);
+        }
+    }
+
+    completeDiscovery();
 }
 
 void PrinterService::consumeResults() {

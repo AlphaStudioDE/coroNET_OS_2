@@ -22,9 +22,9 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - `SystemState`: shared runtime state and snapshots.
 - `DisplayService`: LVGL display, touch, screens, and UI theme.
 - `AudioService`: SD-backed WAV playback and status sounds.
-- `WifiService`: connection lifecycle and network state.
+- `WifiService`: connection lifecycle, network scans, and the shared mDNS responder used by printer discovery and local services.
 - `BleService`: NimBLE companion protocol.
-- `WebControlService`: local HTTP API and mDNS discovery for WiFi companion control.
+- `WebControlService`: local HTTP API and conditional HTTP service publication through the shared mDNS responder.
 - `LedService`: layered LED engine, ambient, dimming, preview, and boot show.
 - `PrinterService`: Moonraker/WebSocket/HTTP integration.
 - `SettingsService`: versioned NVS settings, migrations, runtime revisions, and debounced persistence.

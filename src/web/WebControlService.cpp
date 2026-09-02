@@ -1,15 +1,16 @@
 #include "WebControlService.h"
 
 #include <ArduinoJson.h>
-#include <ESPmDNS.h>
 #include <WiFi.h>
 
 #include "../config/AppConfig.h"
 #include "../core/DeviceIdentity.h"
+#include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 #include "../update/OtaService.h"
+#include "../wifi/WifiService.h"
 
 namespace coronet {
 
@@ -223,22 +224,21 @@ void WebControlService::registerRoutes() {
 void WebControlService::updateRuntimeState() {
     if (shouldRun()) {
         if (!serverRunning_) start();
-    } else if (serverRunning_ || mdnsRunning_) {
+        publishMdnsIfNeeded();
+    } else if (serverRunning_) {
         stop();
     }
     state().webReady = serverRunning_;
 }
 
 void WebControlService::start() {
+    logHeapDiagnostics("web-before-server");
     server_.begin(80);
     serverRunning_ = true;
+    logHeapDiagnostics("web-after-server");
 
-    if (!mdnsRunning_) {
-        mdnsRunning_ = MDNS.begin(deviceIdentity().hostname());
-        if (mdnsRunning_) {
-            MDNS.addService("http", "tcp", 80);
-        }
-    }
+    publishMdnsIfNeeded();
+    logHeapDiagnostics("web-after-mdns");
 
     IPAddress ip = WiFi.localIP();
     Serial.printf("[web] ready http://%s.local/ ip=%u.%u.%u.%u\n",
@@ -249,12 +249,18 @@ void WebControlService::start() {
 void WebControlService::stop() {
     server_.stop();
     serverRunning_ = false;
-    if (mdnsRunning_) {
-        MDNS.end();
-        mdnsRunning_ = false;
-    }
     state().webReady = false;
     Serial.println("[web] stopped");
+}
+
+void WebControlService::publishMdnsIfNeeded() {
+    const uint32_t generation = wifiService().mdnsGeneration();
+    if (!serverRunning_ || !generation || generation == mdnsGenerationPublished_) return;
+    if (wifiService().publishMdnsService("http", "tcp", 80)) {
+        mdnsGenerationPublished_ = generation;
+        Serial.printf("[web] mDNS HTTP service published generation=%lu\n",
+                      static_cast<unsigned long>(generation));
+    }
 }
 
 bool WebControlService::shouldRun() const {

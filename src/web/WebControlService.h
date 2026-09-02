@@ -14,11 +14,12 @@ private:
     WebServer server_{80};
     bool routesReady_ = false;
     bool serverRunning_ = false;
-    bool mdnsRunning_ = false;
+    uint32_t mdnsGenerationPublished_ = 0;
     uint32_t lastStateMs_ = 0;
 
     void registerRoutes();
     void updateRuntimeState();
+    void publishMdnsIfNeeded();
     void start();
     void stop();
     bool shouldRun() const;

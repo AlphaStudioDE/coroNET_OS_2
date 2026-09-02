@@ -798,6 +798,7 @@ void SetupWizard::moveNext() {
         settingsService().flush();
         wifiService().acceptConnectionTest();
         step_ = Step::Printer;
+        printerService().requestDiscovery();
         renderPending_ = true;
         return;
     }
@@ -808,6 +809,9 @@ void SetupWizard::moveNext() {
         return;
     }
     step_ = static_cast<Step>(static_cast<uint8_t>(step_) + 1);
+    if (step_ == Step::Printer && state().wifiConnected) {
+        printerService().requestDiscovery();
+    }
     renderPending_ = true;
 }
 

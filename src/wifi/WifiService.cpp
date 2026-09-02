@@ -1,9 +1,12 @@
 #include "WifiService.h"
 
+#include <ESPmDNS.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
 
+#include "../core/DeviceIdentity.h"
+#include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
 
@@ -14,6 +17,8 @@ WifiService gWifiService;
 constexpr uint32_t ConnectionTimeoutMs = 15000;
 constexpr uint32_t ScanTimeoutMs = 15000;
 constexpr uint32_t RadioSettleMs = 60;
+constexpr uint32_t MdnsStartupDelayMs = 300;
+constexpr uint32_t MdnsQuerySettleMs = 350;
 }
 
 WifiService& wifiService() {
@@ -21,8 +26,13 @@ WifiService& wifiService() {
 }
 
 void WifiService::begin() {
+    logHeapDiagnostics("wifi-before-mode");
     WiFi.mode(WIFI_STA);
+    logHeapDiagnostics("wifi-after-mode");
     applySettings();
+    logHeapDiagnostics("wifi-after-begin");
+    mdnsMutex_ = xSemaphoreCreateMutex();
+    if (!mdnsMutex_) Serial.println("[wifi] mDNS mutex allocation failed");
     started_ = true;
     state().wifiConnected = WiFi.status() == WL_CONNECTED;
 }
@@ -43,6 +53,85 @@ void WifiService::loop() {
         }
     }
     state().wifiConnected = WiFi.status() == WL_CONNECTED;
+    maintainMdns();
+}
+
+bool WifiService::acquireMdns(uint32_t readyTimeoutMs, TickType_t lockTimeoutTicks) {
+    if (!mdnsMutex_) return false;
+    const uint32_t startedWaitingMs = millis();
+    while (WiFi.status() == WL_CONNECTED) {
+        if (mdnsRunning_ && millis() - mdnsStartedMs_ >= MdnsQuerySettleMs) {
+            if (xSemaphoreTake(mdnsMutex_, lockTimeoutTicks) != pdTRUE) return false;
+            if (mdnsRunning_ && WiFi.status() == WL_CONNECTED) return true;
+            xSemaphoreGive(mdnsMutex_);
+        }
+        if (millis() - startedWaitingMs >= readyTimeoutMs) break;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return false;
+}
+
+void WifiService::releaseMdns() {
+    if (mdnsMutex_) xSemaphoreGive(mdnsMutex_);
+}
+
+bool WifiService::publishMdnsService(const char* service,
+                                     const char* protocol,
+                                     uint16_t port) {
+    if (!service || !protocol || !mdnsMutex_ || !mdnsRunning_) return false;
+    if (xSemaphoreTake(mdnsMutex_, pdMS_TO_TICKS(100)) != pdTRUE) return false;
+    const bool published = mdnsRunning_ && MDNS.addService(service, protocol, port);
+    xSemaphoreGive(mdnsMutex_);
+    return published;
+}
+
+void WifiService::maintainMdns() {
+    if (!started_ || !mdnsMutex_) return;
+
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    const uint32_t currentIp = connected ? static_cast<uint32_t>(WiFi.localIP()) : 0;
+    if (!connected) {
+        wifiWasConnected_ = false;
+        wifiConnectedSinceMs_ = 0;
+        if (!mdnsRunning_ || xSemaphoreTake(mdnsMutex_, 0) != pdTRUE) return;
+        MDNS.end();
+        mdnsRunning_ = false;
+        mdnsStartedMs_ = 0;
+        mdnsIp_ = 0;
+        xSemaphoreGive(mdnsMutex_);
+        Serial.println("[wifi] mDNS stopped");
+        return;
+    }
+
+    if (!wifiWasConnected_ || (mdnsIp_ && mdnsIp_ != currentIp)) {
+        wifiWasConnected_ = true;
+        wifiConnectedSinceMs_ = millis();
+        if (mdnsRunning_ && xSemaphoreTake(mdnsMutex_, 0) == pdTRUE) {
+            MDNS.end();
+            mdnsRunning_ = false;
+            mdnsStartedMs_ = 0;
+            mdnsIp_ = 0;
+            xSemaphoreGive(mdnsMutex_);
+        }
+    }
+
+    if (mdnsRunning_ || millis() - wifiConnectedSinceMs_ < MdnsStartupDelayMs) return;
+    if (xSemaphoreTake(mdnsMutex_, 0) != pdTRUE) return;
+    if (!mdnsRunning_ && WiFi.status() == WL_CONNECTED) {
+        mdnsRunning_ = MDNS.begin(deviceIdentity().hostname());
+        if (mdnsRunning_) {
+            mdnsStartedMs_ = millis();
+            mdnsIp_ = currentIp;
+            ++mdnsGeneration_;
+            Serial.printf("[wifi] mDNS ready host=%s.local generation=%lu\n",
+                          deviceIdentity().hostname(),
+                          static_cast<unsigned long>(mdnsGeneration_));
+        } else {
+            wifiConnectedSinceMs_ = millis();
+            Serial.println("[wifi] mDNS start failed; retry scheduled");
+        }
+    }
+    xSemaphoreGive(mdnsMutex_);
 }
 
 void WifiService::requestConnectionTest(const char* ssid, const char* password) {
