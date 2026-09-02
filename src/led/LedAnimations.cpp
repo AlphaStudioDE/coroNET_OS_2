@@ -82,6 +82,8 @@ constexpr const char* OtherNames[] = {
     "Deep Sea Pulse", "Solar Wind", "Pixel Circus", "Mint Breeze", "Ruby Scan",
     "Arcade Chase", "Stardust", "Ice Cave", "Firework Trail", "Chroma Ring",
     "Ghost Light", "Toxic Wave", "Copper Spark", "Blueprint", "Magma Flow",
+    "Candy Stripe", "Quantum Dots", "Showroom Loop", "Audio Reactive", "Weather Mood",
+    "Clock Aurora", "Filament Gallery", "Maintenance", "Calibration", "Heatmap Demo",
 };
 
 template <size_t N>

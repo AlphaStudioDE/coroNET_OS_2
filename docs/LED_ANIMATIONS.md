@@ -380,6 +380,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 48 | Copper Spark | A breathing copper ember bed carries sparse sparks with explicit rise and decay envelopes instead of one-frame flashes. |
 | 49 | Blueprint | A dark blue measured grid marks major and minor divisions while a bright cyan drawing pen scans the full route. |
 | 50 | Magma Flow | Two molten flow layers move beneath deterministic black crust cracks, shifting continuously through red, orange, and hot yellow. |
+| 51 | Candy Stripe | Cherry, warm-cream, and mint ribbons rotate through every physical section with a shaped highlight that preserves the striped-candy form. |
+| 52 | Quantum Dots | Deterministic multicolor particles rise and decay at separate positions while a pale tunnelling marker jumps only between dark transitions. |
+| 53 | Showroom Loop | Three presentation scenes crossfade continuously through a cyan contour reveal, a gold-and-blue scanner, and a restrained pearl-violet display. |
+| 54 | Audio Reactive | A procedural Center spectrum and two side level meters become faster and more energetic while coroNET audio is playing; it does not claim microphone analysis. |
+| 55 | Weather Mood | Chamber temperature moves a cloud field from cold blue through mild green to warm amber, while lost Wi-Fi adds restrained storm highlights; no external weather provider is required. |
+| 56 | Clock Aurora | A green-blue aurora carries a precise pale second marker and a wider gold minute marker derived from the system clock. |
+| 57 | Filament Gallery | Up to four colors reported by the printer occupy separate OUTER exhibits, the active tool remains brighter, and a neutral spotlight tours the collection. |
+| 58 | Maintenance | Left reports Wi-Fi health, Center scans printer telemetry, and Right reports ventilation safety using stable green, amber, or red service indicators. |
+| 59 | Calibration | Major, minor, and physical-section ruler marks remain fixed while an orange verification cursor traverses the complete mapped OUTER path. |
+| 60 | Heatmap Demo | Left meters bed temperature, Center meters active-nozzle temperature, and Right meters chamber temperature with independent real-data thermal colors and levels. |
 
 ## Boot LED Experience
 

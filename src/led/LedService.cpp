@@ -420,6 +420,7 @@ void LedService::render(uint32_t now) {
         context.printEtaSec = system.printEtaSec;
         context.printerOnline = system.printerConnected && system.printerTelemetryValid;
         context.wifiConnected = system.wifiConnected;
+        context.audioPlaying = system.audioPlaying;
         context.timeReady = system.timeReady;
         if (context.timeReady) {
             const time_t epoch = time(nullptr);
@@ -455,6 +456,7 @@ void LedService::render(uint32_t now) {
             context.printEtaSec = 1740U;
             context.printerOnline = true;
             context.wifiConnected = true;
+            context.audioPlaying = true;
             context.timeReady = true;
             context.secondOfMinute = static_cast<uint8_t>((now / 1000U) % 60U);
             context.minuteOfHour = 18U;
@@ -537,6 +539,9 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             context.printDurationSec = system.printDurationSec;
             context.printEtaSec = system.printEtaSec;
             context.printerOnline = system.printerConnected && system.printerTelemetryValid;
+            context.wifiConnected = system.wifiConnected;
+            context.audioPlaying = system.audioPlaying;
+            context.timeReady = system.timeReady;
             context.ventFailsafe = system.ventFailsafe;
             context.printerTelemetryAgeMs = system.lastPrinterUpdateMs
                 ? context.nowMs - system.lastPrinterUpdateMs : UINT32_MAX;
@@ -742,6 +747,9 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
         context.printDurationSec = system.printDurationSec;
         context.printEtaSec = system.printEtaSec;
         context.printerOnline = system.printerConnected && system.printerTelemetryValid;
+        context.wifiConnected = system.wifiConnected;
+        context.audioPlaying = system.audioPlaying;
+        context.timeReady = system.timeReady;
         context.ventFailsafe = system.ventFailsafe;
         context.printerTelemetryAgeMs = system.lastPrinterUpdateMs
             ? context.nowMs - system.lastPrinterUpdateMs : UINT32_MAX;
@@ -6397,6 +6405,258 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     decorativeHsv(LedCategory::Other,
                         static_cast<uint8_t>(250U + heat * 35U / 255U), 255U, value));
             }
+            break;
+        }
+        case OtherAnimation::CandyStripe: {
+            const uint16_t shift = static_cast<uint16_t>(now / 92U);
+            const RgbwColor cherry = decorativeHsv(LedCategory::Other, 250U, 250U, 220U);
+            const RgbwColor cream(225U, 190U, 145U);
+            const RgbwColor mint = decorativeHsv(LedCategory::Other, 91U, 235U, 155U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t band = static_cast<uint8_t>(
+                        (i * 2U + shift + sectionIndex * 3U) % 15U);
+                    RgbwColor color = band < 5U ? cherry
+                        : band < 10U ? cream : mint;
+                    const uint8_t ridge = static_cast<uint8_t>(
+                        150U + wave8(static_cast<uint8_t>(band * 17U)) / 4U);
+                    setSection(section, i, scaled(color, ridge));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::QuantumDots: {
+            const uint32_t cycle = now / 2200U;
+            const uint16_t phase = static_cast<uint16_t>(now % 2200U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t seed = hash8(path * 109U + cycle * 193U);
+                const uint16_t local = static_cast<uint16_t>((phase + seed * 7U) % 2200U);
+                const uint8_t envelope = local < 420U
+                    ? static_cast<uint8_t>(local * 255U / 420U)
+                    : local < 1050U
+                        ? static_cast<uint8_t>((1050U - local) * 255U / 630U) : 0U;
+                const bool occupied = hash8(path * 71U + cycle * 37U) > 174U;
+                const uint8_t value = occupied
+                    ? static_cast<uint8_t>(8U + static_cast<uint16_t>(envelope) * 205U / 255U)
+                    : 3U;
+                const uint8_t hue = static_cast<uint8_t>(
+                    hash8(path * 131U + cycle * 17U) + now / 211U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, 230U, value));
+            }
+            const uint16_t tunnel = static_cast<uint16_t>(
+                hash8(cycle * 149U + 53U) * hw::OuterCount / 256U);
+            setOuterVisualPathPixel(tunnel,
+                decorativeHsv(LedCategory::Other, 183U, 85U,
+                    static_cast<uint8_t>(95U + wave8(static_cast<uint8_t>(phase * 255U / 2200U)) / 2U)));
+            break;
+        }
+        case OtherAnimation::ShowroomLoop: {
+            constexpr uint32_t SceneMs = 3400U;
+            const uint32_t cycle = now % (SceneMs * 3U);
+            const uint8_t scene = static_cast<uint8_t>(cycle / SceneMs);
+            const uint8_t mix = static_cast<uint8_t>((cycle % SceneMs) * 255U / SceneMs);
+            auto scenePixel = [&](uint8_t selected, uint16_t path) -> RgbwColor {
+                const uint16_t center = (hw::OuterCount - 1U) / 2U;
+                const uint16_t distance = path > center ? path - center : center - path;
+                switch (selected % 3U) {
+                    case 0: {
+                        const uint16_t reveal = static_cast<uint16_t>(
+                            (now / 74U) % (center + 8U));
+                        const uint16_t delta = distance > reveal ? distance - reveal : reveal - distance;
+                        const uint8_t value = delta <= 3U
+                            ? static_cast<uint8_t>(205U - delta * 54U) : 13U;
+                        return decorativeHsv(LedCategory::Other, 140U, 215U, value);
+                    }
+                    case 1: {
+                        const uint16_t head = static_cast<uint16_t>((now / 58U) % hw::OuterCount);
+                        const uint16_t delta = path > head ? path - head : head - path;
+                        const uint8_t value = delta <= 6U
+                            ? static_cast<uint8_t>(220U - delta * 31U) : 18U;
+                        return decorativeHsv(LedCategory::Other,
+                            path < hw::OuterCount / 2U ? 24U : 180U, 230U, value);
+                    }
+                    default: {
+                        const uint8_t sheen = wave8(static_cast<uint8_t>(now / 97U + path * 5U));
+                        const RgbwColor pearl(175U, 170U, 155U);
+                        const RgbwColor violet = decorativeHsv(LedCategory::Other, 205U, 210U, 135U);
+                        return blend(scaled(violet, static_cast<uint8_t>(68U + sheen / 4U)),
+                                     pearl, distance < 5U ? 135U : 30U);
+                    }
+                }
+            };
+            const uint8_t eased = wave8(static_cast<uint8_t>(mix / 2U));
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                setOuterVisualPathPixel(path,
+                    blend(scenePixel(scene, path), scenePixel(scene + 1U, path), eased));
+            }
+            break;
+        }
+        case OtherAnimation::AudioReactive: {
+            const uint16_t beatMs = context.audioPlaying ? 460U : 920U;
+            const uint16_t beatPhase = static_cast<uint16_t>(now % beatMs);
+            const uint8_t attack = beatPhase < 75U
+                ? static_cast<uint8_t>(beatPhase * 255U / 75U)
+                : static_cast<uint8_t>(max<int>(0,
+                    255 - static_cast<int>(beatPhase - 75U) * 255 / (beatMs - 75U)));
+            const uint8_t energy = context.audioPlaying
+                ? attack : static_cast<uint8_t>(28U + attack / 5U);
+            const uint16_t center = (hw::CenterCount - 1U) / 2U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > center ? i - center : center - i;
+                const uint8_t band = wave8(static_cast<uint8_t>(now / 31U + distance * 28U));
+                const uint8_t value = static_cast<uint8_t>(12U +
+                    static_cast<uint16_t>(band) * (55U + energy * 145U / 255U) / 255U);
+                setSection(LedSection::Center, i,
+                    decorativeHsv(LedCategory::Other,
+                        static_cast<uint8_t>(150U + distance * 10U), 245U, value));
+            }
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t threshold = static_cast<uint8_t>(
+                    i * 255U / max<uint16_t>(1U, hw::LeftCount - 1U));
+                const uint8_t value = energy > threshold
+                    ? static_cast<uint8_t>(90U + (energy - threshold) / 2U) : 5U;
+                setSection(LedSection::Left, i,
+                    decorativeHsv(LedCategory::Other, 224U, 245U, value));
+                setSection(LedSection::Right, i,
+                    decorativeHsv(LedCategory::Other, 112U, 245U, value));
+            }
+            break;
+        }
+        case OtherAnimation::WeatherMood: {
+            const uint8_t temperature = temperaturePercent(
+                context.chamberTempC, 10.0f, 50.0f, 45U);
+            const RgbwColor cold = decorativeHsv(LedCategory::Other, 157U, 205U, 145U);
+            const RgbwColor mild = decorativeHsv(LedCategory::Other, 102U, 155U, 165U);
+            const RgbwColor warm = decorativeHsv(LedCategory::Other, 18U, 235U, 185U);
+            const RgbwColor sky = temperature < 50U
+                ? blend(cold, mild, static_cast<uint8_t>(temperature * 255U / 50U))
+                : blend(mild, warm, static_cast<uint8_t>((temperature - 50U) * 255U / 50U));
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t cloud = wave8(static_cast<uint8_t>(now / 183U + path * 8U));
+                uint8_t value = static_cast<uint8_t>(48U + cloud * 82U / 255U);
+                RgbwColor color = scaled(sky, value);
+                if (!context.wifiConnected) {
+                    const uint8_t storm = wave8(static_cast<uint8_t>(now / 43U - path * 17U));
+                    if (storm > 232U) color = blend(color, RgbwColor(135U, 150U, 205U),
+                                                    static_cast<uint8_t>((storm - 232U) * 11U));
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::ClockAurora: {
+            const uint8_t second = context.timeReady
+                ? context.secondOfMinute : static_cast<uint8_t>((now / 1000U) % 60U);
+            const uint8_t minute = context.timeReady
+                ? context.minuteOfHour : static_cast<uint8_t>((now / 60000U) % 60U);
+            const uint16_t secondPos = static_cast<uint16_t>(
+                second * (hw::OuterCount - 1U) / 59U);
+            const uint16_t minutePos = static_cast<uint16_t>(
+                minute * (hw::OuterCount - 1U) / 59U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t ribbon = wave8(static_cast<uint8_t>(now / 127U + path * 10U));
+                RgbwColor color = decorativeHsv(LedCategory::Other,
+                    static_cast<uint8_t>(88U + ribbon / 4U), 205U,
+                    static_cast<uint8_t>(18U + ribbon / 3U));
+                const uint16_t secondDistance = path > secondPos ? path - secondPos : secondPos - path;
+                const uint16_t minuteDistance = path > minutePos ? path - minutePos : minutePos - path;
+                if (minuteDistance <= 1U) {
+                    color = blend(color,
+                        decorativeHsv(LedCategory::Other, 27U, 185U, 205U),
+                        static_cast<uint8_t>(210U - minuteDistance * 75U));
+                }
+                if (secondDistance == 0U) color = RgbwColor(210U, 205U, 190U);
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::FilamentGallery: {
+            RgbwColor palette[4];
+            constexpr uint8_t fallbackHues[4] = {18U, 105U, 163U, 220U};
+            for (uint8_t slot = 0; slot < 4U; ++slot) {
+                palette[slot] = (context.filamentColorMask & (1U << slot))
+                    ? fromRgb(context.filamentColorsRgb[slot])
+                    : decorativeHsv(LedCategory::Other, fallbackHues[slot], 235U, 205U);
+                if (palette[slot].r + palette[slot].g + palette[slot].b < 28U) {
+                    palette[slot] = decorativeHsv(
+                        LedCategory::Other, fallbackHues[slot], 235U, 205U);
+                }
+            }
+            const uint16_t spotlight = static_cast<uint16_t>((now / 93U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t slot = min<uint8_t>(3U,
+                    static_cast<uint8_t>(path * 4U / hw::OuterCount));
+                const uint16_t distance = path > spotlight ? path - spotlight : spotlight - path;
+                const uint8_t value = distance <= 4U
+                    ? static_cast<uint8_t>(215U - distance * 30U)
+                    : slot == (context.activeTool & 3U) ? 115U : 62U;
+                setOuterVisualPathPixel(path, scaled(palette[slot], value));
+            }
+            break;
+        }
+        case OtherAnimation::Maintenance: {
+            const bool telemetryFresh = context.printerTelemetryAgeMs < 15000U;
+            const RgbwColor wifi = context.wifiConnected
+                ? RgbwColor(0U, 180U, 65U) : RgbwColor(230U, 92U, 0U);
+            const RgbwColor printer = context.printerOnline && telemetryFresh
+                ? RgbwColor(0U, 180U, 65U) : RgbwColor(230U, 92U, 0U);
+            const RgbwColor vent = !context.ventFailsafe
+                ? RgbwColor(0U, 180U, 65U) : RgbwColor(230U, 15U, 0U);
+            const uint16_t scanner = static_cast<uint16_t>((now / 75U) % hw::CenterCount);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t value = static_cast<uint8_t>(58U +
+                    wave8(static_cast<uint8_t>(now / 143U + i * 7U)) / 4U);
+                setSection(LedSection::Left, i, scaled(wifi, value));
+                setSection(LedSection::Right, i, scaled(vent, value));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > scanner ? i - scanner : scanner - i;
+                const uint8_t value = distance <= 3U
+                    ? static_cast<uint8_t>(205U - distance * 52U) : 22U;
+                setSection(LedSection::Center, i, scaled(printer, value));
+            }
+            break;
+        }
+        case OtherAnimation::Calibration: {
+            const uint16_t cursor = static_cast<uint16_t>((now / 68U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const bool boundary = path == 0U || path == hw::LeftCount ||
+                    path == hw::LeftCount + hw::CenterCount || path == hw::OuterCount - 1U;
+                const bool major = path % 5U == 0U;
+                const bool minor = path % 2U == 0U;
+                RgbwColor color = boundary ? RgbwColor(180U, 175U, 160U)
+                    : major ? decorativeHsv(LedCategory::Other, 145U, 180U, 120U)
+                    : minor ? decorativeHsv(LedCategory::Other, 145U, 205U, 42U)
+                    : RgbwColor();
+                const uint16_t distance = path > cursor ? path - cursor : cursor - path;
+                if (distance <= 1U) {
+                    color = decorativeHsv(LedCategory::Other, 18U, 245U,
+                        static_cast<uint8_t>(220U - distance * 80U));
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::HeatmapDemo: {
+            const uint8_t bed = temperaturePercent(context.bedTempC, 20.0f, 110.0f, 42U);
+            const uint8_t tool = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 68U);
+            const uint8_t chamber = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 35U);
+            auto renderHeat = [&](LedSection section, uint8_t percent, bool reverse) {
+                const uint16_t count = sectionCount(section);
+                const RgbwColor heat = temperatureColor(percent);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint16_t logical = reverse ? count - 1U - i : i;
+                    const uint8_t coverage = progressCoverage(percent, count, i);
+                    setSection(section, logical, scaled(heat,
+                        static_cast<uint8_t>(10U + static_cast<uint16_t>(coverage) * 195U / 255U)));
+                }
+            };
+            renderHeat(LedSection::Left, bed, false);
+            renderHeat(LedSection::Center, tool, false);
+            renderHeat(LedSection::Right, chamber, true);
             break;
         }
         case OtherAnimation::Count:

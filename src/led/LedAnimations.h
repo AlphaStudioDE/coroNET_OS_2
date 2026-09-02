@@ -331,6 +331,16 @@ enum class OtherAnimation : uint8_t {
     CopperSpark,
     Blueprint,
     MagmaFlow,
+    CandyStripe,
+    QuantumDots,
+    ShowroomLoop,
+    AudioReactive,
+    WeatherMood,
+    ClockAurora,
+    FilamentGallery,
+    Maintenance,
+    Calibration,
+    HeatmapDemo,
     Count,
 };
 
@@ -352,6 +362,7 @@ struct LedAnimationContext {
     uint32_t lastTouchAgeMs = UINT32_MAX;
     bool printerOnline = false;
     bool wifiConnected = false;
+    bool audioPlaying = false;
     bool timeReady = false;
     uint8_t secondOfMinute = 0;
     uint8_t minuteOfHour = 0;
