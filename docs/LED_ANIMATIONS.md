@@ -31,8 +31,8 @@ The following behavior is shared by the entire catalog:
 | Print | 53 | Rebuilt and hardware-tested on the OS 2 engine |
 | Pause | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
-| Idle | 4 | Initial OS 2 set; expanded rebuild pending |
-| Finish | 40 | Rebuild in progress; first four sets implemented on the OS 2 engine |
+| Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
+| Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Other | 4 | Initial OS 2 set; expanded rebuild pending |
 
 ## Print
@@ -212,7 +212,7 @@ Error animations range from unmistakable emergency signals to diagnostic pattern
 
 ## Idle
 
-Idle animations provide useful ready-state cues and lower-motion ambient scenes. The first ten entries have been rebuilt for the OS 2 engine; the remaining coroNET 1 concepts will be added in reviewed batches.
+Idle animations provide useful ready-state cues and lower-motion ambient scenes. All 50 coroNET 1 concepts have been rebuilt around the OS 2 section mapping and global LED policies.
 
 | # | Animation | What it shows |
 | ---: | --- | --- |
@@ -256,6 +256,16 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 | 38 | Status Ring | Left reports Wi-Fi, Center reports printer connection, and Right reports telemetry freshness using independently meaningful colors. |
 | 39 | Chamber Lantern | Actual chamber temperature colors a low breathing side aura and a brighter symmetric Center lantern. |
 | 40 | Ready Split | Loaded filament color frames both sides while Center scans green when the printer is available or amber while waiting. |
+| 41 | Calm Tide | Two long aqua and blue-green swells cross slowly around the complete OUTER route without sharp peaks or flashes. |
+| 42 | Zen Garden | Each physical section forms its own sand or moss bed while two softly lit stones wander slowly within its boundaries. |
+| 43 | Dusk Horizon | Night blue and sunset orange meet at a slowly breathing horizon independently inside Left, Center, and Right. |
+| 44 | Silk Flow | Opposing violet and turquoise folds blend into a flowing ribbon, with a restrained pale sheen only where folds overlap. |
+| 45 | Northern Sleep | Six wide green-to-violet aurora curtains sway over an almost-dark blue sky at independent, deliberately slow rates. |
+| 46 | Dew Sparks | A low aqua morning mist carries occasional droplets that brighten and fade smoothly instead of flashing on for one frame. |
+| 47 | Lamp Glow | Every physical section becomes a warm spatial lamp: brightest at its own center, softer at its edges, and breathing as one scene. |
+| 48 | Cloud Drift | Three broad, differently paced wave fields create cool cloud masses whose density changes continuously along OUTER. |
+| 49 | Quiet Comet | One broad, tail-free cyan comet crosses the route once, leaves a long dark pause, and then begins another quiet passage. |
+| 50 | Section Calm | Left, Center, and Right share one guided breath while retaining separate muted green, cyan, and violet bell-shaped light fields. |
 
 ## Finish
 

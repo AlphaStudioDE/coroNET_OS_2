@@ -47,6 +47,16 @@ enum class IdleAnimation : uint8_t {
     StatusRing,
     ChamberLantern,
     PrintReadySplit,
+    CalmTide,
+    ZenGarden,
+    DuskHorizon,
+    SilkFlow,
+    NorthernSleep,
+    DewSparks,
+    LampGlow,
+    CloudDrift,
+    QuietComet,
+    SectionCalm,
     Count,
 };
 

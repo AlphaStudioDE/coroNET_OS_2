@@ -13,6 +13,8 @@ constexpr const char* IdleNames[] = {
     "Pixel Fireflies", "Cosmic Dust", "Theater Glow", "Tidal Pool", "Neon Drift",
     "Ready Breath", "Ambient Clock", "Temp Idle", "Last Print Echo", "WiFi Beacon",
     "Sleepy Core", "Material Shelf", "Status Ring", "Chamber Lantern", "Ready Split",
+    "Calm Tide", "Zen Garden", "Dusk Horizon", "Silk Flow", "Northern Sleep",
+    "Dew Sparks", "Lamp Glow", "Cloud Drift", "Quiet Comet", "Section Calm",
 };
 
 constexpr const char* PrintNames[] = {
