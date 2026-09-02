@@ -215,10 +215,9 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
         static_cast<uint16_t>(46U + static_cast<uint32_t>(coronaReveal) * 270U / 255U));
     lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
     lv_obj_set_width(horizon_, static_cast<lv_coord_t>(horizonReveal * 78U / 255U));
-    lv_obj_set_style_bg_opa(endpoint_,
-        static_cast<uint8_t>(static_cast<uint16_t>(endpointReveal) *
-            (150U + static_cast<uint16_t>(pulse) * 105U / 255U) / 255U),
-        LV_PART_MAIN);
+    const uint8_t endpointOpacity = static_cast<uint8_t>(static_cast<uint16_t>(endpointReveal) *
+        (150U + static_cast<uint16_t>(pulse) * 105U / 255U) / 255U);
+    lv_obj_set_style_bg_opa(endpoint_, endpointOpacity, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_,
         static_cast<uint8_t>(detailReveal / 5U), LV_PART_MAIN);
 
@@ -250,9 +249,11 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     if (elapsedMs >= 32600U) {
         const uint8_t handoff = ramp(elapsedMs, 32600U, 2400U);
         const uint8_t remaining = 255U - handoff;
-        setOpacity(static_cast<uint8_t>(80U + remaining * 175U / 255U),
-                   static_cast<uint8_t>(80U + remaining * 175U / 255U),
-                   static_cast<uint8_t>(remaining));
+        setOpacity(remaining, remaining, remaining);
+        lv_obj_set_style_bg_opa(core_, remaining, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(endpoint_,
+            static_cast<uint8_t>(static_cast<uint16_t>(endpointOpacity) * remaining / 255U), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(remaining / 5U), LV_PART_MAIN);
     }
 }
 
