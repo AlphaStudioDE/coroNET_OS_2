@@ -383,41 +383,175 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
         return;
     }
 
-    const uint8_t coreBreath = static_cast<uint8_t>(34U + wave8(static_cast<uint8_t>(elapsedMs / 17U)) * 126U / 255U);
-    const uint8_t evolvingHue = static_cast<uint8_t>(elapsedMs / 14U);
-    const uint8_t intro = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 4500U));
-    const bool spectrumOpen = elapsedMs >= 11800U;
-    const bool contraction = elapsedMs >= 20500U && elapsedMs < 22000U;
-    const bool climax = elapsedMs >= 22000U && elapsedMs < 30500U;
+    auto ease = [](uint32_t value, uint32_t duration) -> uint8_t {
+        if (duration == 0U || value >= duration) return 255U;
+        const uint32_t x = value * 255U / duration;
+        return static_cast<uint8_t>((x * x * (765U - 2U * x) + 32512U) / 65025U);
+    };
+    auto envelope = [&](uint32_t start, uint32_t fadeIn, uint32_t end, uint32_t fadeOut) -> uint8_t {
+        if (elapsedMs <= start || elapsedMs >= end) return 0U;
+        if (fadeIn && elapsedMs < start + fadeIn) return ease(elapsedMs - start, fadeIn);
+        if (fadeOut && elapsedMs > end - fadeOut) return static_cast<uint8_t>(255U - ease(elapsedMs - (end - fadeOut), fadeOut));
+        return 255U;
+    };
+    auto saturatingAdd = [](const RgbwColor& base, const RgbwColor& addition) -> RgbwColor {
+        return RgbwColor(
+            static_cast<uint8_t>(min<uint16_t>(255U, static_cast<uint16_t>(base.r) + addition.r)),
+            static_cast<uint8_t>(min<uint16_t>(255U, static_cast<uint16_t>(base.g) + addition.g)),
+            static_cast<uint8_t>(min<uint16_t>(255U, static_cast<uint16_t>(base.b) + addition.b)),
+            static_cast<uint8_t>(min<uint16_t>(255U, static_cast<uint16_t>(base.w) + addition.w)));
+    };
+    auto outerPhysical = [&](uint16_t path) -> uint16_t {
+        if (path < hw::LeftCount) return sectionPhysicalIndex(LedSection::Left, path);
+        path -= hw::LeftCount;
+        if (path < hw::CenterCount) return sectionPhysicalIndex(LedSection::Center, path);
+        path -= hw::CenterCount;
+        return sectionPhysicalIndex(LedSection::Right, hw::RightCount - 1U - path);
+    };
+    auto addOuter = [&](uint16_t path, const RgbwColor& color, uint8_t power) {
+        if (path >= hw::OuterCount || power == 0U) return;
+        const uint16_t physical = outerPhysical(path);
+        targetFrame_[physical] = saturatingAdd(targetFrame_[physical], scaled(color, power));
+    };
+    auto addComet = [&](uint16_t head, const RgbwColor& color, uint8_t power,
+                        uint8_t tailLength, bool reverse) {
+        for (uint8_t tail = 0; tail < tailLength; ++tail) {
+            const uint16_t path = reverse
+                ? static_cast<uint16_t>((head + tail) % hw::OuterCount)
+                : static_cast<uint16_t>((head + hw::OuterCount - tail) % hw::OuterCount);
+            addOuter(path, color, static_cast<uint8_t>(
+                static_cast<uint16_t>(power) * (tailLength - tail) / tailLength));
+        }
+    };
 
+    const RgbwColor violet(66U, 0U, 160U);
+    const RgbwColor cyan(0U, 205U, 255U);
+    const RgbwColor orange(255U, 72U, 0U);
+    const RgbwColor white(255U, 255U, 255U);
+    const uint8_t rise = ease(elapsedMs, 9000U);
+    const uint8_t resonanceEnv = envelope(1200U, 2600U, 16600U, 4200U);
+    const uint8_t orbitEnv = envelope(6500U, 4200U, 31800U, 3200U);
+    const uint8_t spectrumEnv = envelope(11800U, 2800U, 30500U, 2500U);
+    const uint8_t powerEnv = envelope(22000U, 1900U, 31500U, 1800U);
+
+    RgbwColor engineColor;
+    if (elapsedMs < 4500U) engineColor = blend(violet, cyan, ease(elapsedMs, 4500U));
+    else if (elapsedMs < 9000U) engineColor = blend(cyan, orange, ease(elapsedMs - 4500U, 4500U));
+    else if (elapsedMs < 13500U) engineColor = blend(orange, violet, ease(elapsedMs - 9000U, 4500U));
+    else if (elapsedMs < 20500U) engineColor = blend(violet, cyan, ease(elapsedMs - 13500U, 7000U));
+    else engineColor = blend(cyan, orange, ease(elapsedMs - 20500U, 6500U));
+
+    // A single breathing core remains visible throughout the show. Every later
+    // movement grows out of this rhythm instead of replacing it with a new scene.
+    const uint32_t breathDivisor = 42U - static_cast<uint32_t>(rise) * 24U / 255U;
+    const uint8_t coreBreath = wave8(static_cast<uint8_t>(elapsedMs / max<uint32_t>(18U, breathDivisor)));
     for (uint16_t i = 0; i < hw::InsideCount; ++i) {
-        const uint8_t position = static_cast<uint8_t>(i * 255U / (hw::InsideCount - 1U));
-        const uint8_t hue = spectrumOpen
-            ? static_cast<uint8_t>(evolvingHue + position)
-            : static_cast<uint8_t>(182U + elapsedMs / 95U + position / 5U);
-        uint8_t value = static_cast<uint8_t>((coreBreath * intro) / 255U);
-        if (climax) value = static_cast<uint8_t>(120U + wave8(static_cast<uint8_t>(elapsedMs / 7U + position)) / 2U);
-        if (contraction) value = static_cast<uint8_t>(value * 3U / 5U);
-        setSection(LedSection::Inside, i, hsv(hue, spectrumOpen ? 235U : 225U, value));
+        const uint8_t phase = static_cast<uint8_t>(elapsedMs / 24U + i * 17U);
+        const uint8_t localWave = wave8(phase);
+        uint8_t value = static_cast<uint8_t>(12U + rise / 4U + coreBreath / 4U + localWave / 7U);
+        if (powerEnv) value = static_cast<uint8_t>(min<uint16_t>(225U, value + static_cast<uint16_t>(powerEnv) * (35U + localWave / 5U) / 255U));
+        const RgbwColor local = blend(engineColor, hsv(static_cast<uint8_t>(elapsedMs / 17U + i * 12U), 245U, 255U),
+                                      static_cast<uint8_t>(static_cast<uint16_t>(spectrumEnv) * (35U + localWave / 6U) / 255U));
+        setSection(LedSection::Inside, i, scaled(local, value));
     }
 
+    // Low-frequency aura: deliberately dim and nearly monochromatic. It is the
+    // connective tissue under the waves, not a full-ring rainbow effect.
     for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-        const uint8_t position = static_cast<uint8_t>(path * 255U / (hw::OuterCount - 1U));
-        const uint8_t resonance = wave8(static_cast<uint8_t>(elapsedMs / 13U + position * 2U));
-        const uint8_t orbit = wave8(static_cast<uint8_t>(elapsedMs / 6U - position));
-        uint8_t hue = spectrumOpen
-            ? static_cast<uint8_t>(evolvingHue + position)
-            : static_cast<uint8_t>(190U + elapsedMs / 82U + position / 8U);
-        uint8_t value = static_cast<uint8_t>(18U + resonance * 70U / 255U);
-        if (elapsedMs >= 4500U) value = static_cast<uint8_t>(value + orbit * 70U / 255U);
-        if (climax) value = static_cast<uint8_t>(110U + resonance * 90U / 255U + orbit * 50U / 255U);
-        value = static_cast<uint8_t>(min<uint16_t>(255U, static_cast<uint16_t>(value) * intro / 255U));
-        if (contraction) value = static_cast<uint8_t>(value * 2U / 5U);
-        setOuterVisualPathPixel(path, hsv(hue, spectrumOpen ? 245U : 230U, value));
+        const uint8_t aura = wave8(static_cast<uint8_t>(elapsedMs / 49U + path * 8U));
+        const uint8_t value = static_cast<uint8_t>((5U + aura / 18U) * (65U + rise / 2U) / 255U);
+        setOuterVisualPathPixel(path, scaled(engineColor, value));
     }
 
-    if (elapsedMs >= 30600U) {
-        const uint8_t handoff = static_cast<uint8_t>(min<uint32_t>(255U, (elapsedMs - 30600U) * 255U / 4400U));
+    // Mirrored ignition waves leave the center as one movement, gradually curl
+    // around the outer path, and then tighten into the orbit below.
+    if (resonanceEnv) {
+        const uint16_t center = hw::OuterCount / 2U;
+        const uint16_t travel = static_cast<uint16_t>((elapsedMs * (hw::OuterCount + 16UL)) / 5200UL);
+        for (uint8_t tail = 0; tail < 11U; ++tail) {
+            const uint16_t offset = (travel + hw::OuterCount - tail) % hw::OuterCount;
+            const uint16_t left = (center + hw::OuterCount - offset) % hw::OuterCount;
+            const uint16_t right = (center + offset) % hw::OuterCount;
+            const uint8_t power = static_cast<uint8_t>(static_cast<uint16_t>(resonanceEnv) * (11U - tail) / 11U);
+            addOuter(left, engineColor, power);
+            addOuter(right, engineColor, power);
+        }
+    }
+
+    if (orbitEnv) {
+        const uint32_t period = 1760U - static_cast<uint32_t>(powerEnv) * 820U / 255U;
+        const uint16_t head = static_cast<uint16_t>((elapsedMs * hw::OuterCount) / max<uint32_t>(760U, period));
+        const uint8_t cometPower = static_cast<uint8_t>(static_cast<uint16_t>(orbitEnv) * (175U + powerEnv / 4U) / 255U);
+        addComet(head % hw::OuterCount, blend(engineColor, cyan, 80U), cometPower, 10U, false);
+        addComet((head + hw::OuterCount / 2U) % hw::OuterCount,
+                 blend(engineColor, orange, 105U), static_cast<uint8_t>(cometPower * 9U / 10U), 9U, true);
+    }
+
+    // The spectrum is revealed as moving energy ribbons. Every color appears,
+    // but dark valleys and bright crests preserve direction, force and depth.
+    if (spectrumEnv) {
+        const uint8_t drift = static_cast<uint8_t>(elapsedMs / 34U);
+        for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+            const uint8_t position = static_cast<uint8_t>(path * 255U / hw::OuterCount);
+            const uint8_t ribbonA = wave8(static_cast<uint8_t>(position * 2U - elapsedMs / 12U));
+            const uint8_t ribbonB = wave8(static_cast<uint8_t>(position * 3U + elapsedMs / 18U));
+            const uint8_t crest = max(ribbonA, static_cast<uint8_t>(ribbonB * 4U / 5U));
+            const uint8_t shaped = static_cast<uint8_t>(static_cast<uint16_t>(crest) * crest / 255U);
+            const uint8_t value = static_cast<uint8_t>(static_cast<uint16_t>(spectrumEnv) * (9U + shaped * 105U / 255U) / 255U);
+            addOuter(path, hsv(static_cast<uint8_t>(position + drift), 255U, 255U), value);
+        }
+    }
+
+    // The music briefly inhales around 20.5 s. Scaling the complete layered
+    // frame makes all established motion contract together before full power.
+    uint8_t masterScale = 255U;
+    if (elapsedMs >= 20400U && elapsedMs < 22000U) {
+        const uint32_t phase = elapsedMs - 20400U;
+        masterScale = phase < 800U
+            ? static_cast<uint8_t>(255U - static_cast<uint16_t>(ease(phase, 800U)) * 170U / 255U)
+            : static_cast<uint8_t>(85U + static_cast<uint16_t>(ease(phase - 800U, 800U)) * 170U / 255U);
+    }
+    if (masterScale < 255U) {
+        for (uint16_t i = 0; i < hw::LedCount; ++i) targetFrame_[i] = scaled(targetFrame_[i], masterScale);
+    }
+
+    // Full power adds a third orbit and restrained beat surges. These reinforce
+    // the existing engine motion instead of flashing unrelated pixels.
+    if (powerEnv) {
+        const uint16_t fastHead = static_cast<uint16_t>((elapsedMs * hw::OuterCount) / 690U);
+        addComet((fastHead + hw::OuterCount / 3U) % hw::OuterCount,
+                 hsv(static_cast<uint8_t>(elapsedMs / 15U + 90U), 255U, 255U),
+                 static_cast<uint8_t>(static_cast<uint16_t>(powerEnv) * 205U / 255U), 8U, false);
+        const uint16_t beatPhase = static_cast<uint16_t>((elapsedMs - 22000U) % 840U);
+        const uint8_t beat = beatPhase < 210U ? static_cast<uint8_t>(255U - beatPhase * 255U / 210U) : 0U;
+        if (beat) {
+            const uint16_t center = hw::OuterCount / 2U;
+            const uint8_t reach = static_cast<uint8_t>(2U + static_cast<uint16_t>(beat) * 7U / 255U);
+            for (uint8_t d = 0; d < reach; ++d) {
+                const uint8_t accent = static_cast<uint8_t>(static_cast<uint16_t>(beat) * (reach - d) / reach);
+                addOuter((center + d) % hw::OuterCount, engineColor, accent / 2U);
+                addOuter((center + hw::OuterCount - d) % hw::OuterCount, engineColor, accent / 2U);
+            }
+        }
+    }
+
+    // White is a short, symmetric finale gate. It resolves the accumulated
+    // color energy, then immediately becomes the live-status crossfade.
+    const uint8_t whiteGate = envelope(29200U, 1700U, 32500U, 900U);
+    if (whiteGate) {
+        const uint16_t center = hw::OuterCount / 2U;
+        const uint16_t spread = static_cast<uint16_t>(static_cast<uint32_t>(whiteGate) * center / 255U);
+        for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+            const uint16_t distance = path > center ? path - center : center - path;
+            if (distance <= spread) {
+                const uint8_t edge = static_cast<uint8_t>((spread + 1U - distance) * 255U / (spread + 1U));
+                addOuter(path, white, static_cast<uint8_t>(static_cast<uint16_t>(edge) * 120U / 255U));
+            }
+        }
+    }
+
+    if (elapsedMs >= 31800U) {
+        const uint8_t handoff = ease(elapsedMs - 31800U, 3200U);
         RgbwColor signature[hw::LedCount];
         memcpy(signature, targetFrame_, sizeof(signature));
         const SystemState& system = state();
@@ -680,7 +814,7 @@ void LedService::applyOutputPolicies() {
         const uint8_t average = static_cast<uint8_t>((brightnessSum + 2U) / enumCount(LedSection{}));
         const uint32_t elapsed = bootExperience().timelineMs();
         const uint8_t handoff = bootExperience().full()
-            ? (elapsed > 30600U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 30600U) * 255U / 4400U)) : 0U)
+            ? (elapsed > 31800U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 31800U) * 255U / 3200U)) : 0U)
             : (elapsed > 1850U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 1850U) * 255U / 750U)) : 0U);
         for (uint8_t sectionIndex = 0; sectionIndex < enumCount(LedSection{}); ++sectionIndex) {
             const uint8_t sectionPercent = settings.ledBrightness[sectionIndex];
