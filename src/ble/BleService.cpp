@@ -4,8 +4,10 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
+#include <WiFi.h>
 
 #include "BleProtocol.h"
+#include "../companion/PairingService.h"
 #include "../config/AppConfig.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemState.h"
@@ -20,6 +22,7 @@ BleService* gActiveService = nullptr;
 NimBLECharacteristic* gStateChr = nullptr;
 NimBLECharacteristic* gCommandChr = nullptr;
 NimBLECharacteristic* gEventChr = nullptr;
+BleService gBleService;
 
 void normalizePrinterHost(const char* input, char* out, size_t outSize, uint16_t* port) {
     if (!out || outSize == 0) return;
@@ -122,6 +125,10 @@ class CommandCallbacks final : public NimBLECharacteristicCallbacks {
 
 }
 
+BleService& bleService() {
+    return gBleService;
+}
+
 void BleService::begin() {
     if (!commandQueue_) {
         commandQueue_ = xQueueCreate(CommandQueueDepth, sizeof(QueuedCommand));
@@ -166,13 +173,14 @@ void BleService::loop() {
 
     if (connectedEvent) {
         state().bleConnected = true;
+        sessionAuthenticated_ = false;
         publishEvent("ble", fallbackActive_ ? "connected_fallback" : "connected");
         publishState(true);
     }
     if (disconnectedEvent) {
         state().bleConnected = false;
         stateDirty_ = true;
-        pairingTokenIssued_ = false;
+        sessionAuthenticated_ = false;
     }
     if (overflowEvent) publishEvent("error", "command_queue_full");
 
@@ -181,6 +189,25 @@ void BleService::loop() {
     while (handled < CommandQueueDepth && xQueueReceive(commandQueue_, &queued, 0) == pdTRUE) {
         handleCommand(queued.data, queued.length);
         handled++;
+    }
+
+    const PairingSnapshot pairing = pairingService().snapshot();
+    if (pairing.revision != observedPairingRevision_) {
+        observedPairingRevision_ = pairing.revision;
+        if (pairing.sessionId != 0 && pairing.sessionId != observedPairingSessionId_) {
+            observedPairingSessionId_ = pairing.sessionId;
+            sessionAuthenticated_ = false;
+            publishPairingChallenge();
+        } else if (pairing.phase == PairingPhase::Cancelled) {
+            publishEvent("ack", "pairing_cancelled");
+        } else if (pairing.phase == PairingPhase::Expired) {
+            publishEvent("error", "pairing_expired");
+        }
+    }
+    if ((pairing.phase == PairingPhase::ReadyToDeliver ||
+         pairing.phase == PairingPhase::AwaitingReceipt) &&
+        millis() - lastPairingPublishMs_ >= 1000U) {
+        publishPairingResult();
     }
 
     publishState(false);
@@ -403,6 +430,54 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
     }
 
+    if (strcmp(cmd, "authenticate") == 0) {
+        const char* token = doc["token"].as<const char*>();
+        const AppSettings& cfg = settingsService().settings();
+        uint8_t difference = 0;
+        const bool validLength = token && strlen(token) == 32 && strlen(cfg.apiToken) == 32;
+        if (validLength) {
+            for (size_t index = 0; index < 32; ++index) {
+                difference |= static_cast<uint8_t>(token[index] ^ cfg.apiToken[index]);
+            }
+        }
+        sessionAuthenticated_ = cfg.apiPaired && validLength && difference == 0;
+        publishEvent(sessionAuthenticated_ ? "ack" : "error",
+                     sessionAuthenticated_ ? "authenticated" : "authentication_failed");
+        return;
+    }
+    if (strcmp(cmd, "getPairingChallenge") == 0 || strcmp(cmd, "getPairingToken") == 0) {
+        publishPairingChallenge();
+        return;
+    }
+    if (strcmp(cmd, "confirmPairingCode") == 0) {
+        const uint32_t sessionId = doc["session"] | 0U;
+        const uint32_t code = doc["code"] | 0U;
+        if (!pairingService().confirmFromPhone(sessionId, code)) {
+            publishEvent("error", "pairing_code_rejected");
+            return;
+        }
+        publishEvent("ack", "phone_code_confirmed");
+        publishPairingResult();
+        return;
+    }
+    if (strcmp(cmd, "completePairing") == 0) {
+        const uint32_t sessionId = doc["session"] | 0U;
+        if (!pairingService().completeFromPhone(sessionId)) {
+            publishEvent("error", "pairing_receipt_rejected");
+            return;
+        }
+        sessionAuthenticated_ = true;
+        publishSettings();
+        publishEvent("ack", "pairing_confirmed");
+        return;
+    }
+    if (strcmp(cmd, "cancelPairing") == 0) {
+        const uint32_t sessionId = doc["session"] | 0U;
+        if (pairingService().cancel(sessionId)) publishEvent("ack", "pairing_cancelled");
+        else publishEvent("error", "pairing_cancel_rejected");
+        return;
+    }
+
     if (strcmp(cmd, "snapshot") == 0) {
         publishState(true);
         publishEvent("ack", "snapshot");
@@ -412,31 +487,21 @@ void BleService::handleCommand(const char* command, size_t length) {
         publishEvent("ack", "pong");
         return;
     }
+    const AppSettings& pairingCfg = settingsService().settings();
+    if (pairingCfg.apiPaired && !sessionAuthenticated_) {
+        publishEvent("error", "authentication_required");
+        return;
+    }
+    if (!pairingCfg.apiPaired) {
+        publishEvent("error", "pairing_required");
+        return;
+    }
+
     if (strcmp(cmd, "getSettings") == 0) {
         publishSettings();
         publishEvent("ack", "settings");
         return;
     }
-    if (strcmp(cmd, "getPairingToken") == 0) {
-        publishPairingToken();
-        return;
-    }
-    if (strcmp(cmd, "confirmPairing") == 0) {
-        if (!pairingTokenIssued_) {
-            publishEvent("error", "pairing_not_started");
-            return;
-        }
-        AppSettings& cfg = settingsService().mutableSettings();
-        if (!cfg.apiPaired) {
-            cfg.apiPaired = true;
-            settingsService().save();
-            settingsService().flush();
-        }
-        pairingTokenIssued_ = false;
-        publishEvent("ack", "pairing_confirmed");
-        return;
-    }
-
     if (strcmp(cmd, "setWifi") == 0) {
         AppSettings& cfg = settingsService().mutableSettings();
         char ssid[sizeof(cfg.wifiSsid)] = "";
@@ -719,24 +784,62 @@ void BleService::publishSettings() {
     sendPayload(written);
 }
 
-void BleService::publishPairingToken() {
+void BleService::publishPairingChallenge() {
     if (!gEventChr || !isConnected()) return;
 
-    const AppSettings& cfg = settingsService().settings();
-    if (cfg.apiPaired) {
+    const PairingSnapshot pairing = pairingService().snapshot();
+    if (pairing.phase == PairingPhase::Inactive || pairing.phase == PairingPhase::Completed ||
+        pairing.phase == PairingPhase::Cancelled || pairing.phase == PairingPhase::Expired) {
         publishEvent("error", "pairing_closed");
         return;
     }
-    char payload[160];
+    char safeName[64];
+    jsonStringCopy(advertisedName_, safeName, sizeof(safeName));
+    const uint32_t remainingMs = static_cast<int32_t>(pairing.expiresAtMs - millis()) > 0
+                                     ? pairing.expiresAtMs - millis() : 0;
+    char payload[224];
     const int written = snprintf(payload, sizeof(payload),
-                                 "{\"v\":%u,\"t\":\"pairing\",\"id\":\"%s\",\"token\":\"%s\"}",
-                                 bleprotocol::Version, deviceId_, cfg.apiToken);
+                                 "{\"v\":%u,\"t\":\"pairing_challenge\",\"id\":\"%s\",\"name\":\"%s\","
+                                 "\"session\":%lu,\"code\":%06lu,\"expiresMs\":%lu}",
+                                 bleprotocol::Version, deviceId_, safeName,
+                                 static_cast<unsigned long>(pairing.sessionId),
+                                 static_cast<unsigned long>(pairing.code),
+                                 static_cast<unsigned long>(remainingMs));
     if (written <= 0 || static_cast<size_t>(written) >= sizeof(payload)) return;
 
-    pairingTokenIssued_ = sendFramed(gEventChr,
-                                     static_cast<uint8_t>(bleprotocol::MessageType::PairingJson),
-                                     reinterpret_cast<const uint8_t*>(payload),
-                                     static_cast<size_t>(written));
+    sendFramed(gEventChr,
+               static_cast<uint8_t>(bleprotocol::MessageType::PairingJson),
+               reinterpret_cast<const uint8_t*>(payload),
+               static_cast<size_t>(written));
+}
+
+void BleService::publishPairingResult() {
+    if (!gEventChr || !isConnected()) return;
+    const PairingSnapshot pairing = pairingService().snapshot();
+    if (pairing.phase != PairingPhase::ReadyToDeliver &&
+        pairing.phase != PairingPhase::AwaitingReceipt) return;
+
+    const AppSettings& cfg = settingsService().settings();
+    char localIp[16] = "";
+    if (WiFi.status() == WL_CONNECTED) {
+        const IPAddress ip = WiFi.localIP();
+        snprintf(localIp, sizeof(localIp), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    }
+    char payload[224];
+    const int written = snprintf(payload, sizeof(payload),
+                                 "{\"v\":%u,\"t\":\"pairing_result\",\"id\":\"%s\",\"session\":%lu,"
+                                 "\"token\":\"%s\",\"ip\":\"%s\"}",
+                                 bleprotocol::Version, deviceId_,
+                                 static_cast<unsigned long>(pairing.sessionId), cfg.apiToken, localIp);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(payload)) return;
+
+    lastPairingPublishMs_ = millis();
+    if (sendFramed(gEventChr,
+                   static_cast<uint8_t>(bleprotocol::MessageType::PairingJson),
+                   reinterpret_cast<const uint8_t*>(payload),
+                   static_cast<size_t>(written))) {
+        pairingService().markResultSent(pairing.sessionId);
+    }
 }
 
 void BleService::publishState(bool force) {

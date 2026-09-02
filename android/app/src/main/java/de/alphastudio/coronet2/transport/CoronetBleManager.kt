@@ -24,7 +24,8 @@ class CoronetBleManager(
     private val onFound: (CoronetDevice) -> Unit,
     private val onSnapshot: (DeviceSnapshot) -> Unit,
     private val onSettings: (JSONObject) -> Unit,
-    private val onPairing: (String, String) -> Boolean,
+    private val onPairingChallenge: (PairingChallenge) -> Unit,
+    private val onPairingResult: (String, String, String, Long) -> Boolean,
     private val onEvent: (String, String) -> Unit,
 ) {
     companion object {
@@ -137,6 +138,18 @@ class CoronetBleManager(
         return true
     }
 
+    fun confirmPairing(challenge: PairingChallenge, codesMatch: Boolean): Boolean {
+        val payload = if (codesMatch) {
+            JSONObject().put("cmd", "confirmPairingCode")
+                .put("session", challenge.sessionId).put("code", challenge.code)
+        } else {
+            JSONObject().put("cmd", "cancelPairing").put("session", challenge.sessionId)
+        }
+        return send(payload.toString())
+    }
+
+    fun requestPairingChallenge(): Boolean = send("{\"cmd\":\"getPairingChallenge\"}")
+
     @SuppressLint("MissingPermission")
     private fun writeNextCommand() {
         val currentGatt = gatt ?: return
@@ -217,9 +230,12 @@ class CoronetBleManager(
             val descriptor = descriptorWrites.firstOrNull()
             if (descriptor == null) {
                 subscriptionsReady = true
+                activeDevice?.token?.takeIf { it.length == 32 }?.let { token ->
+                    send(JSONObject().put("cmd", "authenticate").put("token", token).toString())
+                }
                 send("{\"cmd\":\"snapshot\"}")
                 send("{\"cmd\":\"getSettings\"}")
-                send("{\"cmd\":\"getPairingToken\"}")
+                send("{\"cmd\":\"getPairingChallenge\"}")
                 return
             }
             val started = if (Build.VERSION.SDK_INT >= 33) {
@@ -358,10 +374,30 @@ class CoronetBleManager(
         when (json.optString("t")) {
             "e" -> onEvent(json.optString("type"), json.optString("msg"))
             "settings" -> onSettings(json)
-            "pairing" -> {
+            "pairing_challenge" -> {
+                val id = json.optString("id")
+                val session = json.optLong("session")
+                val code = json.optInt("code")
+                if (id.isNotBlank() && session > 0 && code in 100000..999999) {
+                    Log.i("coroNET-BLE", "pairing challenge id=$id session=$session")
+                    onPairingChallenge(PairingChallenge(
+                        deviceId = id,
+                        deviceName = json.optString("name").ifBlank { activeDevice?.name ?: "coroNET" },
+                        sessionId = session,
+                        code = code,
+                        expiresMs = json.optLong("expiresMs", 120000L),
+                    ))
+                }
+            }
+            "pairing_result" -> {
                 val id = json.optString("id")
                 val token = json.optString("token")
-                if (id.isNotBlank() && token.isNotBlank() && onPairing(id, token)) send("{\"cmd\":\"confirmPairing\"}")
+                val wifiHost = json.optString("ip")
+                val session = json.optLong("session")
+                if (id.isNotBlank() && token.length == 32 && session > 0 &&
+                    onPairingResult(id, token, wifiHost, session)) {
+                    send(JSONObject().put("cmd", "completePairing").put("session", session).toString())
+                }
             }
         }
     }

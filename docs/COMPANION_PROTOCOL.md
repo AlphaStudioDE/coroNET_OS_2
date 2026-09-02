@@ -123,17 +123,32 @@ Operational controls can send a bounded settings patch over BLE. Only supplied f
 
 The same field names are accepted by `POST /api/settings`. BLE accepts appearance, screen saver, quiet mode, LED brightness/policy, sound volume, local vent calibration, and Panda mode controls. Larger configuration changes should be split into small patches so each command remains below the 384-byte command limit.
 
-## Initial Pairing
+## Secure Companion Pairing
 
-Each device generates a random 128-bit local API token and stores it in NVS. Complete first pairing as follows:
+Pairing must be started physically from **Settings > Companion connection > Pair phone** on coroNET. Starting the wizard immediately revokes the previous phone relationship, rotates the random 128-bit API token, and opens a two-minute pairing session. The old token cannot be restored by cancelling the wizard.
 
-1. Connect over BLE and subscribe to the state and event characteristics.
-2. Send `{"cmd":"getPairingToken"}`.
-3. Reassemble message type `4` and store its `id` and `token` atomically in the phone's secure storage.
-4. Send `{"cmd":"confirmPairing"}` only after storage succeeds.
-5. Wait for the `pairing_confirmed` acknowledgement.
+1. coroNET shows a random six-digit comparison code and advertises over BLE.
+2. The app connects, subscribes, and sends `{"cmd":"getPairingChallenge"}`. While a temporary pairing candidate is connected, it repeats this idempotent request at a low rate until a valid challenge arrives or the two-minute attempt ends; this covers a wizard opened just after GATT setup and a notification lost during reconnection.
+3. Firmware returns message type `4` with `t=pairing_challenge`, the device identity, session ID, comparison code, and remaining lifetime. It does not include the API token.
+4. The user verifies that both displays show the same code and confirms independently on the phone and coroNET.
+5. The phone sends `{"cmd":"confirmPairingCode","session":123,"code":456789}`. The device confirmation is a local touchscreen action and cannot be sent remotely.
+6. Only after both confirmations, firmware sends `t=pairing_result` containing the session ID, device ID, local IP address when available, and the new API token.
+7. The app stores the result atomically in encrypted preferences and sends `{"cmd":"completePairing","session":123}`.
+8. Firmware persists `apiPaired=true` and acknowledges `pairing_confirmed`.
 
-BLE remains available until pairing is confirmed, even when WiFi transport was selected. After confirmation, the token is no longer returned. A future settings screen will provide a physical action for revoking the token and opening a new pairing window.
+The Android client treats scan results as temporary candidates. Tapping a discovered device may establish a BLE connection and wait for a physically opened wizard, but it must not add the device to the saved-device list or call it paired. Persistence happens only after a valid `pairing_result` has been securely stored and acknowledged.
+
+Either side may send or invoke cancellation. Expired, cancelled, mismatched, and incomplete sessions leave the old relationship revoked and never expose the new token. This is an application-level physical confirmation flow; it does not claim to be operating-system Bluetooth Secure Connections numeric comparison.
+
+## BLE Session Authentication
+
+Each new BLE connection starts unauthenticated. A saved app sends the 32-character token before requesting settings or changing controls:
+
+```json
+{"cmd":"authenticate","token":"0123456789abcdef0123456789abcdef"}
+```
+
+Firmware compares the token without an early-exit timing difference and replies with `authenticated` or `authentication_failed`. Unauthenticated clients may discover the device, request a basic state snapshot, and participate in a physically opened pairing wizard, but they cannot read settings or change device configuration. The BLE connection that completes pairing becomes authenticated immediately.
 
 ## Transport Recovery
 

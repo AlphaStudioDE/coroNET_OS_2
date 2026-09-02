@@ -4,6 +4,7 @@
 #include <lvgl.h>
 
 #include "../config/AppConfig.h"
+#include "../companion/PairingService.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
@@ -192,22 +193,22 @@ void SettingsScreen::buildContent() {
     lv_obj_set_style_pad_row(content, 0, LV_PART_MAIN);
 
     buildConnectionCard(content, 0);
-    buildDeviceCard(content, 132);
-    buildSetupCard(content, 276);
-    buildAppearanceCard(content, 414);
-    buildQuietCard(content, 708);
-    buildSystemCard(content, 848);
+    buildDeviceCard(content, 176);
+    buildSetupCard(content, 320);
+    buildAppearanceCard(content, 458);
+    buildQuietCard(content, 752);
+    buildSystemCard(content, 892);
 
     lv_obj_t* endSpacer = lv_obj_create(content);
     lv_obj_set_size(endSpacer, 1, 1);
-    lv_obj_set_pos(endSpacer, 0, 1060);
+    lv_obj_set_pos(endSpacer, 0, 1104);
     lv_obj_set_style_bg_opa(endSpacer, LV_OPA_0, LV_PART_MAIN);
     lv_obj_set_style_border_width(endSpacer, 0, LV_PART_MAIN);
 }
 
 void SettingsScreen::buildConnectionCard(lv_obj_t* parent, int y) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 448, 124);
+    lv_obj_set_size(card, 448, 168);
     lv_obj_set_pos(card, 0, y);
     stylePanel(card);
     makeLabel(card, "COMPANION CONNECTION", ui::ColorCyan,
@@ -233,6 +234,12 @@ void SettingsScreen::buildConnectionCard(lv_obj_t* parent, int y) {
     }
     connectionDetailLabel_ = makeLabel(card, "", ui::ColorMuted,
                                        &lv_font_montserrat_10, 14, 86, 416);
+    makeLabel(card, "PHONE LINK", ui::ColorMuted, &lv_font_montserrat_10, 14, 128);
+    lv_obj_t* pairingButton = makeActionButton(card, 250, 112, 180,
+                                               &pairingButtonLabel_);
+    lv_obj_set_style_border_color(pairingButton, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    actionBindings_[20] = {this, Action::PairingStart};
+    lv_obj_add_event_cb(pairingButton, actionEvent, LV_EVENT_CLICKED, &actionBindings_[20]);
 }
 
 void SettingsScreen::buildDeviceCard(lv_obj_t* parent, int y) {
@@ -429,6 +436,7 @@ void SettingsScreen::buildSystemCard(lv_obj_t* parent, int y) {
 
 void SettingsScreen::update() {
     if (!root_) return;
+    if (pairingOverlay_) updatePairingWizard();
     const SystemState& system = state();
     const uint32_t revision = settingsService().revision();
     if (cacheValid_ && revision == settingsRevisionSeen_ &&
@@ -448,6 +456,8 @@ void SettingsScreen::update() {
     otaStateSeen_ = system.otaState;
     otaProgressSeen_ = system.otaProgress;
     const AppSettings& settings = settingsService().settings();
+
+    lv_label_set_text(pairingButtonLabel_, settings.apiPaired ? "PAIR NEW PHONE" : "PAIR PHONE");
 
     lv_obj_set_style_text_color(wifiLabel_,
                                 lv_color_hex(system.wifiConnected ? ui::ColorCyan
@@ -523,6 +533,125 @@ void SettingsScreen::update() {
         factoryConfirmUntilMs_ = 0;
         lv_label_set_text(factoryResetButtonLabel_, "FACTORY RESET");
     }
+}
+
+void SettingsScreen::showPairingWizard() {
+    if (pairingOverlay_) return;
+    const PairingSnapshot pairing = pairingService().beginPairing();
+
+    pairingOverlay_ = lv_obj_create(root_);
+    lv_obj_set_size(pairingOverlay_, 480, 320);
+    lv_obj_set_pos(pairingOverlay_, 0, 0);
+    lv_obj_clear_flag(pairingOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(pairingOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(pairingOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(pairingOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(pairingOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(pairingOverlay_, 0, LV_PART_MAIN);
+
+    makeLabel(pairingOverlay_, "PAIR YOUR PHONE", ui::ColorCyan,
+              &lv_font_montserrat_12, 24, 18);
+    makeLabel(pairingOverlay_, "Open the coroNET app and select this device.", ui::ColorText,
+              &lv_font_montserrat_16, 24, 46, 432);
+    makeLabel(pairingOverlay_, "Confirm that the same code appears on both screens.", ui::ColorMuted,
+              &lv_font_montserrat_12, 24, 72, 432);
+
+    pairingCodeLabel_ = makeLabel(pairingOverlay_, "000 000", ui::ColorText,
+                                  &lv_font_montserrat_32, 24, 106, 432);
+    lv_obj_set_style_text_align(pairingCodeLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    pairingStatusLabel_ = makeLabel(pairingOverlay_, "Waiting for phone", ui::ColorMuted,
+                                    &lv_font_montserrat_12, 24, 158, 432);
+    lv_obj_set_style_text_align(pairingStatusLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    pairingTimerLabel_ = makeLabel(pairingOverlay_, "02:00", ui::ColorMuted,
+                                   &lv_font_montserrat_10, 24, 184, 432);
+    lv_obj_set_style_text_align(pairingTimerLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    pairingCancelButton_ = lv_btn_create(pairingOverlay_);
+    lv_obj_set_size(pairingCancelButton_, 190, 48);
+    lv_obj_set_pos(pairingCancelButton_, 24, 238);
+    styleSmallButton(pairingCancelButton_);
+    actionBindings_[22] = {this, Action::PairingCancel};
+    lv_obj_add_event_cb(pairingCancelButton_, actionEvent, LV_EVENT_CLICKED, &actionBindings_[22]);
+    lv_obj_t* cancelLabel = lv_label_create(pairingCancelButton_);
+    styleText(cancelLabel, ui::ColorMuted, &lv_font_montserrat_12);
+    lv_label_set_text(cancelLabel, "CANCEL");
+    lv_obj_center(cancelLabel);
+
+    pairingConfirmButton_ = lv_btn_create(pairingOverlay_);
+    lv_obj_set_size(pairingConfirmButton_, 218, 48);
+    lv_obj_set_pos(pairingConfirmButton_, 238, 238);
+    styleSmallButton(pairingConfirmButton_);
+    lv_obj_set_style_border_color(pairingConfirmButton_, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    actionBindings_[21] = {this, Action::PairingDeviceConfirm};
+    lv_obj_add_event_cb(pairingConfirmButton_, actionEvent, LV_EVENT_CLICKED, &actionBindings_[21]);
+    pairingConfirmLabel_ = lv_label_create(pairingConfirmButton_);
+    styleText(pairingConfirmLabel_, ui::ColorCyan, &lv_font_montserrat_12);
+    lv_label_set_text(pairingConfirmLabel_, "CODES MATCH");
+    lv_obj_center(pairingConfirmLabel_);
+
+    updatePairingWizard();
+}
+
+void SettingsScreen::updatePairingWizard() {
+    if (!pairingOverlay_) return;
+    const PairingSnapshot pairing = pairingService().snapshot();
+    const uint32_t remainingMs = static_cast<int32_t>(pairing.expiresAtMs - millis()) > 0
+                                     ? pairing.expiresAtMs - millis() : 0;
+    lv_label_set_text_fmt(pairingCodeLabel_, "%03lu %03lu",
+                          static_cast<unsigned long>(pairing.code / 1000U),
+                          static_cast<unsigned long>(pairing.code % 1000U));
+    lv_label_set_text_fmt(pairingTimerLabel_, "%02lu:%02lu",
+                          static_cast<unsigned long>(remainingMs / 60000U),
+                          static_cast<unsigned long>((remainingMs / 1000U) % 60U));
+
+    const bool terminal = pairing.phase == PairingPhase::Completed ||
+                          pairing.phase == PairingPhase::Cancelled ||
+                          pairing.phase == PairingPhase::Expired;
+    if (terminal) {
+        lv_label_set_text(pairingStatusLabel_,
+                          pairing.phase == PairingPhase::Completed ? "Phone paired successfully"
+                          : pairing.phase == PairingPhase::Expired ? "Pairing session expired"
+                                                                  : "Pairing cancelled");
+        lv_label_set_text(pairingConfirmLabel_, "CLOSE");
+        lv_label_set_text(pairingTimerLabel_,
+                          pairing.phase == PairingPhase::Completed ? "SECURE LINK READY"
+                          : pairing.phase == PairingPhase::Expired ? "SESSION EXPIRED"
+                                                                  : "SESSION CLOSED");
+        actionBindings_[21].action = Action::PairingDone;
+        lv_obj_clear_state(pairingConfirmButton_, LV_STATE_DISABLED);
+        lv_obj_add_flag(pairingCancelButton_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(pairingConfirmButton_, 432);
+        lv_obj_set_x(pairingConfirmButton_, 24);
+    } else {
+        actionBindings_[21].action = Action::PairingDeviceConfirm;
+        if (pairing.phoneConfirmed && pairing.deviceConfirmed) {
+            lv_label_set_text(pairingStatusLabel_, "Securing the new connection...");
+        } else if (pairing.phoneConfirmed) {
+            lv_label_set_text(pairingStatusLabel_, "Phone confirmed - confirm here");
+        } else if (pairing.deviceConfirmed) {
+            lv_label_set_text(pairingStatusLabel_, "Confirmed here - waiting for phone");
+        } else {
+            lv_label_set_text(pairingStatusLabel_, "Waiting for confirmation on both devices");
+        }
+        lv_label_set_text(pairingConfirmLabel_, pairing.deviceConfirmed ? "CONFIRMED HERE" : "CODES MATCH");
+        if (pairing.deviceConfirmed) lv_obj_add_state(pairingConfirmButton_, LV_STATE_DISABLED);
+        else lv_obj_clear_state(pairingConfirmButton_, LV_STATE_DISABLED);
+    }
+}
+
+void SettingsScreen::closePairingWizard() {
+    if (!pairingOverlay_) return;
+    lv_obj_t* overlay = pairingOverlay_;
+    pairingOverlay_ = nullptr;
+    pairingCodeLabel_ = nullptr;
+    pairingStatusLabel_ = nullptr;
+    pairingTimerLabel_ = nullptr;
+    pairingConfirmButton_ = nullptr;
+    pairingConfirmLabel_ = nullptr;
+    pairingCancelButton_ = nullptr;
+    pairingService().dismiss();
+    lv_obj_del_async(overlay);
+    cacheValid_ = false;
 }
 
 void SettingsScreen::refreshTransportButtons() {
@@ -641,6 +770,24 @@ void SettingsScreen::handleAction(Action action, lv_event_t* event) {
                 factoryConfirmUntilMs_ = millis() + 5000U;
                 lv_label_set_text(factoryResetButtonLabel_, "CONFIRM RESET");
             }
+            break;
+        case Action::PairingStart:
+            showPairingWizard();
+            break;
+        case Action::PairingDeviceConfirm: {
+            const PairingSnapshot pairing = pairingService().snapshot();
+            pairingService().confirmOnDevice(pairing.sessionId);
+            updatePairingWizard();
+            break;
+        }
+        case Action::PairingCancel: {
+            const PairingSnapshot pairing = pairingService().snapshot();
+            pairingService().cancel(pairing.sessionId);
+            updatePairingWizard();
+            break;
+        }
+        case Action::PairingDone:
+            closePairingWizard();
             break;
     }
 }

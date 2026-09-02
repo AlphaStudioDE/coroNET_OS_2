@@ -3,6 +3,7 @@
 
 #include "audio/AudioService.h"
 #include "ble/BleService.h"
+#include "companion/PairingService.h"
 #include "config/AppConfig.h"
 #include "core/MemoryService.h"
 #include "core/QuietService.h"
@@ -21,7 +22,6 @@
 namespace {
 
 coronet::DisplayService displayService;
-coronet::BleService bleService;
 coronet::SystemHealth systemHealth;
 coronet::WebControlService webControlService;
 char serialCommand[96] = "";
@@ -317,7 +317,7 @@ void setup() {
     webControlService.begin();
     setBootStage(BootStage::Web);
     systemHealth.checkpoint("web");
-    bleService.begin();
+    coronet::bleService().begin();
     setBootStage(BootStage::Ble);
     systemHealth.checkpoint("ble");
     coronet::otaService().begin();
@@ -338,7 +338,8 @@ void loop() {
     coronet::ventService().loop();
     coronet::pandaBreathService().loop();
     webControlService.loop();
-    bleService.loop();
+    coronet::pairingService().loop();
+    coronet::bleService().loop();
     coronet::otaService().loop();
     delay(10);
 }

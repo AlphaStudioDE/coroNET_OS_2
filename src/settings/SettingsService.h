@@ -102,6 +102,7 @@ public:
     void save();
     void flush();
     void resetToDefaults();
+    void resetApiPairing();
 
 private:
     void load();

@@ -37,7 +37,7 @@ private:
     bool disconnectEventPending_ = false;
     bool commandOverflowPending_ = false;
     bool fallbackActive_ = false;
-    bool pairingTokenIssued_ = false;
+    bool sessionAuthenticated_ = false;
     uint16_t connectionMtu_ = 23;
     uint16_t messageId_ = 0;
     uint32_t lastNotifyMs_ = 0;
@@ -45,8 +45,11 @@ private:
     uint32_t observedPrinterTelemetryRevision_ = 0;
     uint32_t observedPrinterConnectionRevision_ = 0;
     uint32_t observedPrinterEventSequence_ = 0;
+    uint32_t observedPairingRevision_ = 0;
+    uint32_t observedPairingSessionId_ = 0;
     uint32_t appliedSettingsRevision_ = 0;
     uint32_t wifiOfflineSinceMs_ = 0;
+    uint32_t lastPairingPublishMs_ = 0;
     QueueHandle_t commandQueue_ = nullptr;
     portMUX_TYPE connectionMux_ = portMUX_INITIALIZER_UNLOCKED;
     char deviceId_[13] = "";
@@ -59,7 +62,8 @@ private:
     void handleCommand(const char* command, size_t length);
     void publishState(bool force);
     void publishSettings();
-    void publishPairingToken();
+    void publishPairingChallenge();
+    void publishPairingResult();
     void refreshAdvertisedName();
     bool isConnected();
     bool sendFramed(NimBLECharacteristic* characteristic,
@@ -67,5 +71,7 @@ private:
                     const uint8_t* payload,
                     size_t length);
 };
+
+BleService& bleService();
 
 }

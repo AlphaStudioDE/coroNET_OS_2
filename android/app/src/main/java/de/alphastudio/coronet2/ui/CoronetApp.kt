@@ -38,6 +38,8 @@ fun CoronetApp(model: CoronetViewModel) {
     val settings by model.settings.collectAsState()
     val discovered by model.discovered.collectAsState()
     val scanning by model.scanning.collectAsState()
+    val pairingChallenge by model.pairingChallenge.collectAsState()
+    val pairingCandidate by model.pairingCandidate.collectAsState()
     var page by remember { mutableStateOf(Page.Home) }
     var manageDevices by remember { mutableStateOf(devices.isEmpty()) }
 
@@ -72,9 +74,76 @@ fun CoronetApp(model: CoronetViewModel) {
             onSelect = { model.select(it); manageDevices = false },
             onScan = model::startScan, onAdd = { model.addAndConnect(it); manageDevices = false },
             onSave = { model.saveDevice(it); manageDevices = false },
-            onRemove = model::removeSelected, onDismiss = { if (devices.isNotEmpty()) manageDevices = false },
+            onRemove = model::removeSelected, onDismiss = { manageDevices = false },
         )
+        pairingChallenge?.let { challenge ->
+            PairingDialog(
+                challenge = challenge,
+                onConfirm = model::confirmPairingCodesMatch,
+                onCancel = model::cancelPairing,
+            )
+        }
+        if (pairingCandidate != null && pairingChallenge == null) {
+            PairingWaitingDialog(pairingCandidate!!, model::cancelPairing)
+        }
     }
+}
+
+@Composable
+private fun PairingWaitingDialog(device: CoronetDevice, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Pair ${device.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                Text("Waiting for a secure pairing session.")
+                Text(
+                    "On coroNET, open Settings > Companion connection and tap PAIR PHONE. " +
+                        "This device will only be saved after both codes are confirmed.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onCancel) { Text("CANCEL") } },
+    )
+}
+
+@Composable
+private fun PairingDialog(
+    challenge: PairingChallenge,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Pair ${challenge.deviceName}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Check that this code matches the code shown on coroNET.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "%03d %03d".format(challenge.code / 1000, challenge.code % 1000),
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Light,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    if (challenge.confirmedOnPhone) "Confirmed here. Complete confirmation on coroNET."
+                    else "Only continue when both displays show exactly the same number.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm, enabled = !challenge.confirmedOnPhone) {
+                Text(if (challenge.confirmedOnPhone) "CONFIRMED" else "CODES MATCH")
+            }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text("CANCEL") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -245,7 +314,12 @@ private fun DeviceManager(
                 }
                 HorizontalDivider()
                 Button(onClick = onScan, enabled = !scanning, modifier = Modifier.fillMaxWidth()) { Text(if (scanning) "SCANNING..." else "SCAN BLE") }
-                discovered.forEach { device -> TextButton(onClick = { onAdd(device) }, Modifier.fillMaxWidth()) { Text("ADD ${device.name}") } }
+                discovered.forEach { device ->
+                    val saved = devices.any { it.id == device.id || it.address == device.address }
+                    TextButton(onClick = { onAdd(device) }, Modifier.fillMaxWidth()) {
+                        Text("${if (saved) "CONNECT" else "PAIR"} ${device.name}")
+                    }
+                }
                 edited?.let { device ->
                     Text("Wi-Fi connection", fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(host, { host = it }, label = { Text("IP address or host") }, singleLine = true, modifier = Modifier.fillMaxWidth())

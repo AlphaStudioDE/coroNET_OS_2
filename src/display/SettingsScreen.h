@@ -44,6 +44,10 @@ private:
         OtaReinstall,
         OtaSdRecovery,
         FactoryReset,
+        PairingStart,
+        PairingDeviceConfirm,
+        PairingCancel,
+        PairingDone,
     };
 
     struct ActionBinding {
@@ -60,6 +64,9 @@ private:
     void buildQuietCard(lv_obj_t* parent, int y);
     void buildSystemCard(lv_obj_t* parent, int y);
     void refreshTransportButtons();
+    void showPairingWizard();
+    void updatePairingWizard();
+    void closePairingWizard();
     void handleAction(Action action, lv_event_t* event);
     static void actionEvent(lv_event_t* event);
 
@@ -68,6 +75,14 @@ private:
     lv_obj_t* bleLabel_ = nullptr;
     lv_obj_t* transportButtons_[3] = {};
     lv_obj_t* connectionDetailLabel_ = nullptr;
+    lv_obj_t* pairingButtonLabel_ = nullptr;
+    lv_obj_t* pairingOverlay_ = nullptr;
+    lv_obj_t* pairingCodeLabel_ = nullptr;
+    lv_obj_t* pairingStatusLabel_ = nullptr;
+    lv_obj_t* pairingTimerLabel_ = nullptr;
+    lv_obj_t* pairingConfirmButton_ = nullptr;
+    lv_obj_t* pairingConfirmLabel_ = nullptr;
+    lv_obj_t* pairingCancelButton_ = nullptr;
     lv_obj_t* deviceNameLabel_ = nullptr;
     lv_obj_t* brightnessLabel_ = nullptr;
     lv_obj_t* brightnessSlider_ = nullptr;
@@ -91,7 +106,7 @@ private:
     lv_obj_t* otaVersionLabel_ = nullptr;
     lv_obj_t* otaInstallButton_ = nullptr;
     lv_obj_t* factoryResetButtonLabel_ = nullptr;
-    ActionBinding actionBindings_[20] = {};
+    ActionBinding actionBindings_[24] = {};
     ui::Navigation navigation_;
     SetupCallback setupCallback_ = nullptr;
     void* callbackContext_ = nullptr;

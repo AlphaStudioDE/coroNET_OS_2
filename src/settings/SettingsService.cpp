@@ -327,6 +327,14 @@ void SettingsService::resetToDefaults() {
     save();
 }
 
+void SettingsService::resetApiPairing() {
+    settings_.apiPaired = false;
+    settings_.apiToken[0] = '\0';
+    ensureApiToken();
+    save();
+    flush();
+}
+
 void SettingsService::ensureApiToken() {
     if (settings_.apiToken[0]) return;
 

@@ -10,6 +10,15 @@ data class CoronetDevice(
     val token: String = "",
 )
 
+data class PairingChallenge(
+    val deviceId: String,
+    val deviceName: String,
+    val sessionId: Long,
+    val code: Int,
+    val expiresMs: Long,
+    val confirmedOnPhone: Boolean = false,
+)
+
 data class PrinterSnapshot(
     val connected: Boolean = false,
     val state: String = "unknown",
