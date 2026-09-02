@@ -138,6 +138,16 @@ enum class ErrorAnimation : uint8_t {
     Redout,
     Emergency,
     Meltdown,
+    Crash,
+    RedTheater,
+    FaultRipple,
+    HotZone,
+    PanicComets,
+    Lockdown,
+    WarningTicks,
+    BreachScan,
+    FaultSparks,
+    RedJuggle,
     Count,
 };
 

@@ -3210,6 +3210,159 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             }
             break;
         }
+        case ErrorAnimation::Crash: {
+            const uint32_t cycle = now % 1900U;
+            const uint16_t center = hw::OuterCount / 2U;
+            if (cycle < 820U) {
+                const uint16_t radius = static_cast<uint16_t>(cycle * (hw::OuterCount / 2U + 5U) / 820U);
+                for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                    const uint16_t distance = path > center ? path - center : center - path;
+                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                    if (delta >= 4U) continue;
+                    const RgbwColor color = delta == 0U ? RgbwColor(255U, 230U, 175U) : amber;
+                    setOuterVisualPathPixel(path, scaled(color, static_cast<uint8_t>(240U - delta * 55U)));
+                }
+            } else if (cycle > 1550U) {
+                const uint8_t warning = static_cast<uint8_t>((cycle - 1550U) * 75U / 350U);
+                fillSection(LedSection::Center, scaled(red, warning));
+            }
+            break;
+        }
+        case ErrorAnimation::RedTheater: {
+            const uint8_t offset = static_cast<uint8_t>((now / 115U) % 8U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t bulb = static_cast<uint8_t>((path + offset) % 8U);
+                const uint8_t value = bulb == 0U ? 230U : bulb == 1U ? 85U : 8U;
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::FaultRipple: {
+            const uint32_t cycle = now % 2600U;
+            const uint32_t epoch = now / 2600U;
+            const uint16_t origin = hash8(epoch * 151U) % hw::OuterCount;
+            const uint16_t radius = static_cast<uint16_t>(cycle * (hw::OuterCount / 2U + 4U) / 1900U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t direct = path > origin ? path - origin : origin - path;
+                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
+                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                const uint8_t value = cycle < 1900U && delta < 4U
+                    ? static_cast<uint8_t>(210U - delta * 50U)
+                    : (path == origin ? 75U : 3U);
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::HotZone: {
+            const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 70U);
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 40U);
+            const uint8_t bedPercent = temperaturePercent(context.bedTempC, 20.0f, 110.0f, 50U);
+            const uint8_t peak = max(toolPercent, max(chamberPercent, bedPercent));
+            const uint8_t pulse = static_cast<uint8_t>(80U +
+                static_cast<uint16_t>(wave8(now / max<uint8_t>(7U, 24U - peak / 7U))) * 165U / 255U);
+            auto hotMeter = [&](LedSection section, uint8_t percent, bool reverse) {
+                const uint16_t count = sectionCount(section);
+                const RgbwColor heat = temperatureColor(percent);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint16_t meterIndex = reverse ? count - 1U - i : i;
+                    const uint8_t coverage = progressCoverage(percent, count, meterIndex);
+                    setSection(section, i, scaled(heat, coverage ? static_cast<uint8_t>(pulse * coverage / 255U) : 4U));
+                }
+            };
+            hotMeter(LedSection::Left, chamberPercent, false);
+            hotMeter(LedSection::Center, bedPercent, false);
+            hotMeter(LedSection::Right, toolPercent, true);
+            break;
+        }
+        case ErrorAnimation::PanicComets: {
+            static constexpr uint8_t Speeds[3] = {24U, 31U, 39U};
+            static constexpr uint8_t Tails[3] = {5U, 8U, 11U};
+            for (uint8_t comet = 0; comet < 3U; ++comet) {
+                const uint16_t head = static_cast<uint16_t>((now / Speeds[comet] + comet * 13U) % hw::OuterCount);
+                for (uint8_t tail = 0; tail < Tails[comet]; ++tail) {
+                    const uint16_t path = (head + hw::OuterCount - tail) % hw::OuterCount;
+                    const uint8_t value = static_cast<uint8_t>(235U - tail * (190U / Tails[comet]));
+                    setOuterVisualPathPixel(path, scaled(comet == 1U ? amber : red, value));
+                }
+            }
+            break;
+        }
+        case ErrorAnimation::Lockdown: {
+            const uint32_t cycle = now % 3000U;
+            const uint16_t gate = cycle < 1500U
+                ? static_cast<uint16_t>(cycle * (hw::OuterCount / 2U) / 1500U)
+                : hw::OuterCount / 2U;
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t edgeDistance = min<uint16_t>(path, hw::OuterCount - 1U - path);
+                const uint16_t distance = path > center ? path - center : center - path;
+                uint8_t value = edgeDistance <= gate ? 62U : 3U;
+                if (distance <= 1U && cycle >= 1500U) value = ((now / 170U) & 1U) ? 235U : 85U;
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::WarningTicks: {
+            const uint8_t tick = static_cast<uint8_t>((now / 190U) % 12U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const bool mark = i % 3U == 0U;
+                    const uint8_t markNumber = static_cast<uint8_t>((i / 3U + sectionIndex * 4U) % 12U);
+                    const uint8_t value = !mark ? 3U : markNumber == tick ? 230U : 35U;
+                    setSection(section, i, scaled(markNumber == tick ? amber : red, value));
+                }
+            }
+            break;
+        }
+        case ErrorAnimation::BreachScan: {
+            const uint32_t cycle = now % 4200U;
+            const uint32_t epoch = now / 4200U;
+            const uint16_t breach = hash8(epoch * 211U) % hw::OuterCount;
+            const uint16_t scan = cycle < 3000U
+                ? static_cast<uint16_t>(cycle * (hw::OuterCount - 1U) / 3000U)
+                : breach;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > scan ? path - scan : scan - path;
+                uint8_t value = distance < 4U ? static_cast<uint8_t>(200U - distance * 48U) : 3U;
+                RgbwColor color = red;
+                if (cycle >= 3000U && path == breach) {
+                    value = ((now / 120U) & 1U) ? 250U : 55U;
+                    color = amber;
+                }
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
+        case ErrorAnimation::FaultSparks: {
+            const uint32_t frame = now / 85U;
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t noise = hash8(frame * 83U + path * 197U);
+                const uint8_t chance = distance < 8U ? 205U : 238U;
+                const uint8_t value = noise > chance ? static_cast<uint8_t>(95U + (noise - chance) * 6U) : 2U;
+                setOuterVisualPathPixel(path, scaled(noise > 248U ? amber : red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::RedJuggle: {
+            static constexpr uint16_t Periods[3] = {1700U, 2300U, 2900U};
+            for (uint8_t ball = 0; ball < 3U; ++ball) {
+                const uint32_t phase = (now + ball * 430U) % Periods[ball];
+                const uint32_t half = Periods[ball] / 2U;
+                const uint32_t travel = phase < half ? phase : Periods[ball] - phase;
+                const uint16_t head = static_cast<uint16_t>(travel * (hw::OuterCount - 1U) / half);
+                for (int8_t offset = -2; offset <= 2; ++offset) {
+                    const int16_t path = static_cast<int16_t>(head) + offset;
+                    if (path < 0 || path >= static_cast<int16_t>(hw::OuterCount)) continue;
+                    const uint8_t value = static_cast<uint8_t>(220U - abs(offset) * 68U);
+                    setOuterVisualPathPixel(static_cast<uint16_t>(path), scaled(ball == 1U ? amber : red, value));
+                }
+            }
+            break;
+        }
         case ErrorAnimation::Count:
         default:
             break;

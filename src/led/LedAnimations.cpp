@@ -40,6 +40,8 @@ constexpr const char* ErrorNames[] = {
     "Red Breathe", "Heartbeat", "Strobe", "Red Wave", "Xenon",
     "Siren", "Thunder", "Countdown", "Glitch", "Alarm Chase",
     "Danger Stripe", "Pulse Alert", "Redout", "Emergency", "Meltdown",
+    "Crash", "Red Theater", "Fault Ripple", "Hot Zone", "Panic Comets",
+    "Lockdown", "Warning Ticks", "Breach Scan", "Fault Sparks", "Red Juggle",
 };
 
 constexpr const char* FinishNames[] = {
