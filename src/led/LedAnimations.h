@@ -74,6 +74,16 @@ enum class PauseAnimation : uint8_t {
     Phase,
     YellowWhite,
     WatchfulEyes,
+    AmberStrobe,
+    Zigzag,
+    Neon,
+    Hourglass,
+    AmberWave,
+    Bounce,
+    SlowComet,
+    Spinner,
+    MorseWait,
+    BlueBreathe,
     Count,
 };
 

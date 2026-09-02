@@ -2344,6 +2344,158 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             frozenProgress(filament, 24U, 2U, 85U);
             break;
         }
+        case PauseAnimation::AmberStrobe: {
+            const uint32_t cycle = now % 2400U;
+            const bool flash = cycle < 65U || (cycle >= 120U && cycle < 185U) ||
+                               (cycle >= 240U && cycle < 305U);
+            const uint16_t origin = hw::OuterCount / 2U;
+            const uint16_t radius = static_cast<uint16_t>(min<uint32_t>(hw::OuterCount,
+                cycle * hw::OuterCount / 620U));
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > origin ? path - origin : origin - path;
+                uint8_t value = 4U;
+                if (flash && distance <= radius && radius - distance < 5U) {
+                    value = static_cast<uint8_t>(235U - (radius - distance) * 42U);
+                }
+                setOuterVisualPathPixel(path, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(amber, flash ? 255U : 54U));
+            break;
+        }
+        case PauseAnimation::Zigzag: {
+            const uint8_t step = static_cast<uint8_t>((now / 210U) % 6U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const bool high = ((i + sectionIndex * 2U + step) % 6U) < 2U;
+                    const bool reverse = (sectionIndex & 1U) != 0U;
+                    const uint16_t logical = reverse ? count - 1U - i : i;
+                    setSection(section, logical, scaled(amber, high ? 175U : 12U));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 225U));
+            break;
+        }
+        case PauseAnimation::Neon: {
+            const uint32_t cycle = now % 5200U;
+            const uint8_t warmValue = cycle < 130U || (cycle >= 210U && cycle < 280U)
+                ? 230U : static_cast<uint8_t>(74U + wave8(now / 55U) / 8U);
+            const RgbwColor magenta = decorativeHsv(LedCategory::Pause, 224U, 235U, 255U);
+            const RgbwColor cyan = decorativeHsv(LedCategory::Pause, 132U, 235U, 255U);
+            fillSection(LedSection::Left, scaled(magenta, warmValue));
+            fillSection(LedSection::Right, scaled(cyan, warmValue));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const bool tube = ((i + 1U) % 4U) < 2U;
+                const RgbwColor color = tube ? magenta : cyan;
+                const uint8_t value = i < lit ? warmValue : 10U;
+                setSection(LedSection::Center, i, scaled(color, value));
+            }
+            setSection(LedSection::Center, marker, scaled(amber, 245U));
+            break;
+        }
+        case PauseAnimation::Hourglass: {
+            const uint32_t cycle = now % 6000U;
+            const uint8_t phase = static_cast<uint8_t>(cycle * 255U / 6000U);
+            const uint16_t grains = static_cast<uint16_t>((255U - phase) * hw::LeftCount / 255U);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t leftValue = i >= hw::LeftCount - grains ? 150U : 7U;
+                const uint8_t rightValue = i < hw::RightCount - grains ? 150U : 7U;
+                setSection(LedSection::Left, i, scaled(amber, leftValue));
+                setSection(LedSection::Right, i, scaled(amber, rightValue));
+            }
+            frozenProgress(filament, 44U, 2U, 145U);
+            const uint16_t falling = static_cast<uint16_t>((cycle / 95U) % hw::CenterCount);
+            setSection(LedSection::Center, falling, scaled(amber, 210U));
+            break;
+        }
+        case PauseAnimation::AmberWave: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t first = wave8(static_cast<uint8_t>(now / 29U - path * 17U));
+                const uint8_t second = wave8(static_cast<uint8_t>(now / 47U + path * 9U));
+                const uint8_t value = static_cast<uint8_t>(8U +
+                    static_cast<uint16_t>(first) * first / 640U + second / 9U);
+                setOuterVisualPathPixel(path, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 180U));
+            break;
+        }
+        case PauseAnimation::Bounce: {
+            const uint32_t cycle = now % 3200U;
+            const uint32_t half = cycle < 1600U ? cycle : 3200U - cycle;
+            const uint16_t head = static_cast<uint16_t>(half * (hw::OuterCount - 1U) / 1600U);
+            for (int8_t offset = -4; offset <= 4; ++offset) {
+                const int16_t path = static_cast<int16_t>(head) + offset;
+                if (path < 0 || path >= static_cast<int16_t>(hw::OuterCount)) continue;
+                const uint8_t value = static_cast<uint8_t>(230U - abs(offset) * 47U);
+                setOuterVisualPathPixel(static_cast<uint16_t>(path), scaled(cool, value));
+            }
+            frozenProgress(amber, 30U, 2U, 150U);
+            break;
+        }
+        case PauseAnimation::SlowComet: {
+            const uint16_t head = static_cast<uint16_t>((now / 135U) % hw::OuterCount);
+            for (uint8_t tail = 0; tail < 14U; ++tail) {
+                const uint16_t path = static_cast<uint16_t>((head + hw::OuterCount - tail) % hw::OuterCount);
+                const uint8_t value = static_cast<uint8_t>(220U - tail * 15U);
+                setOuterVisualPathPixel(path, scaled(filament, value));
+            }
+            frozenProgress(amber, 24U, 2U, 125U);
+            break;
+        }
+        case PauseAnimation::Spinner: {
+            const uint16_t head = static_cast<uint16_t>((now / 52U) % hw::OuterCount);
+            const uint16_t opposite = static_cast<uint16_t>((head + hw::OuterCount / 2U) % hw::OuterCount);
+            for (uint8_t tail = 0; tail < 7U; ++tail) {
+                const uint8_t value = static_cast<uint8_t>(220U - tail * 31U);
+                setOuterVisualPathPixel((head + hw::OuterCount - tail) % hw::OuterCount,
+                                        scaled(amber, value));
+                setOuterVisualPathPixel((opposite + tail) % hw::OuterCount,
+                                        scaled(cool, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 150U));
+            break;
+        }
+        case PauseAnimation::MorseWait: {
+            static constexpr uint8_t Pattern[] = {
+                1U, 3U, 3U, 0U, 1U, 3U, 0U, 1U, 1U, 0U, 3U,
+            };
+            const uint16_t tick = static_cast<uint16_t>((now / 170U) % 38U);
+            uint16_t cursor = 0U;
+            int8_t active = -1;
+            for (uint8_t symbol = 0; symbol < sizeof(Pattern); ++symbol) {
+                const uint8_t units = Pattern[symbol] ? Pattern[symbol] : 2U;
+                if (Pattern[symbol] && tick >= cursor && tick < cursor + units) active = symbol;
+                cursor += units + (Pattern[symbol] ? 1U : 0U);
+            }
+            fillSection(LedSection::Left, scaled(amber, active >= 0 ? 105U : 12U));
+            fillSection(LedSection::Right, scaled(amber, active >= 0 ? 105U : 12U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t symbol = static_cast<uint8_t>(i * sizeof(Pattern) / hw::CenterCount);
+                uint8_t value = 4U;
+                if (Pattern[symbol] == 0U) value = 0U;
+                else if (active == symbol) value = 225U;
+                else value = Pattern[symbol] == 3U ? 55U : 28U;
+                setSection(LedSection::Center, i, scaled(amber, value));
+            }
+            break;
+        }
+        case PauseAnimation::BlueBreathe: {
+            const uint8_t breath = wave8(now / 54U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint16_t edgeDistance = min<uint16_t>(i, count - 1U - i);
+                    const uint8_t local = wave8(static_cast<uint8_t>(now / 54U + edgeDistance * 15U));
+                    const uint8_t value = static_cast<uint8_t>(12U +
+                        static_cast<uint16_t>(breath + local) * 72U / 510U);
+                    setSection(section, i, scaled(cool, value));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 145U));
+            break;
+        }
         case PauseAnimation::Count:
         default:
             break;
