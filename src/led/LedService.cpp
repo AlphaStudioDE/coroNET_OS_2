@@ -357,13 +357,16 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             const uint16_t distance = i > hw::InsideCount / 2U ? i - hw::InsideCount / 2U
                                                                : hw::InsideCount / 2U - i;
             const uint8_t value = distance * 24U < reveal ? static_cast<uint8_t>(180U - min<uint16_t>(150U, distance * 18U)) : 0U;
-            signature[sectionPhysicalIndex(LedSection::Inside, i)] = hsv(126U, 220U, value);
+            const uint8_t hue = static_cast<uint8_t>(
+                static_cast<uint32_t>(i) * 255U / (hw::InsideCount - 1U));
+            signature[sectionPhysicalIndex(LedSection::Inside, i)] = hsv(hue, 235U, value);
         }
         for (uint16_t path = 0; path < hw::OuterCount; ++path) {
             const uint16_t distance = path > hw::OuterCount / 2U ? path - hw::OuterCount / 2U
                                                                  : hw::OuterCount / 2U - path;
             if (distance * 12U <= reveal) {
-                const uint8_t hue = static_cast<uint8_t>(118U + path * 2U);
+                const uint8_t hue = static_cast<uint8_t>(
+                    static_cast<uint32_t>(path) * 255U / (hw::OuterCount - 1U));
                 RgbwColor color = hsv(hue, 230U, static_cast<uint8_t>(80U + reveal / 2U));
                 if (path < hw::LeftCount) signature[sectionPhysicalIndex(LedSection::Left, path)] = color;
                 else if (path < hw::LeftCount + hw::CenterCount) signature[sectionPhysicalIndex(LedSection::Center, path - hw::LeftCount)] = color;
