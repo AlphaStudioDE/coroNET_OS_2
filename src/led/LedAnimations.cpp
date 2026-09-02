@@ -38,6 +38,8 @@ constexpr const char* PauseNames[] = {
 constexpr const char* ErrorNames[] = {
     "Blink", "SOS", "Alarm", "Critical", "Police",
     "Red Breathe", "Heartbeat", "Strobe", "Red Wave", "Xenon",
+    "Siren", "Thunder", "Countdown", "Glitch", "Alarm Chase",
+    "Danger Stripe", "Pulse Alert", "Redout", "Emergency", "Meltdown",
 };
 
 constexpr const char* FinishNames[] = {

@@ -128,6 +128,16 @@ enum class ErrorAnimation : uint8_t {
     Strobe,
     RedWave,
     Xenon,
+    Siren,
+    Thunder,
+    Countdown,
+    Glitch,
+    AlarmChase,
+    DangerStripe,
+    PulseAlert,
+    Redout,
+    Emergency,
+    Meltdown,
     Count,
 };
 

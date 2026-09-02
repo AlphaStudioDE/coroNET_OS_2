@@ -3070,6 +3070,146 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             fillSection(LedSection::Right, scaled(xenon, value));
             break;
         }
+        case ErrorAnimation::Siren: {
+            const uint16_t head = static_cast<uint16_t>((now / 30U) % hw::OuterCount);
+            for (uint8_t tail = 0; tail < 12U; ++tail) {
+                const uint16_t path = (head + hw::OuterCount - tail) % hw::OuterCount;
+                const uint8_t value = static_cast<uint8_t>(245U - tail * 19U);
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            setOuterVisualPathPixel(head, RgbwColor(245U, 245U, 245U));
+            break;
+        }
+        case ErrorAnimation::Thunder: {
+            const uint32_t bucket = now / 1250U;
+            const uint32_t local = now % 1250U;
+            const uint8_t strikeSection = hash8(bucket * 97U) % 3U;
+            const bool strike = local < 45U || (local >= 105U && local < 145U) ||
+                                ((hash8(bucket * 313U) > 150U) && local >= 210U && local < 250U);
+            if (strike) {
+                const LedSection section = VisualOuterSections[strikeSection];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const bool branch = ((i + hash8(bucket + i * 31U)) % 3U) != 0U;
+                    if (branch) setSection(section, i, RgbwColor(205U, 225U, 255U));
+                }
+            } else {
+                fillSection(LedSection::Left, scaled(red, 4U));
+                fillSection(LedSection::Center, scaled(red, 2U));
+                fillSection(LedSection::Right, scaled(red, 4U));
+            }
+            break;
+        }
+        case ErrorAnimation::Countdown: {
+            const uint32_t elapsed = now % 8000U;
+            const uint32_t period = max<uint32_t>(120U, 820U - elapsed * 700U / 8000U);
+            const uint32_t pulsePhase = elapsed % period;
+            const uint8_t pulse = pulsePhase < period / 3U
+                ? static_cast<uint8_t>(255U - pulsePhase * 210U / max<uint32_t>(1U, period / 3U))
+                : 20U;
+            const uint16_t contraction = static_cast<uint16_t>(elapsed * (hw::OuterCount / 2U) / 8000U);
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t value = distance <= hw::OuterCount / 2U - contraction ? pulse : 3U;
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::Glitch: {
+            const uint32_t frame = now / 72U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t noise = hash8(frame * 977U + path * 131U);
+                uint8_t value = noise > 202U ? noise : 3U;
+                RgbwColor color = red;
+                if (noise > 246U) color = amber;
+                if ((frame + path) % 23U == 0U) color = RgbwColor(235U, 235U, 235U);
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
+        case ErrorAnimation::AlarmChase: {
+            const uint8_t offset = static_cast<uint8_t>(now / 42U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t band = static_cast<uint8_t>((path + offset) % 10U);
+                const bool whiteBand = band < 2U;
+                const bool redBand = band < 6U;
+                const RgbwColor color = whiteBand ? RgbwColor(235U, 235U, 235U) : red;
+                setOuterVisualPathPixel(path, scaled(color, redBand ? 220U : 5U));
+            }
+            break;
+        }
+        case ErrorAnimation::DangerStripe: {
+            const uint8_t offset = static_cast<uint8_t>(now / 95U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t stripe = static_cast<uint8_t>((path + offset) % 12U);
+                const bool warningBand = stripe < 5U;
+                const RgbwColor color = warningBand ? amber : red;
+                const uint8_t value = warningBand ? 205U : (stripe < 9U ? 55U : 4U);
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
+        case ErrorAnimation::PulseAlert: {
+            const uint32_t cycle = now % 1050U;
+            const uint8_t envelope = cycle < 90U
+                ? static_cast<uint8_t>(cycle * 255U / 90U)
+                : static_cast<uint8_t>(255U - (cycle - 90U) * 238U / 960U);
+            const uint16_t radius = static_cast<uint16_t>(cycle * (hw::OuterCount / 2U + 5U) / 1050U);
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                const uint8_t value = delta < 5U
+                    ? static_cast<uint8_t>(static_cast<uint16_t>(envelope) * (5U - delta) / 5U)
+                    : static_cast<uint8_t>(envelope / 14U);
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::Redout: {
+            const uint8_t collapse = wave8(now / 44U);
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t edge = static_cast<uint8_t>(distance * 255U / (hw::OuterCount / 2U));
+                const uint8_t value = edge > collapse
+                    ? static_cast<uint8_t>(30U + (edge - collapse) / 2U)
+                    : 7U;
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::Emergency: {
+            const uint8_t phase = static_cast<uint8_t>((now / 135U) % 6U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t block = static_cast<uint8_t>((i / 3U + sectionIndex + phase) % 6U);
+                    const RgbwColor color = block < 2U ? RgbwColor(240U, 240U, 240U) : red;
+                    const uint8_t value = block < 4U ? 235U : 5U;
+                    setSection(section, i, scaled(color, value));
+                }
+            }
+            break;
+        }
+        case ErrorAnimation::Meltdown: {
+            const uint32_t frame = now / 58U;
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t heat = hash8(frame * 71U + i * 43U + sectionIndex * 181U);
+                    const uint8_t height = static_cast<uint8_t>(i * 255U / max<uint16_t>(1U, count - 1U));
+                    const uint8_t value = static_cast<uint8_t>(80U + heat / 2U);
+                    const RgbwColor color = blend(red, amber,
+                        static_cast<uint8_t>(min<uint16_t>(255U, heat / 2U + height / 3U)));
+                    setSection(section, i, scaled(color, value));
+                }
+            }
+            break;
+        }
         case ErrorAnimation::Count:
         default:
             break;
