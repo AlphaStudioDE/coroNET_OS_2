@@ -311,6 +311,16 @@ enum class OtherAnimation : uint8_t {
     NeonSign,
     MotionDetect,
     RetroTv,
+    Crystal,
+    FireAndIce,
+    LaserGrid,
+    GalaxySpin,
+    CometTwins,
+    DeepSeaPulse,
+    SolarWind,
+    PixelCircus,
+    MintBreeze,
+    RubyScan,
     Count,
 };
 

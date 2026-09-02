@@ -33,7 +33,7 @@ The following behavior is shared by the entire catalog:
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
-| Other | 30 | Rebuild in progress; first three reviewed sets implemented on the OS 2 engine |
+| Other | 40 | Rebuild in progress; first four reviewed sets implemented on the OS 2 engine |
 
 ## Print
 
@@ -360,6 +360,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 28 | Neon Sign | Three colored neon tubes follow separate flicker-on, stable, failing, and off stages without using frame-random flashes. |
 | 29 | Motion Detect | A real touch launches a cyan ring from Center across OUTER; preview supplies periodic demonstration touches while normal operation remains event-driven. |
 | 30 | Retro TV | Deterministic colored analogue noise refreshes at a bounded rate while a brighter scan line travels through the signal. |
+| 31 | Crystal | Mirrored facets inside every physical section glint independently in restrained ice-blue and violet tones. |
+| 32 | Fire and Ice | Animated fire owns Left, frost owns Right, and both thermal fields collide in a pale breathing seam across Center. |
+| 33 | Laser Grid | Red and green emitters launch two Center beams at different speeds; their crossing becomes a compact gold intersection. |
+| 34 | Galaxy Spin | Two counter-rotating violet spiral arms orbit a stable bright core and lose energy gradually toward both ends. |
+| 35 | Comet Twins | Cyan and magenta comets travel in opposite directions across the complete path with independent directional tails. |
+| 36 | Deep Sea Pulse | A high-pressure blue wave advances inward from both ends over a dark, slowly moving deep-water field. |
+| 37 | Solar Wind | Long gold and orange particle streams flow in one direction while a slower turbulence field changes their heat tone. |
+| 38 | Pixel Circus | Each section takes a turn as the main ring while the other two run different supporting pixel acts and colors. |
+| 39 | Mint Breeze | Three offset, low-saturation mint waves drift gently through the physical sections as a quiet decorative scene. |
+| 40 | Ruby Scan | A deep-red faceted background carries a saturated ruby scanner that bounces over the entire OUTER route. |
 
 ## Boot LED Experience
 

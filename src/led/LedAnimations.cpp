@@ -78,6 +78,8 @@ constexpr const char* OtherNames[] = {
     "Pride", "Plasma", "Bouncing Balls", "Cop Car", "Strobe Party",
     "Sunrise", "Ocean Depth", "Radiation", "Pastel", "Electric",
     "Rainbow Pulse", "Carnival", "Neon Sign", "Motion Detect", "Retro TV",
+    "Crystal", "Fire and Ice", "Laser Grid", "Galaxy Spin", "Comet Twins",
+    "Deep Sea Pulse", "Solar Wind", "Pixel Circus", "Mint Breeze", "Ruby Scan",
 };
 
 template <size_t N>
