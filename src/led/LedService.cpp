@@ -738,7 +738,7 @@ void LedService::renderCategory(LedCategory category, uint8_t animation,
     switch (category) {
         case LedCategory::Print: renderPrint(animation, context); break;
         case LedCategory::Pause: renderPause(animation, context); break;
-        case LedCategory::Error: renderError(animation, context.nowMs); break;
+        case LedCategory::Error: renderError(animation, context); break;
         case LedCategory::Finish: renderFinish(animation, context.nowMs, context.filamentRgb); break;
         case LedCategory::Other: renderOther(animation, context.nowMs); break;
         case LedCategory::Idle:
@@ -2949,14 +2949,131 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
     }
 }
 
-void LedService::renderError(uint8_t animation, uint32_t now) {
-    const bool on = animation % 3U == 1U ? ((now / 120U) % 4U < 2U)
-                                         : wave8(static_cast<uint8_t>(now / 8U)) > 70U;
-    const uint8_t value = on ? 255U : 12U;
-    const RgbwColor warning = decorativeHsv(LedCategory::Error, 0, 255, value);
-    fillSection(LedSection::Left, warning);
-    fillSection(LedSection::Center, warning);
-    fillSection(LedSection::Right, warning);
+void LedService::renderError(uint8_t animation, const LedAnimationContext& context) {
+    const uint32_t now = context.nowMs;
+    const RgbwColor red = decorativeHsv(LedCategory::Error, 0U, 255U, 255U);
+    const RgbwColor amber = decorativeHsv(LedCategory::Error, 22U, 255U, 255U);
+    const RgbwColor blue = decorativeHsv(LedCategory::Error, 166U, 255U, 255U);
+
+    switch (static_cast<ErrorAnimation>(animation)) {
+        case ErrorAnimation::Blink: {
+            const bool sides = ((now / 330U) & 1U) == 0U;
+            fillSection(LedSection::Left, scaled(blue, sides ? 220U : 5U));
+            fillSection(LedSection::Right, scaled(blue, sides ? 220U : 5U));
+            fillSection(LedSection::Center, scaled(red, sides ? 5U : 235U));
+            break;
+        }
+        case ErrorAnimation::Sos: {
+            static constexpr uint16_t Durations[] = {
+                150U, 150U, 150U, 150U, 150U, 300U,
+                450U, 150U, 450U, 150U, 450U, 300U,
+                150U, 150U, 150U, 150U, 150U, 850U,
+            };
+            uint32_t phase = now % 4800U;
+            uint8_t slot = 0U;
+            while (slot < sizeof(Durations) / sizeof(Durations[0]) && phase >= Durations[slot]) {
+                phase -= Durations[slot++];
+            }
+            const bool on = slot < sizeof(Durations) / sizeof(Durations[0]) && (slot & 1U) == 0U;
+            const uint8_t value = on ? 235U : 3U;
+            fillSection(LedSection::Left, scaled(red, value));
+            fillSection(LedSection::Center, scaled(red, value));
+            fillSection(LedSection::Right, scaled(red, value));
+            break;
+        }
+        case ErrorAnimation::Alarm: {
+            const uint32_t cycle = now % 1450U;
+            const bool sideFlash = cycle < 80U || (cycle >= 150U && cycle < 230U) ||
+                                   (cycle >= 300U && cycle < 380U);
+            fillSection(LedSection::Left, scaled(amber, sideFlash ? 245U : 10U));
+            fillSection(LedSection::Right, scaled(amber, sideFlash ? 245U : 10U));
+            const uint8_t core = static_cast<uint8_t>(70U + wave8(now / 12U) * 165U / 255U);
+            fillSection(LedSection::Center, scaled(red, core));
+            break;
+        }
+        case ErrorAnimation::Critical: {
+            const uint32_t cycle = now % 1250U;
+            const uint8_t value = cycle < 1040U ? 225U : cycle < 1110U ? 0U : 255U;
+            fillSection(LedSection::Left, scaled(red, value));
+            fillSection(LedSection::Center, scaled(red, value));
+            fillSection(LedSection::Right, scaled(red, value));
+            break;
+        }
+        case ErrorAnimation::Police: {
+            const uint32_t cycle = now % 960U;
+            const bool leftActive = cycle < 480U;
+            const uint32_t local = cycle % 480U;
+            const bool flash = local < 85U || (local >= 150U && local < 235U);
+            fillSection(LedSection::Left, scaled(blue, leftActive && flash ? 245U : 6U));
+            fillSection(LedSection::Right, scaled(red, !leftActive && flash ? 245U : 6U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const bool leftHalf = i < hw::CenterCount / 2U;
+                const RgbwColor color = leftHalf ? blue : red;
+                const bool active = leftHalf == leftActive;
+                setSection(LedSection::Center, i, scaled(color, active && flash ? 145U : 4U));
+            }
+            break;
+        }
+        case ErrorAnimation::RedBreathe: {
+            const uint8_t value = static_cast<uint8_t>(28U + wave8(now / 31U) * 180U / 255U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t local = wave8(static_cast<uint8_t>(now / 31U + i * 4U));
+                    setSection(section, i, scaled(red,
+                        static_cast<uint8_t>(value * (205U + local / 5U) / 255U)));
+                }
+            }
+            break;
+        }
+        case ErrorAnimation::Heartbeat: {
+            const uint32_t cycle = now % 1580U;
+            uint8_t value = 12U;
+            if (cycle < 80U) value = static_cast<uint8_t>(50U + cycle * 205U / 80U);
+            else if (cycle < 155U) value = static_cast<uint8_t>(255U - (cycle - 80U) * 238U / 75U);
+            else if (cycle >= 230U && cycle < 305U) value = static_cast<uint8_t>(45U + (cycle - 230U) * 190U / 75U);
+            else if (cycle >= 305U && cycle < 410U) value = static_cast<uint8_t>(235U - (cycle - 305U) * 220U / 105U);
+            fillSection(LedSection::Left, scaled(red, value));
+            fillSection(LedSection::Center, scaled(red, value));
+            fillSection(LedSection::Right, scaled(red, value));
+            break;
+        }
+        case ErrorAnimation::Strobe: {
+            const uint32_t cycle = now % 1700U;
+            const bool flash = cycle < 55U || (cycle >= 105U && cycle < 160U) ||
+                               (cycle >= 210U && cycle < 265U) || (cycle >= 315U && cycle < 370U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const bool alternating = ((path / 3U) & 1U) == ((cycle / 55U) & 1U);
+                setOuterVisualPathPixel(path, scaled(red, flash && alternating ? 250U : 2U));
+            }
+            break;
+        }
+        case ErrorAnimation::RedWave: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t first = wave8(static_cast<uint8_t>(now / 18U - path * 14U));
+                const uint8_t second = wave8(static_cast<uint8_t>(now / 27U + path * 9U));
+                const uint8_t value = static_cast<uint8_t>(20U + first / 2U + second / 5U);
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::Xenon: {
+            const uint32_t cycle = now % 2300U;
+            const bool first = cycle < 28U;
+            const bool second = cycle >= 95U && cycle < 125U;
+            const uint8_t value = first || second ? 255U : 2U;
+            const RgbwColor xenon = first ? RgbwColor(245U, 252U, 255U)
+                                         : RgbwColor(185U, 220U, 255U);
+            fillSection(LedSection::Left, scaled(xenon, value));
+            fillSection(LedSection::Center, scaled(xenon, value));
+            fillSection(LedSection::Right, scaled(xenon, value));
+            break;
+        }
+        case ErrorAnimation::Count:
+        default:
+            break;
+    }
 }
 
 void LedService::renderFinish(uint8_t animation, uint32_t now, uint32_t filamentRgb) {

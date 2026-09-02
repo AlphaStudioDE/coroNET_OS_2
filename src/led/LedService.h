@@ -37,7 +37,7 @@ private:
     void renderIdle(uint8_t animation, uint32_t now);
     void renderPrint(uint8_t animation, const LedAnimationContext& context);
     void renderPause(uint8_t animation, const LedAnimationContext& context);
-    void renderError(uint8_t animation, uint32_t now);
+    void renderError(uint8_t animation, const LedAnimationContext& context);
     void renderFinish(uint8_t animation, uint32_t now, uint32_t filamentRgb);
     void renderOther(uint8_t animation, uint32_t now);
     void applyInsidePolicy();

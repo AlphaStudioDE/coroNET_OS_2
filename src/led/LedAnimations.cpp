@@ -36,7 +36,8 @@ constexpr const char* PauseNames[] = {
 };
 
 constexpr const char* ErrorNames[] = {
-    "Signal Pulse", "Split Alarm", "Red Wave", "Fault Beacon",
+    "Blink", "SOS", "Alarm", "Critical", "Police",
+    "Red Breathe", "Heartbeat", "Strobe", "Red Wave", "Xenon",
 };
 
 constexpr const char* FinishNames[] = {
@@ -89,5 +90,6 @@ const char* ledAnimationName(LedCategory category, uint8_t animation) {
 
 static_assert(arrayCount(PrintNames) == static_cast<uint8_t>(PrintAnimation::Count));
 static_assert(arrayCount(PauseNames) == static_cast<uint8_t>(PauseAnimation::Count));
+static_assert(arrayCount(ErrorNames) == static_cast<uint8_t>(ErrorAnimation::Count));
 
 }

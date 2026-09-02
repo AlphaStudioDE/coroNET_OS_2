@@ -117,6 +117,20 @@ enum class PauseAnimation : uint8_t {
     Count,
 };
 
+enum class ErrorAnimation : uint8_t {
+    Blink = 0,
+    Sos,
+    Alarm,
+    Critical,
+    Police,
+    RedBreathe,
+    Heartbeat,
+    Strobe,
+    RedWave,
+    Xenon,
+    Count,
+};
+
 constexpr uint32_t SnakeFinishDurationMs = 1400U;
 
 struct LedAnimationContext {
