@@ -346,9 +346,12 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
     }
 
     if (!full) {
-        const uint8_t reveal = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 850U));
-        const uint8_t handoff = elapsedMs > 1850U
-            ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsedMs - 1850U) * 255U / 750U)) : 0U;
+        constexpr uint32_t QuickLedHandoffStartMs = 2700U;
+        const uint8_t reveal = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 1050U));
+        const uint8_t handoff = elapsedMs > QuickLedHandoffStartMs
+            ? static_cast<uint8_t>(min<uint32_t>(255U,
+                (elapsedMs - QuickLedHandoffStartMs) * 255U /
+                (BootExperience::QuickDurationMs - QuickLedHandoffStartMs))) : 0U;
         RgbwColor signature[hw::LedCount] = {};
         for (uint16_t i = 0; i < hw::InsideCount; ++i) {
             const uint16_t distance = i > hw::InsideCount / 2U ? i - hw::InsideCount / 2U

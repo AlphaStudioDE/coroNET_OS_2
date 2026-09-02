@@ -28,6 +28,7 @@ constexpr uint32_t FeatureFadeOutMs = 550U;
 constexpr uint32_t LogoSpectrumStartMs = 4000U;
 constexpr uint32_t LogoSpectrumBlendMs = 650U;
 constexpr uint16_t LogoSpectrumBaseHue = 174U;
+constexpr uint32_t QuickHandoffStartMs = 2800U;
 
 uint8_t ramp(uint32_t elapsed, uint32_t start, uint32_t duration) {
     if (elapsed <= start) return 0;
@@ -263,13 +264,14 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
 }
 
 void BootScreen::updateQuick(uint32_t elapsedMs) {
-    const uint8_t logoReveal = ramp(elapsedMs, 0U, 650U);
-    const uint8_t coreReveal = ramp(elapsedMs, 700U, 220U);
-    const uint8_t horizonReveal = ramp(elapsedMs, 970U, 550U);
-    const uint8_t endpointReveal = ramp(elapsedMs, 1520U, 220U);
-    const uint8_t wordReveal = ramp(elapsedMs, 1740U, 210U);
+    const uint8_t logoReveal = ramp(elapsedMs, 0U, 750U);
+    const uint8_t coreReveal = ramp(elapsedMs, 800U, 220U);
+    const uint8_t horizonReveal = ramp(elapsedMs, 1100U, 600U);
+    const uint8_t endpointReveal = ramp(elapsedMs, 1700U, 220U);
+    const uint8_t wordReveal = ramp(elapsedMs, 1950U, 330U);
+    const uint8_t detailReveal = ramp(elapsedMs, 2300U, 450U);
     setLogoColor(0x27D3C2);
-    setOpacity(static_cast<uint8_t>(20U + logoReveal * 235U / 255U), wordReveal, 0);
+    setOpacity(static_cast<uint8_t>(20U + logoReveal * 235U / 255U), wordReveal, detailReveal);
     lv_arc_set_bg_angles(arc_, 44,
         static_cast<uint16_t>(46U + static_cast<uint32_t>(logoReveal) * 270U / 255U));
     lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
@@ -278,11 +280,14 @@ void BootScreen::updateQuick(uint32_t elapsedMs) {
     lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(wordReveal / 6U), LV_PART_MAIN);
     lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
 
-    if (elapsedMs >= 1950U) {
-        const uint8_t handoff = ramp(elapsedMs, 1950U, 650U);
+    if (elapsedMs >= QuickHandoffStartMs) {
+        const uint8_t handoff = ramp(elapsedMs, QuickHandoffStartMs,
+            BootExperience::QuickDurationMs - QuickHandoffStartMs);
         const uint8_t remaining = 255U - handoff;
-        setOpacity(static_cast<uint8_t>(70U + remaining * 185U / 255U),
-                   static_cast<uint8_t>(70U + remaining * 185U / 255U), 0);
+        setOpacity(remaining, remaining, remaining);
+        lv_obj_set_style_bg_opa(core_, remaining, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(endpoint_, remaining, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(remaining / 6U), LV_PART_MAIN);
     }
 }
 

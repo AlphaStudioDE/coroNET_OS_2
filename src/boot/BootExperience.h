@@ -12,7 +12,7 @@ enum class BootExperienceMode : uint8_t {
 class BootExperience {
 public:
     static constexpr uint32_t FullDurationMs = 35000;
-    static constexpr uint32_t QuickDurationMs = 2600;
+    static constexpr uint32_t QuickDurationMs = 3500;
 
     void begin(bool setupDone);
     void systemReady();
