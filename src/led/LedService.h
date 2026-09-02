@@ -39,7 +39,7 @@ private:
     void renderPause(uint8_t animation, const LedAnimationContext& context);
     void renderError(uint8_t animation, const LedAnimationContext& context);
     void renderFinish(uint8_t animation, const LedAnimationContext& context);
-    void renderOther(uint8_t animation, uint32_t now);
+    void renderOther(uint8_t animation, const LedAnimationContext& context);
     void applyInsidePolicy();
     void applyOutputPolicies();
     bool smoothAndShow(bool immediate = false);

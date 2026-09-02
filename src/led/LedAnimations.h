@@ -301,6 +301,16 @@ enum class OtherAnimation : uint8_t {
     BouncingBalls,
     CopCar,
     StrobeParty,
+    Sunrise,
+    OceanDepth,
+    Radiation,
+    Pastel,
+    Electric,
+    RainbowPulse,
+    Carnival,
+    NeonSign,
+    MotionDetect,
+    RetroTv,
     Count,
 };
 
@@ -319,6 +329,7 @@ struct LedAnimationContext {
     uint32_t printDurationSec = 0;
     uint32_t printEtaSec = 0;
     uint32_t printerTelemetryAgeMs = UINT32_MAX;
+    uint32_t lastTouchAgeMs = UINT32_MAX;
     bool printerOnline = false;
     bool wifiConnected = false;
     bool timeReady = false;

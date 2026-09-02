@@ -76,6 +76,8 @@ constexpr const char* OtherNames[] = {
     "Jellyfish", "Snow", "Sunset", "Volcano", "Techno",
     "Dragon Blood", "Aurora", "Cyberpunk", "Nebula", "Submarine",
     "Pride", "Plasma", "Bouncing Balls", "Cop Car", "Strobe Party",
+    "Sunrise", "Ocean Depth", "Radiation", "Pastel", "Electric",
+    "Rainbow Pulse", "Carnival", "Neon Sign", "Motion Detect", "Retro TV",
 };
 
 template <size_t N>

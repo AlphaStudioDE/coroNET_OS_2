@@ -33,7 +33,7 @@ The following behavior is shared by the entire catalog:
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
-| Other | 20 | Rebuild in progress; first two reviewed sets implemented on the OS 2 engine |
+| Other | 30 | Rebuild in progress; first three reviewed sets implemented on the OS 2 engine |
 
 ## Print
 
@@ -350,6 +350,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 18 | Bouncing Balls | Five differently timed colored balls use smooth acceleration, reach both ends of the complete OUTER path, and retain directional tails. |
 | 19 | Cop Car | Timed blue and red side bursts frame a split-color Center sweep without introducing white flashes. |
 | 20 | Strobe Party | Two bounded saturated-color hits form each beat while the active section rotates; long dark intervals keep it distinct from a constant strobe. |
+| 21 | Sunrise | A warm core rises from the middle of OUTER, pushes night blue toward the edges, reaches a pale-gold morning peak, and recedes slowly. |
+| 22 | Ocean Depth | Three bioluminescent creatures circle through a very dark, slowly moving blue current with broad local halos. |
+| 23 | Radiation | A yellow-green warning ring repeatedly expands from the middle of the complete OUTER route over a breathing hazard field. |
+| 24 | Pastel | Left, Center, and Right carry separate low-saturation color fields whose wide gradients drift without collapsing into one flat hue. |
+| 25 | Electric | A fast blue electrical head and short tail cross OUTER while deterministic branch points ignite along its current strike path. |
+| 26 | Rainbow Pulse | A complete animated spectrum is repeated in each physical section and breathes through both global and local intensity waves. |
+| 27 | Carnival | Red, gold, and blue marquee sections rotate their roles while compact bulb groups chase inside each section. |
+| 28 | Neon Sign | Three colored neon tubes follow separate flicker-on, stable, failing, and off stages without using frame-random flashes. |
+| 29 | Motion Detect | A real touch launches a cyan ring from Center across OUTER; preview supplies periodic demonstration touches while normal operation remains event-driven. |
+| 30 | Retro TV | Deterministic colored analogue noise refreshes at a bounded rate while a brighter scan line travels through the signal. |
 
 ## Boot LED Experience
 
