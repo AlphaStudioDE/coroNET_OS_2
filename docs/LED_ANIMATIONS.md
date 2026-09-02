@@ -32,7 +32,7 @@ The following behavior is shared by the entire catalog:
 | Pause | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 4 | Initial OS 2 set; expanded rebuild pending |
-| Finish | 4 | Initial OS 2 set; expanded rebuild pending |
+| Finish | 10 | Rebuild in progress; first set implemented on the OS 2 engine |
 | Other | 4 | Initial OS 2 set; expanded rebuild pending |
 
 ## Print
@@ -223,14 +223,20 @@ The current Idle set is the compact initial OS 2 collection. These four effects 
 
 ## Finish
 
-The current Finish entries are names reserved for the expanded rebuild. At present they use two lightweight renderer families: a moving spectrum celebration with sparkles, or a filament-colored celebration with colored sparkles.
+Finish animations celebrate a completed job. The rebuilt set combines show-oriented scenes with filament-aware choices; later batches will also include cooldown and inspection-oriented results.
 
-| # | Animation | Current behavior |
+| # | Animation | What it shows |
 | ---: | --- | --- |
-| 1 | Completion Bloom | A moving spectrum field blooms across all outer sections and releases bright colored sparkles. |
-| 2 | Color Release | The active filament color forms the base while brighter colored particles break away across the bar. |
-| 3 | Finish Sweep | A filament-colored base receives a changing sweep of celebratory colored highlights. |
-| 4 | Soft Celebration | A softer spectrum celebration shares the current lightweight bloom renderer. |
+| 1 | Sweep | A white-tipped green and gold success beam completes a victory lap around the entire outer path. |
+| 2 | Rainbow | Each physical section presents a complete moving spectrum with smooth tonal offsets at the section boundaries. |
+| 3 | Pulse | A warm white and gold victory ring repeatedly expands from Center over a softly breathing background. |
+| 4 | Filament | The finished material color becomes a flowing illuminated surface with restrained white crests; near-black filament receives a color-cycle fallback. |
+| 5 | Fireworks | A deterministic gold launch climbs the path and opens into a different multicolor circular burst each cycle. |
+| 6 | Curtain | A textured gold curtain opens symmetrically across Center while Left and Right provide softly moving stage light. |
+| 7 | Confetti | Independent colored pieces appear and decay across the complete outer path without retaining frame-sized particle buffers. |
+| 8 | Gold Rain | Offset gold droplets travel through all three sections with bright heads and a low afterglow. |
+| 9 | Strobe Party | Three sections answer a syncopated celebration beat with different saturated colors and brief dark rests. |
+| 10 | Bouncing Balls | Four independently timed colored balls traverse and rebound across the complete 42-LED OUTER route, rather than being confined to Center. |
 
 ## Other
 

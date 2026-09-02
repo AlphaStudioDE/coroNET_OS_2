@@ -50,7 +50,8 @@ constexpr const char* ErrorNames[] = {
 };
 
 constexpr const char* FinishNames[] = {
-    "Completion Bloom", "Color Release", "Finish Sweep", "Soft Celebration",
+    "Sweep", "Rainbow", "Pulse", "Filament", "Fireworks",
+    "Curtain", "Confetti", "Gold Rain", "Strobe Party", "Bouncing Balls",
 };
 
 constexpr const char* OtherNames[] = {
@@ -100,5 +101,6 @@ const char* ledAnimationName(LedCategory category, uint8_t animation) {
 static_assert(arrayCount(PrintNames) == static_cast<uint8_t>(PrintAnimation::Count));
 static_assert(arrayCount(PauseNames) == static_cast<uint8_t>(PauseAnimation::Count));
 static_assert(arrayCount(ErrorNames) == static_cast<uint8_t>(ErrorAnimation::Count));
+static_assert(arrayCount(FinishNames) == static_cast<uint8_t>(FinishAnimation::Count));
 
 }

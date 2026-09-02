@@ -172,6 +172,20 @@ enum class ErrorAnimation : uint8_t {
     Count,
 };
 
+enum class FinishAnimation : uint8_t {
+    Sweep = 0,
+    Rainbow,
+    Pulse,
+    Filament,
+    Fireworks,
+    Curtain,
+    Confetti,
+    GoldRain,
+    StrobeParty,
+    BouncingBalls,
+    Count,
+};
+
 constexpr uint32_t SnakeFinishDurationMs = 1400U;
 
 struct LedAnimationContext {
