@@ -14,6 +14,7 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - BLE notifications use a versioned binary/chunked protocol and commands are parsed as exact JSON fields.
 - WiFi control requires a per-device token transferred during the BLE pairing window.
 - LED rendering is a layered engine, not a collection of unrelated direct frame writers.
+- Production firmware has exactly one printer-telemetry source: the configured real printer connection. It has no simulator, demo state, mock progress, or runtime telemetry override.
 - Memory policy is explicit: PSRAM first for large/stateful allocations, DMA only for hardware transfer buffers, internal RAM reserved for small critical objects and stacks.
 
 ## Service Boundaries

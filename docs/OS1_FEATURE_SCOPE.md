@@ -142,3 +142,4 @@ The following OS 1 systems must not be implemented in coroNET OS 2 unless this d
 3. The disabled MIDI synthesizer/player (`SOUND-10`).
 4. Product activation, license files, and manual activation keys (`CORE-04`).
 5. The DIY chamber-heater output mode until a separate safety-reviewed hardware module exists (`VENT-11`).
+6. Any runtime printer simulator, demo state, fake progress source, or mock telemetry override. OS 2 consumes only telemetry from the configured real printer.
