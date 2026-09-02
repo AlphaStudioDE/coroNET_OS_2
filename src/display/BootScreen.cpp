@@ -57,14 +57,14 @@ void BootScreen::begin() {
     lv_obj_clear_flag(arc_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_pos(arc_, 55, 82);
     lv_obj_set_size(arc_, 128, 128);
-    lv_arc_set_bg_angles(arc_, 44, 316);
+    lv_arc_set_bg_angles(arc_, 44, 80);
     lv_obj_set_style_arc_width(arc_, 13, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc_, true, LV_PART_MAIN);
 
     horizon_ = lv_obj_create(root_);
     lv_obj_remove_style_all(horizon_);
     lv_obj_set_pos(horizon_, 119, 142);
-    lv_obj_set_size(horizon_, 0, 8);
+    lv_obj_set_size(horizon_, 6, 8);
     lv_obj_set_style_radius(horizon_, 4, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(horizon_, LV_OPA_COVER, LV_PART_MAIN);
 
@@ -111,6 +111,7 @@ void BootScreen::begin() {
 
     setLogoColor(0x27D3C2);
     setOpacity(30, 0, 0);
+    lv_obj_set_style_bg_opa(core_, 30, LV_PART_MAIN);
     lv_scr_load_anim(root_, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
 }
 
@@ -128,10 +129,11 @@ void BootScreen::update() {
 
 void BootScreen::updatePrelude(uint32_t elapsedMs) {
     const uint8_t pulse = triangle(elapsedMs, 1800U);
-    setLogoColor(0x1AAEA4);
-    setOpacity(static_cast<uint8_t>(28U + pulse / 4U), 0, 0);
-    lv_arc_set_bg_angles(arc_, 44, static_cast<uint16_t>(80U + pulse / 5U));
-    lv_obj_set_width(horizon_, static_cast<lv_coord_t>(6U + pulse / 18U));
+    setLogoColor(0x27D3C2);
+    setOpacity(static_cast<uint8_t>(28U + pulse / 8U), 0, 0);
+    lv_arc_set_bg_angles(arc_, 44, 80);
+    lv_obj_set_width(horizon_, 6);
+    lv_obj_set_style_bg_opa(core_, static_cast<uint8_t>(28U + pulse / 8U), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(endpoint_, LV_OPA_TRANSP, LV_PART_MAIN);
 }
 
@@ -157,12 +159,12 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     }
 
     setLogoColor(color);
-    setOpacity(static_cast<uint8_t>(70U + coronaReveal * 185U / 255U),
+    setOpacity(static_cast<uint8_t>(30U + coronaReveal * 225U / 255U),
                wordReveal, detailReveal);
     lv_arc_set_bg_angles(arc_, 44,
-        static_cast<uint16_t>(44U + static_cast<uint32_t>(coronaReveal) * 272U / 255U));
-    lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
-    lv_obj_set_width(horizon_, static_cast<lv_coord_t>(horizonReveal * 78U / 255U));
+        static_cast<uint16_t>(80U + static_cast<uint32_t>(coronaReveal) * 236U / 255U));
+    lv_obj_set_style_bg_opa(core_, static_cast<uint8_t>(30U + coreReveal * 225U / 255U), LV_PART_MAIN);
+    lv_obj_set_width(horizon_, static_cast<lv_coord_t>(6U + horizonReveal * 72U / 255U));
     lv_obj_set_style_bg_opa(endpoint_,
         elapsedMs > 4200U ? static_cast<uint8_t>(150U + pulse * 105U / 255U) : LV_OPA_TRANSP,
         LV_PART_MAIN);
@@ -194,11 +196,11 @@ void BootScreen::updateQuick(uint32_t elapsedMs) {
     const uint8_t logoReveal = ramp(elapsedMs, 420U, 700U);
     const uint8_t wordReveal = ramp(elapsedMs, 720U, 580U);
     setLogoColor(0x27D3C2);
-    setOpacity(static_cast<uint8_t>(45U + logoReveal * 210U / 255U), wordReveal, 0);
+    setOpacity(static_cast<uint8_t>(30U + logoReveal * 225U / 255U), wordReveal, 0);
     lv_arc_set_bg_angles(arc_, 44,
-        static_cast<uint16_t>(44U + static_cast<uint32_t>(logoReveal) * 272U / 255U));
-    lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
-    lv_obj_set_width(horizon_, static_cast<lv_coord_t>(horizonReveal * 78U / 255U));
+        static_cast<uint16_t>(80U + static_cast<uint32_t>(logoReveal) * 236U / 255U));
+    lv_obj_set_style_bg_opa(core_, static_cast<uint8_t>(30U + coreReveal * 225U / 255U), LV_PART_MAIN);
+    lv_obj_set_width(horizon_, static_cast<lv_coord_t>(6U + horizonReveal * 72U / 255U));
     lv_obj_set_style_bg_opa(endpoint_, elapsedMs > 760U ? LV_OPA_COVER : LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(20U + logoReveal / 6U), LV_PART_MAIN);
 
