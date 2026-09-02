@@ -67,13 +67,13 @@ The repository is public early so that the architecture, documentation, hardware
 | Settings and one-screen-at-a-time UI navigation | Working on hardware |
 | LED, ventilation, and sound tabs | Working on hardware |
 | Four UI skins, dark/light modes, clocks, and screen saver | Working on hardware |
-| Android companion app for OS 2 | Debug APK builds; emulator-tested, physical-phone validation pending |
+| Android companion app for OS 2 | Working on a physical phone over BLE and local WiFi |
 | Layered RGBW LED engine | Working on hardware, including ambient, dimming, mirror, and previews |
 | PWM fan and servo flap | Working on hardware with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented; physical Panda validation pending |
-| Verified GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Implemented; first public release validation pending |
+| Verified GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public release install verified on hardware |
 
-Development builds are not yet end-user releases. The public flashing package will appear under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases) after the release path is validated.
+Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). Development on the complete end-user experience remains active.
 
 ## Hardware
 

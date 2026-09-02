@@ -18,6 +18,11 @@
 #include "../settings/SettingsService.h"
 #include "../vent/VentService.h"
 
+// Arduino otherwise accepts a pending OTA image before setup() can validate the hardware.
+extern "C" bool verifyRollbackLater() {
+    return true;
+}
+
 namespace coronet {
 
 namespace {
@@ -32,10 +37,20 @@ constexpr time_t kMinimumTrustedEpoch = 1700000000;
 class TrustedNetworkClient final : public NetworkClientSecure {
 public:
     TrustedNetworkClient() {
+        configureTrust();
+        setHandshakeTimeout(15);
+    }
+
+    int connect(const char* host, uint16_t port, int32_t timeout) override {
+        configureTrust();
+        return NetworkClientSecure::connect(host, port, timeout);
+    }
+
+private:
+    void configureTrust() {
         attach_ssl_certificate_bundle(sslclient.get(), true);
         _use_ca_bundle = true;
         _use_insecure = false;
-        setHandshakeTimeout(15);
     }
 };
 

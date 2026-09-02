@@ -8,6 +8,8 @@
 - Added semantic version comparison, downgrade rejection, explicit same-version reinstall, release asset size validation, ESP32 image-header validation, and mandatory MD5 verification.
 - Added an OTA maintenance phase that flushes settings, stops nonessential web/BLE/Panda work, releases audio DMA, and preserves a clear full-screen update state.
 - Added ESP32 bootloader rollback validation: a new image is marked valid only after 30 seconds of stable display, touch, and LED startup.
+- Deferred Arduino's automatic early OTA acceptance so the full hardware validation window now runs before an image is marked valid.
+- Reapplied certificate-bundle trust on every redirected TLS connection and verified a complete public GitHub OTA install on hardware.
 - Added complete firmware-update controls and confirmation dialogs to the Wi-Fi-connected Android companion.
 - Added tag-derived firmware versions and automatic GitHub Release assets, checksums, and release publication.
 

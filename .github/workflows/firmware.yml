@@ -49,6 +49,12 @@ jobs:
           CORONET_FIRMWARE_VERSION: ${{ steps.version.outputs.version }}
         run: pio run
 
+      - name: Validate release artifacts
+        run: >-
+          python scripts/validate_release_artifacts.py
+          .pio/build/coronet_os2
+          "${{ steps.version.outputs.version }}"
+
       - name: Prepare firmware assets
         shell: bash
         run: |
