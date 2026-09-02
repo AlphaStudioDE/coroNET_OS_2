@@ -4014,6 +4014,178 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             }
             break;
         }
+        case FinishAnimation::VictoryLap: {
+            const uint16_t head = static_cast<uint16_t>((now / 34U) % hw::OuterCount);
+            const uint16_t gate = hw::LeftCount + hw::CenterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const bool checker = path >= gate - 2U && path <= gate + 2U;
+                if (checker) {
+                    const bool white = ((path + now / 180U) & 1U) == 0U;
+                    setOuterVisualPathPixel(path, scaled(white ? RgbwColor(245U, 245U, 235U) : gold, 70U));
+                }
+                const uint16_t distance = head >= path
+                    ? head - path : head + hw::OuterCount - path;
+                if (distance > 7U) continue;
+                const uint8_t value = static_cast<uint8_t>(250U - distance * 31U);
+                setOuterVisualPathPixel(path, scaled(distance == 0U ? green : filament, value));
+            }
+            break;
+        }
+        case FinishAnimation::GoldTheater: {
+            const uint8_t offset = static_cast<uint8_t>((now / 115U) % 6U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t bulb = static_cast<uint8_t>((path + offset) % 6U);
+                const uint8_t value = bulb == 0U ? 245U : bulb == 1U ? 110U : 22U;
+                const RgbwColor color = bulb == 0U ? RgbwColor(255U, 245U, 205U) : gold;
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
+        case FinishAnimation::RibbonDance: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t first = wave8(static_cast<uint8_t>(now / 17U + path * 18U));
+                const uint8_t second = wave8(static_cast<uint8_t>(now / 23U - path * 18U + 128U));
+                const uint8_t firstValue = first > 170U ? static_cast<uint8_t>((first - 170U) * 3U) : 0U;
+                const uint8_t secondValue = second > 170U ? static_cast<uint8_t>((second - 170U) * 3U) : 0U;
+                RgbwColor color = scaled(filament, firstValue);
+                color = blend(color, scaled(gold, secondValue),
+                              static_cast<uint8_t>(secondValue > firstValue ? 190U : 70U));
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case FinishAnimation::TrophyGlow: {
+            const uint8_t breath = static_cast<uint8_t>(105U + wave8(now / 52U) / 2U);
+            const uint16_t half = hw::CenterCount / 2U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i < half ? half - 1U - i : i - half;
+                uint8_t value = distance < 3U ? 245U
+                    : distance < 6U ? 150U : static_cast<uint8_t>(breath / 2U);
+                if (i == 2U || i == hw::CenterCount - 3U) value = 95U;
+                setSection(LedSection::Center, i, scaled(gold, value));
+            }
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t handle = i >= 2U && i <= 7U
+                    ? static_cast<uint8_t>(breath * (i == 2U || i == 7U ? 2U : 1U) / 2U) : 14U;
+                setSection(LedSection::Left, i, scaled(gold, handle));
+                setSection(LedSection::Right, hw::RightCount - 1U - i, scaled(gold, handle));
+            }
+            break;
+        }
+        case FinishAnimation::StarGlitter: {
+            const uint32_t frame = now / 140U;
+            const RgbwColor night = decorativeHsv(LedCategory::Finish, 168U, 210U, 255U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t star = hash8(path * 109U + frame * 31U);
+                RgbwColor color = scaled(night, 10U);
+                if (star > 236U) {
+                    const uint8_t warmth = hash8(path * 53U) & 31U;
+                    color = RgbwColor(255U, static_cast<uint8_t>(245U - warmth / 2U),
+                                     static_cast<uint8_t>(210U + warmth));
+                    color = scaled(color, static_cast<uint8_t>(135U + (star - 236U) * 6U));
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case FinishAnimation::DualComets: {
+            const uint16_t firstHead = static_cast<uint16_t>((now / 45U) % hw::OuterCount);
+            const uint16_t secondHead = hw::OuterCount - 1U - firstHead;
+            for (uint8_t tail = 0; tail < 10U; ++tail) {
+                const uint8_t value = static_cast<uint8_t>(245U - tail * 23U);
+                const uint16_t first = (firstHead + hw::OuterCount - tail) % hw::OuterCount;
+                const uint16_t second = (secondHead + tail) % hw::OuterCount;
+                setOuterVisualPathPixel(first, scaled(filament, value));
+                setOuterVisualPathPixel(second, scaled(gold, value));
+            }
+            break;
+        }
+        case FinishAnimation::Applause: {
+            const uint32_t cycle = now % 1800U;
+            const uint16_t half = (hw::OuterCount + 1U) / 2U;
+            const uint16_t inward = static_cast<uint16_t>(min<uint32_t>(half - 1U,
+                (cycle % 650U) * half / 650U));
+            const bool secondClap = cycle >= 760U && cycle < 1410U;
+            const uint8_t strength = secondClap ? 220U : 255U;
+            for (uint8_t side = 0; side < 2U; ++side) {
+                const uint16_t head = side == 0U ? inward : hw::OuterCount - 1U - inward;
+                for (uint8_t tail = 0; tail < 5U; ++tail) {
+                    const int16_t path = side == 0U
+                        ? static_cast<int16_t>(head) - tail
+                        : static_cast<int16_t>(head) + tail;
+                    if (path < 0 || path >= static_cast<int16_t>(hw::OuterCount)) continue;
+                    setOuterVisualPathPixel(static_cast<uint16_t>(path),
+                        scaled(gold, static_cast<uint8_t>(strength - tail * 38U)));
+                }
+            }
+            if (inward >= half - 2U) {
+                setOuterVisualPathPixel(half - 1U, RgbwColor(255U, 255U, 240U));
+                setOuterVisualPathPixel(half, RgbwColor(255U, 255U, 240U));
+            }
+            break;
+        }
+        case FinishAnimation::PrismBloom: {
+            const uint32_t cycle = now % 3400U;
+            const uint16_t center = hw::OuterCount / 2U;
+            const uint16_t radius = static_cast<uint16_t>(min<uint32_t>(center + 4U,
+                cycle < 1900U ? cycle * (center + 4U) / 1900U : center + 4U));
+            const uint8_t hold = cycle < 2600U ? 255U
+                : static_cast<uint8_t>(255U - (cycle - 2600U) * 235U / 800U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                if (distance > radius) continue;
+                const uint8_t saturation = static_cast<uint8_t>(min<uint16_t>(245U, distance * 16U));
+                const uint8_t hue = static_cast<uint8_t>(distance * 15U + (path > center ? 20U : 150U));
+                const uint8_t value = static_cast<uint8_t>(hold * (220U - min<uint16_t>(160U, distance * 6U)) / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Finish, hue, saturation, value));
+            }
+            break;
+        }
+        case FinishAnimation::PixelToast: {
+            const uint32_t cycle = now % 3000U;
+            const uint16_t rise = static_cast<uint16_t>(min<uint32_t>(hw::CenterCount,
+                cycle < 1100U ? cycle * hw::CenterCount / 1100U : hw::CenterCount));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                if (i >= rise) continue;
+                const uint8_t crisp = hash8(i * 79U + now / 210U);
+                const RgbwColor color = crisp > 220U ? RgbwColor(255U, 245U, 210U) : gold;
+                setSection(LedSection::Center, i,
+                           scaled(color, static_cast<uint8_t>(150U + crisp / 3U)));
+            }
+            if (cycle >= 1100U && cycle < 1600U) {
+                const uint16_t pop = static_cast<uint16_t>((cycle - 1100U) * 5U / 500U);
+                if (pop < hw::LeftCount) {
+                    setSection(LedSection::Left, hw::LeftCount - 1U - pop, filament);
+                    setSection(LedSection::Right, pop, filament);
+                }
+            } else {
+                fillSection(LedSection::Left, scaled(filament, 28U));
+                fillSection(LedSection::Right, scaled(filament, 28U));
+            }
+            break;
+        }
+        case FinishAnimation::CrownChase: {
+            const uint8_t jewel = static_cast<uint8_t>((now / 145U) % 5U);
+            fillSection(LedSection::Left, scaled(gold, 45U));
+            fillSection(LedSection::Right, scaled(gold, 45U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t tooth = static_cast<uint8_t>((i * 5U) / hw::CenterCount);
+                const bool crownPeak = (i % 4U) == 1U || (i % 4U) == 2U;
+                uint8_t value = crownPeak ? 185U : 85U;
+                RgbwColor color = gold;
+                if (tooth == jewel && crownPeak) {
+                    value = 255U;
+                    color = decorativeHsv(LedCategory::Finish,
+                        static_cast<uint8_t>(jewel * 51U + now / 35U), 245U, 255U);
+                }
+                setSection(LedSection::Center, i, scaled(color, value));
+            }
+            const uint16_t sideMarker = static_cast<uint16_t>((now / 85U) % hw::LeftCount);
+            setSection(LedSection::Left, sideMarker, RgbwColor(255U, 250U, 220U));
+            setSection(LedSection::Right, hw::RightCount - 1U - sideMarker, RgbwColor(255U, 250U, 220U));
+            break;
+        }
         case FinishAnimation::Count:
         default:
             break;

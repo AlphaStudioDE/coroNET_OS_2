@@ -193,6 +193,16 @@ enum class FinishAnimation : uint8_t {
     Fill,
     Waterfall,
     Starburst,
+    VictoryLap,
+    GoldTheater,
+    RibbonDance,
+    TrophyGlow,
+    StarGlitter,
+    DualComets,
+    Applause,
+    PrismBloom,
+    PixelToast,
+    CrownChase,
     Count,
 };
 

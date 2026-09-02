@@ -32,7 +32,7 @@ The following behavior is shared by the entire catalog:
 | Pause | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 4 | Initial OS 2 set; expanded rebuild pending |
-| Finish | 20 | Rebuild in progress; first two sets implemented on the OS 2 engine |
+| Finish | 30 | Rebuild in progress; first three sets implemented on the OS 2 engine |
 | Other | 4 | Initial OS 2 set; expanded rebuild pending |
 
 ## Print
@@ -247,6 +247,16 @@ Finish animations celebrate a completed job. The rebuilt set combines show-orien
 | 18 | Fill | Gold advances smoothly one LED at a time around the full path, then holds as a moving completed shimmer. |
 | 19 | Waterfall | Three cool color streams cascade around the full outer route with long fading tails. |
 | 20 | Starburst | A compact white core emits a fast multicolor shell, then the complete burst decays to darkness. |
+| 21 | Victory Lap | A filament-colored runner led by green light circles the full path and repeatedly crosses a gold-and-white checkered finish gate. |
+| 22 | Gold Theater | A classic warm marquee chases around the complete bar with a bright bulb and visible afterglow. |
+| 23 | Ribbon Dance | Filament and gold ribbons travel in opposite directions, cross, and trade visual dominance without becoming a single blended field. |
+| 24 | Trophy Glow | Center forms a bright gold cup and pedestal while mirrored side handles breathe around it. |
+| 25 | Star Glitter | Warm stars twinkle independently over a very dark blue night field, clearly separated from the filament-based Sparkle scene. |
+| 26 | Dual Comets | Filament and gold comets travel in opposite directions with long tails and repeatedly pass one another around OUTER. |
+| 27 | Applause | Two gold waves clap inward from opposite ends in paired beats and meet in a short white Center impact. |
+| 28 | Prism Bloom | White light opens slowly from Center and separates into increasingly saturated colors toward both ends before fading. |
+| 29 | Pixel Toast | Gold pixels rise through Center, settle into a warm completed surface, and briefly pop filament-colored markers onto the sides. |
+| 30 | Crown Chase | Center forms a five-point gold crown while a changing jewel and mirrored side highlights travel around it. |
 
 ## Other
 
