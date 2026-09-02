@@ -168,10 +168,8 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     lv_obj_set_style_bg_opa(glowLine_,
         static_cast<uint8_t>(20U + ramp(elapsedMs, 7000U, 11000U) / 5U), LV_PART_MAIN);
 
-    if (elapsedMs >= 20500U && elapsedMs < 22000U) {
-        const uint8_t contraction = triangle(elapsedMs - 20500U, 3000U);
-        lv_obj_set_width(horizon_, static_cast<lv_coord_t>(78U - contraction / 7U));
-    }
+    // Once the horizon reaches the endpoint it remains mechanically locked.
+    // The pre-climax contraction belongs to the light show, not the logo geometry.
     if (elapsedMs >= 22000U && elapsedMs < 30000U) {
         const uint8_t climax = triangle(elapsedMs - 22000U, 840U);
         lv_obj_set_style_arc_width(arc_, static_cast<lv_coord_t>(13U + climax / 64U), LV_PART_MAIN);
