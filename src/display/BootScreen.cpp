@@ -44,6 +44,11 @@ uint8_t triangle(uint32_t elapsed, uint32_t period) {
         : static_cast<uint8_t>((period - position) * 255U / half);
 }
 
+uint8_t smoothPulse(uint8_t value) {
+    const uint32_t x = value;
+    return static_cast<uint8_t>((x * x * (765U - 2U * x) + 32512U) / 65025U);
+}
+
 uint32_t blendRgb(uint32_t from, uint32_t to, uint8_t amount) {
     const uint16_t inverse = 255U - amount;
     const uint8_t r = static_cast<uint8_t>((((from >> 16U) & 0xFFU) * inverse +
@@ -79,6 +84,9 @@ void BootScreen::begin() {
     lv_arc_set_bg_angles(arc_, 44, 46);
     lv_obj_set_style_arc_width(arc_, 13, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc_, true, LV_PART_MAIN);
+    lv_obj_set_style_transform_pivot_x(arc_, 64, LV_PART_MAIN);
+    lv_obj_set_style_transform_pivot_y(arc_, 64, LV_PART_MAIN);
+    lv_obj_set_style_transform_zoom(arc_, 256, LV_PART_MAIN);
 
     horizon_ = lv_obj_create(root_);
     lv_obj_remove_style_all(horizon_);
@@ -197,9 +205,12 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     setLogoColor(color);
     const uint8_t logoOpacity = static_cast<uint8_t>(20U + coronaReveal * 235U / 255U);
     setOpacity(logoOpacity, wordReveal, detailReveal);
-    const uint8_t arcBreath = static_cast<uint8_t>(222U + static_cast<uint16_t>(pulse) * 33U / 255U);
-    lv_obj_set_style_arc_opa(arc_,
-        static_cast<uint8_t>(static_cast<uint16_t>(logoOpacity) * arcBreath / 255U), LV_PART_MAIN);
+    const uint8_t breathReveal = ramp(elapsedMs, LogoSpectrumStartMs, LogoSpectrumBlendMs);
+    const uint32_t breathElapsed = elapsedMs >= LogoSpectrumStartMs ? elapsedMs - LogoSpectrumStartMs : 0U;
+    const uint8_t breath = smoothPulse(triangle(breathElapsed, 2100U));
+    const lv_coord_t breathZoom = static_cast<lv_coord_t>(
+        256U + static_cast<uint32_t>(breath) * breathReveal * 5U / 65025U);
+    lv_obj_set_style_transform_zoom(arc_, breathZoom, LV_PART_MAIN);
     lv_arc_set_bg_angles(arc_, 44,
         static_cast<uint16_t>(46U + static_cast<uint32_t>(coronaReveal) * 270U / 255U));
     lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
