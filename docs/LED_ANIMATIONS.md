@@ -236,6 +236,16 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 | 18 | Drift | A broad low-saturation aurora ribbon drifts slowly through hue and brightness across the entire route. |
 | 19 | Candle | Independent warm amber flicker combines a slow flame envelope with bounded deterministic variation per LED. |
 | 20 | Starfield | Every LED behaves as an independently timed, low-intensity cool star, creating a continuously living sky rather than sparse flashes. |
+| 21 | Aurora Ribbon | Two broad green, cyan, and violet ribbons move at different speeds and brighten where their folds cross. |
+| 22 | Rainbow Glitter | A restrained moving rainbow carries rare warm-white glints without replacing its underlying color field. |
+| 23 | Soft Comet | One slow cyan-violet comet circles OUTER with a very long low-saturation tail and an almost-dark background. |
+| 24 | Kaleidoscope | The two halves of OUTER mirror six repeating color facets exactly while their shared pulse rotates. |
+| 25 | Breathing Orbit | Two opposite cool orbiters circle the complete path while their heads and tails breathe together. |
+| 26 | Pixel Fireflies | Six warm yellow-green lights glide between deterministic targets instead of following a fixed strip direction. |
+| 27 | Cosmic Dust | A dense but very dim violet-blue grain field drifts slowly through a broad cosmic cloud. |
+| 28 | Theater Glow | Soft cyan marquee bulbs chase in a five-pixel rhythm over a low breathing auditorium glow. |
+| 29 | Tidal Pool | A separate aqua ripple expands from the center of each physical section, producing three offset pools. |
+| 30 | Neon Drift | Wide cyan and magenta neon bands move in opposite directions and blend only where they cross. |
 
 ## Finish
 

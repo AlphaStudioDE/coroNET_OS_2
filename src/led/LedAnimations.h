@@ -27,6 +27,16 @@ enum class IdleAnimation : uint8_t {
     Drift,
     Candle,
     Starfield,
+    AuroraRibbon,
+    RainbowGlitter,
+    SoftComet,
+    Kaleidoscope,
+    BreathingOrbit,
+    PixelFireflies,
+    CosmicDust,
+    TheaterGlow,
+    TidalPool,
+    NeonDrift,
     Count,
 };
 

@@ -1057,6 +1057,166 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
             }
             break;
         }
+        case IdleAnimation::AuroraRibbon: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t ribbonA = wave8(static_cast<uint8_t>(now / 73U + path * 10U));
+                const uint8_t ribbonB = wave8(static_cast<uint8_t>(now / 109U - path * 7U + 96U));
+                const uint8_t crossing = min<uint8_t>(ribbonA, ribbonB);
+                const uint8_t hue = static_cast<uint8_t>(96U + ribbonA / 5U + ribbonB / 8U);
+                const uint8_t value = static_cast<uint8_t>(22U +
+                    max<uint8_t>(ribbonA, ribbonB) * 120U / 255U + crossing / 7U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 210U, value));
+            }
+            break;
+        }
+        case IdleAnimation::RainbowGlitter: {
+            const uint32_t frame = now / 95U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t hue = static_cast<uint8_t>(now / 45U +
+                    path * 256U / hw::OuterCount);
+                RgbwColor color = decorativeHsv(LedCategory::Idle, hue, 235U, 82U);
+                const uint8_t glitter = hash8(frame * 149U + path * 83U);
+                if (glitter > 244U) {
+                    color = blend(color, RgbwColor(255U, 255U, 245U),
+                                  static_cast<uint8_t>(120U + (glitter - 244U) * 12U));
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case IdleAnimation::SoftComet: {
+            const uint16_t head = static_cast<uint16_t>((now / 145U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t trail = static_cast<uint16_t>(
+                    (head + hw::OuterCount - path) % hw::OuterCount);
+                const uint8_t value = trail <= 15U
+                    ? static_cast<uint8_t>(178U - trail * 9U) : 5U;
+                const uint8_t hue = static_cast<uint8_t>(143U + trail * 2U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 165U, value));
+            }
+            break;
+        }
+        case IdleAnimation::Kaleidoscope: {
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            const uint8_t rotation = static_cast<uint8_t>(now / 39U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t folded = path > center ? hw::OuterCount - 1U - path : path;
+                const uint8_t facet = static_cast<uint8_t>((folded % 6U) * 42U);
+                const uint8_t pulse = wave8(static_cast<uint8_t>(rotation + folded * 24U));
+                const uint8_t hue = static_cast<uint8_t>(rotation / 3U + facet);
+                const uint8_t value = static_cast<uint8_t>(52U + pulse * 145U / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 245U, value));
+            }
+            break;
+        }
+        case IdleAnimation::BreathingOrbit: {
+            const uint8_t breath = static_cast<uint8_t>(45U + wave8(now / 68U) * 185U / 255U);
+            const uint16_t first = static_cast<uint16_t>((now / 92U) % hw::OuterCount);
+            const uint16_t second = static_cast<uint16_t>((first + hw::OuterCount / 2U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t firstDirect = path > first ? path - first : first - path;
+                const uint16_t secondDirect = path > second ? path - second : second - path;
+                const uint16_t distance = min<uint16_t>(
+                    min<uint16_t>(firstDirect, hw::OuterCount - firstDirect),
+                    min<uint16_t>(secondDirect, hw::OuterCount - secondDirect));
+                const uint8_t shape = distance <= 6U
+                    ? static_cast<uint8_t>(255U - distance * 34U) : 10U;
+                const uint8_t value = static_cast<uint8_t>(
+                    static_cast<uint16_t>(shape) * breath / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle,
+                        distance == 0U ? 180U : 167U, 185U, value));
+            }
+            break;
+        }
+        case IdleAnimation::PixelFireflies: {
+            const RgbwColor dusk = decorativeHsv(LedCategory::Idle, 105U, 205U, 5U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                setOuterVisualPathPixel(path, dusk);
+            }
+            const uint32_t epoch = now / 1450U;
+            const uint8_t travel = static_cast<uint8_t>((now % 1450U) * 255U / 1450U);
+            for (uint8_t fly = 0; fly < 6U; ++fly) {
+                const int16_t from = hash8(epoch * 101U + fly * 59U) % hw::OuterCount;
+                const int16_t to = hash8((epoch + 1U) * 101U + fly * 59U) % hw::OuterCount;
+                int16_t delta = to - from;
+                if (delta > static_cast<int16_t>(hw::OuterCount / 2U)) delta -= hw::OuterCount;
+                if (delta < -static_cast<int16_t>(hw::OuterCount / 2U)) delta += hw::OuterCount;
+                int16_t position = from + delta * travel / 255;
+                while (position < 0) position += hw::OuterCount;
+                while (position >= static_cast<int16_t>(hw::OuterCount)) position -= hw::OuterCount;
+                const uint8_t pulse = static_cast<uint8_t>(125U +
+                    wave8(static_cast<uint8_t>(now / (27U + fly * 4U) + fly * 37U)) / 2U);
+                setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                    decorativeHsv(LedCategory::Idle,
+                        static_cast<uint8_t>(48U + fly * 5U), 220U, pulse));
+                const uint16_t neighbor = static_cast<uint16_t>((position + hw::OuterCount - 1U) % hw::OuterCount);
+                setOuterVisualPathPixel(neighbor,
+                    decorativeHsv(LedCategory::Idle, 58U, 205U, pulse / 4U));
+            }
+            break;
+        }
+        case IdleAnimation::CosmicDust: {
+            const uint32_t drift = now / 180U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t grain = hash8((path + drift) * 109U + (drift / 7U) * 43U);
+                const uint8_t cloud = wave8(static_cast<uint8_t>(now / 119U + path * 6U));
+                const uint8_t value = static_cast<uint8_t>(8U + grain / 7U + cloud / 8U);
+                const uint8_t hue = static_cast<uint8_t>(177U + grain / 7U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 190U, value));
+            }
+            break;
+        }
+        case IdleAnimation::TheaterGlow: {
+            const uint16_t shift = static_cast<uint16_t>(now / 130U);
+            const uint8_t breath = static_cast<uint8_t>(62U + wave8(now / 82U) / 5U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t bulb = static_cast<uint8_t>((path + shift) % 5U);
+                const uint8_t value = bulb == 0U ? 185U
+                    : bulb == 1U ? 95U : breath / 3U;
+                const uint8_t hue = static_cast<uint8_t>(130U + (path / 5U) * 9U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 175U, value));
+            }
+            break;
+        }
+        case IdleAnimation::TidalPool: {
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                const uint16_t origin = (count - 1U) / 2U;
+                const uint8_t radius = static_cast<uint8_t>((now / 105U + sectionIndex * 4U) % (count + 5U));
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint16_t distance = i > origin ? i - origin : origin - i;
+                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                    const uint8_t value = delta <= 2U
+                        ? static_cast<uint8_t>(175U - delta * 55U) : 24U;
+                    const uint8_t hue = static_cast<uint8_t>(132U + sectionIndex * 8U + distance * 2U);
+                    setSection(section, i,
+                        decorativeHsv(LedCategory::Idle, hue, 190U, value));
+                }
+            }
+            break;
+        }
+        case IdleAnimation::NeonDrift: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t cyanBand = wave8(static_cast<uint8_t>(now / 63U + path * 13U));
+                const uint8_t pinkBand = wave8(static_cast<uint8_t>(now / 87U - path * 9U + 128U));
+                const RgbwColor cyan = decorativeHsv(LedCategory::Idle, 132U, 250U, 255U);
+                const RgbwColor pink = decorativeHsv(LedCategory::Idle, 226U, 250U, 255U);
+                const uint8_t amount = static_cast<uint8_t>(
+                    static_cast<uint16_t>(pinkBand) * 255U /
+                    max<uint16_t>(1U, static_cast<uint16_t>(cyanBand) + pinkBand));
+                const uint8_t value = static_cast<uint8_t>(30U +
+                    max<uint8_t>(cyanBand, pinkBand) * 155U / 255U);
+                setOuterVisualPathPixel(path, scaled(blend(cyan, pink, amount), value));
+            }
+            break;
+        }
         case IdleAnimation::Count:
         default:
             break;

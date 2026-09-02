@@ -9,6 +9,8 @@ constexpr const char* IdleNames[] = {
     "Twinkle", "Larson", "Lava", "Gradient", "Plasma",
     "Section Breathe", "Snow", "Color Wipe", "Moonlight", "Tetris",
     "Running", "Bubbles", "Drift", "Candle", "Starfield",
+    "Aurora Ribbon", "Rainbow Glitter", "Soft Comet", "Kaleidoscope", "Breathing Orbit",
+    "Pixel Fireflies", "Cosmic Dust", "Theater Glow", "Tidal Pool", "Neon Drift",
 };
 
 constexpr const char* PrintNames[] = {
