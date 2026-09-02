@@ -4,6 +4,7 @@
 #include <esp_system.h>
 
 #include "../config/AppConfig.h"
+#include "../led/LedAnimations.h"
 
 namespace coronet {
 
@@ -173,6 +174,8 @@ void SettingsService::load() {
         settings_.insideColorStyle = InsideColorStyle::White;
     }
     for (uint8_t index = 0; index < enumCount(LedCategory{}); ++index) {
+        const LedCategory category = static_cast<LedCategory>(index);
+        settings_.ledAnimation[index] = normalizeLedAnimation(category, settings_.ledAnimation[index]);
         settings_.ledColorRemixDegrees[index] = clampValue<int16_t>(
             settings_.ledColorRemixDegrees[index], -359, 359);
     }

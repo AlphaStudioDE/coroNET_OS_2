@@ -6,6 +6,7 @@
 #include <freertos/task.h>
 
 #include "../core/ProductTypes.h"
+#include "LedAnimations.h"
 
 namespace coronet {
 
@@ -31,11 +32,10 @@ private:
     bool allocateBuffers();
     void render(uint32_t now);
     void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted);
-    void renderCategory(LedCategory category, uint8_t animation, uint32_t now,
-                        uint8_t progress, float chamberTempC, uint32_t filamentRgb);
+    void renderCategory(LedCategory category, uint8_t animation,
+                        const LedAnimationContext& context);
     void renderIdle(uint8_t animation, uint32_t now);
-    void renderPrint(uint8_t animation, uint32_t now, uint8_t progress,
-                     float chamberTempC, uint32_t filamentRgb);
+    void renderPrint(uint8_t animation, const LedAnimationContext& context);
     void renderPause(uint8_t animation, uint32_t now, uint8_t progress, uint32_t filamentRgb);
     void renderError(uint8_t animation, uint32_t now);
     void renderFinish(uint8_t animation, uint32_t now, uint32_t filamentRgb);
@@ -69,6 +69,8 @@ private:
     bool frameMirror_ = false;
     LedCategory previewCategory_ = LedCategory::Idle;
     uint8_t previewAnimation_ = 0;
+    uint32_t previewStartedMs_ = 0;
+    uint32_t previewDurationMs_ = 10000;
     uint32_t previewUntilMs_ = 0;
     uint32_t lastFrameMs_ = 0;
     uint32_t shows_ = 0;

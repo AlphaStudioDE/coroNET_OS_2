@@ -24,18 +24,6 @@ const char* kSectionNames[] = {"RIGHT", "CENTER", "LEFT", "INSIDE"};
 const char* kScenarioNames[] = {"START", "FINISH", "ERROR", "PAUSE", "IDLE"};
 const char* kPandaModeNames[] = {"OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRYING"};
 
-const char* animationName(uint8_t category, uint8_t animation) {
-    static const char* const names[6][4] = {
-        {"Slow Orbit", "Ember Breath", "Horizon", "Quiet Spectrum"},
-        {"Progress Intelligence", "Laser Track", "Thermal Balance", "Wave Progress"},
-        {"Gentle Hold", "Amber Pulse", "Frozen Progress", "Pause Beacon"},
-        {"Signal Pulse", "Split Alarm", "Red Wave", "Fault Beacon"},
-        {"Completion Bloom", "Color Release", "Finish Sweep", "Soft Celebration"},
-        {"Synth Current", "Ambient Drift", "Prism Field", "Color Theater"},
-    };
-    return names[category % 6U][animation % 4U];
-}
-
 void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
     lv_obj_set_style_text_color(object, lv_color_hex(color), LV_PART_MAIN);
     lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
@@ -297,9 +285,10 @@ void ControlScreen::update() {
 
 void ControlScreen::refreshLed() {
     const AppSettings& settings = settingsService().settings();
-    const uint8_t animation = settings.ledAnimation[selectedCategory_] % 4U;
+    const LedCategory category = static_cast<LedCategory>(selectedCategory_);
+    const uint8_t animation = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
     lv_label_set_text(categoryLabel_, kCategoryNames[selectedCategory_]);
-    lv_label_set_text(animationLabel_, animationName(selectedCategory_, animation));
+    lv_label_set_text(animationLabel_, ledAnimationName(category, animation));
     lv_label_set_text(insideButtonLabel_, settings.insideColorStyle == InsideColorStyle::White ? "INSIDE: WHITE" : "INSIDE: AMBIENT");
     lv_label_set_text(mirrorButtonLabel_, settings.mirrorLedLayout ? "MIRROR: ON" : "MIRROR: OFF");
     lv_label_set_text_fmt(sectionButtonLabel_, "SECTION: %s", kSectionNames[selectedSection_]);
@@ -401,12 +390,24 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
     switch (action) {
         case Action::CategoryPrev: selectedCategory_ = (selectedCategory_ + 5U) % 6U; break;
         case Action::CategoryNext: selectedCategory_ = (selectedCategory_ + 1U) % 6U; break;
-        case Action::AnimationPrev:
-            settings.ledAnimation[selectedCategory_] = (settings.ledAnimation[selectedCategory_] + 3U) % 4U;
-            settingsService().save(); ledService().requestPreview(static_cast<LedCategory>(selectedCategory_), settings.ledAnimation[selectedCategory_]); break;
-        case Action::AnimationNext:
-            settings.ledAnimation[selectedCategory_] = (settings.ledAnimation[selectedCategory_] + 1U) % 4U;
-            settingsService().save(); ledService().requestPreview(static_cast<LedCategory>(selectedCategory_), settings.ledAnimation[selectedCategory_]); break;
+        case Action::AnimationPrev: {
+            const LedCategory category = static_cast<LedCategory>(selectedCategory_);
+            const uint8_t count = ledAnimationCount(category);
+            const uint8_t current = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
+            settings.ledAnimation[selectedCategory_] = static_cast<uint8_t>((current + count - 1U) % count);
+            settingsService().save();
+            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_]);
+            break;
+        }
+        case Action::AnimationNext: {
+            const LedCategory category = static_cast<LedCategory>(selectedCategory_);
+            const uint8_t count = ledAnimationCount(category);
+            const uint8_t current = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
+            settings.ledAnimation[selectedCategory_] = static_cast<uint8_t>((current + 1U) % count);
+            settingsService().save();
+            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_]);
+            break;
+        }
         case Action::Preview: ledService().requestPreview(static_cast<LedCategory>(selectedCategory_), settings.ledAnimation[selectedCategory_]); break;
         case Action::InsideStyle: settings.insideColorStyle = settings.insideColorStyle == InsideColorStyle::White ? InsideColorStyle::Ambient : InsideColorStyle::White; settingsService().save(); break;
         case Action::Mirror: settings.mirrorLedLayout = !settings.mirrorLedLayout; settingsService().save(); break;
