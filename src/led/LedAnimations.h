@@ -94,6 +94,16 @@ enum class PauseAnimation : uint8_t {
     FrozenGold,
     ClockTick,
     CalmOrbit,
+    HoldingPattern,
+    BreathingAmber,
+    ResumeGate,
+    TempKeepalive,
+    SoftAttention,
+    OperatorWait,
+    FrozenLayer,
+    FilamentHold,
+    DoNotTouch,
+    HeatHoldSplit,
     Count,
 };
 

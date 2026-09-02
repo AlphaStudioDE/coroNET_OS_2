@@ -2220,6 +2220,15 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             setSection(LedSection::Center, i, scaled(color, value));
         }
     };
+    auto sectionMeter = [&](LedSection section, uint8_t percent, const RgbwColor& color,
+                            bool reverse = false) {
+        const uint16_t count = sectionCount(section);
+        for (uint16_t i = 0; i < count; ++i) {
+            const uint16_t meterIndex = reverse ? count - 1U - i : i;
+            const uint8_t coverage = progressCoverage(percent, count, meterIndex);
+            setSection(section, i, scaled(color, coverage ? coverage : 5U));
+        }
+    };
 
     switch (static_cast<PauseAnimation>(animation)) {
         case PauseAnimation::Amber: {
@@ -2630,6 +2639,145 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
                 setOuterVisualPathPixel(path, color);
             }
             setSection(LedSection::Center, marker, scaled(filament, 105U));
+            break;
+        }
+        case PauseAnimation::HoldingPattern: {
+            frozenProgress(amber, 72U, 3U, 175U);
+            const uint16_t shuttle = static_cast<uint16_t>((now / 155U) % (hw::LeftCount * 2U - 2U));
+            const uint16_t sidePos = shuttle < hw::LeftCount ? shuttle : hw::LeftCount * 2U - 2U - shuttle;
+            fillSection(LedSection::Left, scaled(filament, 12U));
+            fillSection(LedSection::Right, scaled(filament, 12U));
+            for (int8_t offset = -2; offset <= 2; ++offset) {
+                const int16_t position = static_cast<int16_t>(sidePos) + offset;
+                if (position < 0 || position >= static_cast<int16_t>(hw::LeftCount)) continue;
+                const uint8_t value = static_cast<uint8_t>(170U - abs(offset) * 58U);
+                setSection(LedSection::Left, static_cast<uint16_t>(position), scaled(amber, value));
+                setSection(LedSection::Right, hw::RightCount - 1U - static_cast<uint16_t>(position), scaled(amber, value));
+            }
+            break;
+        }
+        case PauseAnimation::BreathingAmber: {
+            const uint8_t breath = static_cast<uint8_t>(26U + wave8(now / 48U) * 144U / 255U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t local = wave8(static_cast<uint8_t>(now / 48U + i * 6U));
+                    const uint8_t value = static_cast<uint8_t>(breath * (190U + local / 4U) / 255U);
+                    setSection(section, i, scaled(amber, value));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(filament, max<uint8_t>(115U, breath)));
+            break;
+        }
+        case PauseAnimation::ResumeGate: {
+            const uint8_t opening = wave8(now / 42U);
+            const uint16_t center = hw::OuterCount / 2U;
+            const uint16_t span = static_cast<uint16_t>(opening * (hw::OuterCount / 2U) / 255U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint16_t edgeDistance = distance > span ? distance - span : span - distance;
+                const uint8_t value = edgeDistance < 5U
+                    ? static_cast<uint8_t>(205U - edgeDistance * 38U)
+                    : (distance < span ? 20U : 3U);
+                setOuterVisualPathPixel(path, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 200U));
+            break;
+        }
+        case PauseAnimation::TempKeepalive: {
+            const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 68U);
+            const uint8_t bedPercent = temperaturePercent(context.bedTempC, 20.0f, 110.0f, 45U);
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 35U);
+            sectionMeter(LedSection::Left, toolPercent, temperatureColor(toolPercent));
+            sectionMeter(LedSection::Right, chamberPercent, temperatureColor(chamberPercent), true);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t bedCoverage = progressCoverage(bedPercent, hw::CenterCount, i);
+                const uint8_t printCoverage = progressCoverage(progress, hw::CenterCount, i);
+                RgbwColor color = scaled(temperatureColor(bedPercent), bedCoverage ? 70U : 4U);
+                if (printCoverage) color = blend(color, filament, static_cast<uint8_t>(printCoverage * 3U / 5U));
+                setSection(LedSection::Center, i, color);
+            }
+            setSection(LedSection::Center, marker, scaled(amber, 225U));
+            break;
+        }
+        case PauseAnimation::SoftAttention: {
+            const uint32_t cycle = now % 5200U;
+            uint8_t attention = 20U;
+            if (cycle < 650U) attention = static_cast<uint8_t>(20U + wave8(static_cast<uint8_t>(cycle * 255U / 650U)) * 155U / 255U);
+            fillSection(LedSection::Left, scaled(amber, attention));
+            fillSection(LedSection::Right, scaled(amber, attention));
+            frozenProgress(filament, 34U, 2U, static_cast<uint8_t>(80U + attention / 2U));
+            break;
+        }
+        case PauseAnimation::OperatorWait: {
+            const uint32_t cycle = now % 2600U;
+            const bool prompt = cycle < 650U || (cycle >= 900U && cycle < 1550U);
+            fillSection(LedSection::Left, scaled(amber, prompt ? 84U : 16U));
+            fillSection(LedSection::Right, scaled(amber, prompt ? 84U : 16U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const bool bracket = i < 3U || i >= hw::CenterCount - 3U;
+                const bool progressPixel = i < lit;
+                const uint8_t value = bracket ? (prompt ? 205U : 48U) : (progressPixel ? 42U : 3U);
+                setSection(LedSection::Center, i, scaled(bracket ? amber : filament, value));
+            }
+            break;
+        }
+        case PauseAnimation::FrozenLayer: {
+            fillSection(LedSection::Left, scaled(cool, 12U));
+            fillSection(LedSection::Right, scaled(cool, 12U));
+            for (uint16_t i = 0; i < hw::LeftCount; i += 3U) {
+                const uint8_t shimmer = static_cast<uint8_t>(35U + wave8(now / 82U + i * 21U) / 5U);
+                setSection(LedSection::Left, i, scaled(cool, shimmer));
+                setSection(LedSection::Right, hw::RightCount - 1U - i, scaled(cool, shimmer));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                const uint8_t facet = hash8(i * 91U);
+                const uint8_t value = coverage
+                    ? static_cast<uint8_t>(48U + facet / 8U)
+                    : 3U;
+                setSection(LedSection::Center, i, scaled(cool, value));
+            }
+            setSection(LedSection::Center, marker, scaled(RgbwColor(225U, 248U, 255U), 215U));
+            break;
+        }
+        case PauseAnimation::FilamentHold: {
+            frozenProgress(filament, 70U, 2U, 205U);
+            const uint16_t head = static_cast<uint16_t>((now / 125U) % hw::OuterCount);
+            for (uint8_t tail = 0; tail < 8U; ++tail) {
+                const uint16_t path = (head + hw::OuterCount - tail) % hw::OuterCount;
+                setOuterVisualPathPixel(path, scaled(filament, static_cast<uint8_t>(210U - tail * 24U)));
+            }
+            setSection(LedSection::Center, marker, scaled(amber, 205U));
+            break;
+        }
+        case PauseAnimation::DoNotTouch: {
+            const uint32_t cycle = now % 2100U;
+            const bool warning = cycle < 115U || (cycle >= 235U && cycle < 350U);
+            const RgbwColor warningColor = decorativeHsv(LedCategory::Pause, 5U, 255U, 255U);
+            fillSection(LedSection::Left, scaled(warningColor, warning ? 240U : 24U));
+            fillSection(LedSection::Right, scaled(warningColor, warning ? 240U : 24U));
+            frozenProgress(amber, 50U, 3U, warning ? 230U : 105U);
+            break;
+        }
+        case PauseAnimation::HeatHoldSplit: {
+            const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 68U);
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 35U);
+            const RgbwColor toolColor = temperatureColor(toolPercent);
+            const RgbwColor chamberColor = temperatureColor(chamberPercent);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t amount = static_cast<uint8_t>(i * 255U / (hw::LeftCount - 1U));
+                setSection(LedSection::Left, i, scaled(blend(chamberColor, toolColor, amount), 105U));
+                setSection(LedSection::Right, i, scaled(blend(toolColor, chamberColor, amount), 105U));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t amount = static_cast<uint8_t>(i * 255U / (hw::CenterCount - 1U));
+                const RgbwColor heat = blend(chamberColor, toolColor, amount);
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                setSection(LedSection::Center, i, scaled(heat, coverage ? 130U : 24U));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 220U));
             break;
         }
         case PauseAnimation::Count:
