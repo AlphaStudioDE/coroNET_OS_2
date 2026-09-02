@@ -148,6 +148,16 @@ enum class ErrorAnimation : uint8_t {
     BreachScan,
     FaultSparks,
     RedJuggle,
+    Evacuate,
+    CauseHint,
+    StackLight,
+    SmartHeartbeat,
+    LocationSplit,
+    BlackoutFlash,
+    RecoveryWait,
+    SirenScan,
+    DiagnosticBits,
+    ServiceBeacon,
     Count,
 };
 
