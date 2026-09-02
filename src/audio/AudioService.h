@@ -28,6 +28,8 @@ public:
     bool refreshFileIndex();
     uint8_t fileCount() const { return fileCount_; }
     const char* filePath(uint8_t index) const;
+    bool bootAudioActive() const { return bootAudioActive_; }
+    uint32_t playbackStartedMs() const { return playbackStartedMs_; }
     void logStatus() const;
 
 private:
@@ -50,8 +52,8 @@ private:
     static constexpr uint16_t Coronet1DmaBufferCount = 48;
     static constexpr uint32_t TaskStackBytes = 4096;
     static constexpr UBaseType_t TaskPriority = 7;
+    static constexpr UBaseType_t BootTaskPriority = 20;
     static constexpr BaseType_t TaskCore = 0;
-    static constexpr uint32_t BootVisualDurationMs = 35000;
     static constexpr uint8_t MaxIndexedFiles = 64;
 
     static void taskEntry(void* context);

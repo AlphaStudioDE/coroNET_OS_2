@@ -20,17 +20,17 @@ public:
 
 private:
     static constexpr uint32_t FrameIntervalMs = 30;
-    static constexpr uint32_t BootDurationMs = 35000;
     static constexpr uint32_t SpiClockHz = 3200000;
     static constexpr uint32_t TaskStackBytes = 5120;
     static constexpr UBaseType_t TaskPriority = 8;
+    static constexpr UBaseType_t BootTaskPriority = 19;
     static constexpr BaseType_t TaskCore = 1;
 
     static void taskEntry(void* context);
     void taskLoop();
     bool allocateBuffers();
     void render(uint32_t now);
-    void renderBoot(uint32_t elapsedMs);
+    void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted);
     void renderCategory(LedCategory category, uint8_t animation, uint32_t now,
                         uint8_t progress, float chamberTempC, uint32_t filamentRgb);
     void renderIdle(uint8_t animation, uint32_t now);
@@ -66,7 +66,6 @@ private:
     portMUX_TYPE outputMux_ = portMUX_INITIALIZER_UNLOCKED;
     bool started_ = false;
     bool bootActive_ = false;
-    uint32_t bootStartedMs_ = 0;
     bool previewActive_ = false;
     bool frameMirror_ = false;
     LedCategory previewCategory_ = LedCategory::Idle;
@@ -75,6 +74,7 @@ private:
     uint32_t lastFrameMs_ = 0;
     uint32_t shows_ = 0;
     uint32_t skippedShows_ = 0;
+    UBaseType_t appliedTaskPriority_ = TaskPriority;
 };
 
 LedService& ledService();

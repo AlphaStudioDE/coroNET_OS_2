@@ -4,6 +4,7 @@
 #include <esp_heap_caps.h>
 
 #include "../config/HardwareConfig.h"
+#include "../boot/BootExperience.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
 
@@ -104,14 +105,6 @@ void AudioService::begin() {
     Serial.println("[audio] ready; I2S interrupt and WAV playback run on Core 0");
     logStatus();
 
-    if (storageReady_ && SD_MMC.exists("/boot.wav")) {
-        uint16_t volumeSum = 0;
-        const AppSettings& settings = settingsService().settings();
-        for (uint8_t i = 0; i < enumCount(SoundScenario{}); ++i) volumeSum += settings.soundVolume[i];
-        const uint8_t bootVolume = static_cast<uint8_t>(
-            (volumeSum + enumCount(SoundScenario{}) / 2U) / enumCount(SoundScenario{}));
-        playFile("/boot.wav", bootVolume, false, SoundScenario::Start, true);
-    }
 }
 
 void AudioService::loop() {
@@ -368,6 +361,7 @@ void AudioService::taskLoop() {
         closeWav();
         playing_ = false;
         bootAudioActive_ = false;
+        vTaskPrioritySet(nullptr, TaskPriority);
         state().audioPlaying = false;
         state().activeSoundPath[0] = '\0';
         primeSilence();
@@ -379,6 +373,7 @@ void AudioService::taskLoop() {
         playbackStartedMs_ = millis();
         playing_ = true;
         bootAudioActive_ = bootAudio;
+        vTaskPrioritySet(nullptr, bootAudio ? BootTaskPriority : TaskPriority);
         state().audioPlaying = true;
         state().activeSoundScenario = scenario;
 
@@ -620,6 +615,7 @@ void AudioService::finishPlayback(bool naturalEnd) {
     primeSilence();
     playing_ = false;
     bootAudioActive_ = false;
+    vTaskPrioritySet(nullptr, TaskPriority);
     state().audioPlaying = false;
     state().activeSoundPath[0] = '\0';
     if (!naturalEnd) Serial.println("[audio] playback stopped or failed");
@@ -640,9 +636,8 @@ bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) co
 }
 
 void AudioService::processPrinterSoundEvents() {
-    const uint32_t now = millis();
     const SystemState& system = state();
-    if (now - state().bootMs < BootVisualDurationMs || bootAudioActive_) {
+    if (bootExperience().active() || bootAudioActive_) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
         return;
     }

@@ -3,6 +3,7 @@
 
 #include "audio/AudioService.h"
 #include "ble/BleService.h"
+#include "boot/BootExperience.h"
 #include "companion/PairingService.h"
 #include "config/AppConfig.h"
 #include "core/MemoryService.h"
@@ -290,6 +291,7 @@ void setup() {
     systemHealth.checkpoint("memory");
     coronet::settingsService().begin();
     coronet::quietService().begin();
+    coronet::bootExperience().begin(coronet::settingsService().settings().setupDone);
     setBootStage(BootStage::Settings);
     systemHealth.checkpoint("settings");
     systemHealth.begin();
@@ -322,17 +324,23 @@ void setup() {
     systemHealth.checkpoint("ble");
     coronet::otaService().begin();
     setBootStage(BootStage::Ota);
+    coronet::bootExperience().systemReady();
     setBootStage(BootStage::Running);
 }
 
 void loop() {
-    processSerialConsole();
-    systemHealth.loop();
+    coronet::bootExperience().loop();
     coronet::settingsService().loop();
-    coronet::quietService().loop();
     displayService.loop();
     coronet::ledService().loop();
     coronet::audioService().loop();
+    if (coronet::bootExperience().protectsFirstImpression()) {
+        delay(2);
+        return;
+    }
+    processSerialConsole();
+    systemHealth.loop();
+    coronet::quietService().loop();
     coronet::wifiService().loop();
     coronet::printerService().loop();
     coronet::ventService().loop();

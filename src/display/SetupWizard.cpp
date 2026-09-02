@@ -150,14 +150,15 @@ void normalizePrinterHost(const char* input, char* output, size_t outputSize, ui
 
 }
 
-void SetupWizard::begin() {
+void SetupWizard::begin(bool animate) {
     reset();
     gActiveSetupWizard = this;
     step_ = Step::Welcome;
     finished_ = false;
     buildRoot();
     renderStep();
-    lv_scr_load_anim(root_, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    lv_scr_load_anim(root_, animate ? LV_SCR_LOAD_ANIM_FADE_ON : LV_SCR_LOAD_ANIM_NONE,
+                     animate ? 550 : 0, 0, true);
 }
 
 void SetupWizard::loop() {

@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "../config/AppConfig.h"
+#include "../boot/BootExperience.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
 #include "../bsp/display.h"
@@ -45,12 +46,8 @@ void DisplayService::begin() {
 
     if (bsp_display_lock(kLvglLockTimeoutMs)) {
         state().setupDone = settingsService().settings().setupDone;
-        if (settingsService().settings().setupDone) {
-            showPage(ui::Page::Home);
-        } else {
-            setupWizard_.begin();
-            wizardActive_ = true;
-        }
+        bootScreen_.begin();
+        bootActive_ = true;
         bsp_display_unlock();
     } else {
         Serial.println("DisplayService warning: LVGL lock timeout while building boot screen");
@@ -71,6 +68,24 @@ void DisplayService::loop() {
     const uint32_t now = millis();
     updateTimeService(now);
     updateTheme();
+    if (bootActive_) {
+        if (now - lastUiUpdateMs_ < 30U) return;
+        lastUiUpdateMs_ = now;
+        if (bsp_display_lock(5)) {
+            bootScreen_.update();
+            if (!bootExperience().active()) {
+                bootActive_ = false;
+                if (settingsService().settings().setupDone) {
+                    showPage(ui::Page::Home, true);
+                } else {
+                    setupWizard_.begin(true);
+                    wizardActive_ = true;
+                }
+            }
+            bsp_display_unlock();
+        }
+        return;
+    }
     updateScreenSaver(now);
     const uint8_t requestedBrightness = settingsService().settings().displayBrightness;
     if (!screenSaverActive_ && requestedBrightness != appliedBrightness_) {
@@ -123,7 +138,7 @@ void DisplayService::updateTheme() {
                    settings.accentHueDegrees, daytime);
     const bool wasApplied = appliedThemeSignature_ != UINT32_MAX;
     appliedThemeSignature_ = signature;
-    if (!started_ || !wasApplied || wizardActive_ || state().displaySleeping) return;
+    if (!started_ || !wasApplied || bootActive_ || wizardActive_ || state().displaySleeping) return;
     if (bsp_display_lock(100)) {
         if (screenSaverActive_ && screenSaverClock_) clockScreen_.begin(settings.clockStyle);
         else if (!screenSaverActive_) showPage(activePage_, false);
@@ -219,7 +234,7 @@ void DisplayService::leaveScreenSaver(bool rebuildPage) {
 }
 
 void DisplayService::requestPage(ui::Page page) {
-    if (page >= ui::Page::Count) return;
+    if (page >= ui::Page::Count || bootActive_) return;
     requestedPage_ = page;
     pageRequestPending_ = true;
 }

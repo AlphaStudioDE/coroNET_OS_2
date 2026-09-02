@@ -5,6 +5,7 @@
 #include "HomeScreen.h"
 #include "ControlScreen.h"
 #include "ClockScreen.h"
+#include "BootScreen.h"
 #include "SettingsScreen.h"
 #include "SetupWizard.h"
 
@@ -31,6 +32,7 @@ private:
     HomeScreen homeScreen_;
     ControlScreen controlScreen_;
     ClockScreen clockScreen_;
+    BootScreen bootScreen_;
     SettingsScreen settingsScreen_;
     SetupWizard setupWizard_;
     ui::Page activePage_ = ui::Page::Home;
@@ -38,6 +40,7 @@ private:
     bool pageRequestPending_ = false;
     bool started_ = false;
     bool wizardActive_ = false;
+    bool bootActive_ = false;
     bool screenSaverActive_ = false;
     bool screenSaverClock_ = false;
     uint32_t observedPrinterEventSequence_ = 0;

@@ -11,7 +11,7 @@ namespace coronet {
 
 class SetupWizard {
 public:
-    void begin();
+    void begin(bool animate = false);
     void loop();
     void reset();
     bool finished() const { return finished_; }

@@ -3,6 +3,7 @@
 #include <esp_heap_caps.h>
 
 #include "../config/HardwareConfig.h"
+#include "../boot/BootExperience.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
 
@@ -217,8 +218,7 @@ void LedService::begin() {
         return;
     }
 
-    bootStartedMs_ = millis();
-    bootActive_ = true;
+    bootActive_ = bootExperience().active();
     started_ = true;
     state().ledReady = true;
     Serial.printf("[led] ready SPI=%luHz frame=%lums buffers: psram=%uB internal=%uB\n",
@@ -275,6 +275,12 @@ void LedService::taskLoop() {
     const TickType_t interval = pdMS_TO_TICKS(FrameIntervalMs);
     for (;;) {
         const uint32_t now = millis();
+        const UBaseType_t desiredPriority = bootExperience().active()
+            ? BootTaskPriority : TaskPriority;
+        if (desiredPriority != appliedTaskPriority_) {
+            vTaskPrioritySet(nullptr, desiredPriority);
+            appliedTaskPriority_ = desiredPriority;
+        }
         render(now);
         ++state().ledFrameCount;
         lastFrameMs_ = now;
@@ -304,11 +310,12 @@ void LedService::render(uint32_t now) {
         return;
     }
 
-    const uint32_t bootElapsed = now - bootStartedMs_;
-    if (bootActive_ && bootElapsed < BootDurationMs) {
-        renderBoot(bootElapsed);
+    bootActive_ = bootExperience().active();
+    const uint32_t bootElapsed = bootExperience().timelineMs();
+    if (bootActive_) {
+        renderBoot(bootExperience().performanceStarted() ? bootElapsed : bootExperience().preludeMs(),
+                   bootExperience().full(), bootExperience().performanceStarted());
     } else {
-        bootActive_ = false;
         const bool preview = previewActive_ && static_cast<int32_t>(previewUntilMs_ - now) > 0;
         const LedCategory category = preview ? previewCategory_
                                              : (settings.ledOtherMode ? LedCategory::Other
@@ -323,71 +330,106 @@ void LedService::render(uint32_t now) {
     }
 
     applyOutputPolicies();
-    smoothAndShow(bootElapsed < 300U);
+    smoothAndShow(bootActive_ && bootElapsed < 300U);
 }
 
-void LedService::renderBoot(uint32_t elapsedMs) {
-    const uint8_t timeHue = static_cast<uint8_t>(elapsedMs / 20U);
-    if (elapsedMs < 7000U) {
-        const uint8_t reveal = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 7000U));
-        const uint8_t breath = static_cast<uint8_t>(24U + wave8(static_cast<uint8_t>(elapsedMs / 18U)) / 3U);
+void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted) {
+    if (!performanceStarted) {
+        const uint8_t breath = static_cast<uint8_t>(10U + wave8(static_cast<uint8_t>(elapsedMs / 20U)) / 5U);
         for (uint16_t i = 0; i < hw::InsideCount; ++i) {
-            const uint8_t hue = static_cast<uint8_t>(timeHue + i * 13U);
-            setSection(LedSection::Inside, i, hsv(hue, 245, static_cast<uint8_t>((breath * reveal) / 255U)));
+            const uint16_t distance = i > hw::InsideCount / 2U ? i - hw::InsideCount / 2U
+                                                               : hw::InsideCount / 2U - i;
+            const uint8_t value = distance < 5U ? static_cast<uint8_t>(breath * (6U - distance) / 6U) : 0U;
+            setSection(LedSection::Inside, i, hsv(126U, 235U, value));
         }
-        const uint16_t scanner = static_cast<uint16_t>((elapsedMs / 120U) % hw::OuterCount);
+        return;
+    }
+
+    if (!full) {
+        const uint8_t reveal = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 850U));
+        const uint8_t handoff = elapsedMs > 1850U
+            ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsedMs - 1850U) * 255U / 750U)) : 0U;
+        RgbwColor signature[hw::LedCount] = {};
+        for (uint16_t i = 0; i < hw::InsideCount; ++i) {
+            const uint16_t distance = i > hw::InsideCount / 2U ? i - hw::InsideCount / 2U
+                                                               : hw::InsideCount / 2U - i;
+            const uint8_t value = distance * 24U < reveal ? static_cast<uint8_t>(180U - min<uint16_t>(150U, distance * 18U)) : 0U;
+            signature[sectionPhysicalIndex(LedSection::Inside, i)] = hsv(126U, 220U, value);
+        }
         for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-            const uint16_t distance = path > scanner ? path - scanner : scanner - path;
-            if (distance > 3U) continue;
-            const uint8_t value = static_cast<uint8_t>((4U - distance) * reveal / 5U);
-            const uint8_t hueOffset = path < hw::LeftCount ? 0U
-                                      : path < hw::LeftCount + hw::CenterCount ? 24U : 48U;
-            setOuterVisualPathPixel(path, hsv(timeHue + hueOffset, 250, value));
-        }
-        return;
-    }
-
-    if (elapsedMs < 15000U) {
-        const uint32_t local = elapsedMs - 7000U;
-        for (uint8_t sectionIndex = 0; sectionIndex < 4U; ++sectionIndex) {
-            const LedSection section = VisualAllSections[sectionIndex];
-            const uint16_t count = sectionCount(section);
-            for (uint16_t i = 0; i < count; ++i) {
-                const uint8_t phase = static_cast<uint8_t>(local / 13U + i * 18U + sectionIndex * 29U);
-                const uint8_t hue = static_cast<uint8_t>(timeHue + i * 9U + sectionIndex * 34U);
-                const uint8_t value = static_cast<uint8_t>(35U + wave8(phase) * 170U / 255U);
-                setSection(section, i, hsv(hue, 245, value));
+            const uint16_t distance = path > hw::OuterCount / 2U ? path - hw::OuterCount / 2U
+                                                                 : hw::OuterCount / 2U - path;
+            if (distance * 12U <= reveal) {
+                const uint8_t hue = static_cast<uint8_t>(118U + path * 2U);
+                RgbwColor color = hsv(hue, 230U, static_cast<uint8_t>(80U + reveal / 2U));
+                if (path < hw::LeftCount) signature[sectionPhysicalIndex(LedSection::Left, path)] = color;
+                else if (path < hw::LeftCount + hw::CenterCount) signature[sectionPhysicalIndex(LedSection::Center, path - hw::LeftCount)] = color;
+                else signature[sectionPhysicalIndex(LedSection::Right, hw::RightCount - 1U - (path - hw::LeftCount - hw::CenterCount))] = color;
             }
         }
-        return;
-    }
-
-    if (elapsedMs < 30000U) {
-        const uint32_t local = elapsedMs - 15000U;
-        for (uint8_t sectionIndex = 0; sectionIndex < 4U; ++sectionIndex) {
-            const LedSection section = VisualAllSections[sectionIndex];
-            const uint16_t count = sectionCount(section);
-            for (uint16_t i = 0; i < count; ++i) {
-                const uint8_t hue = static_cast<uint8_t>(i * 256U / count + local / 15U + sectionIndex * 21U);
-                const uint8_t wave = wave8(static_cast<uint8_t>(local / 9U + i * 22U));
-                setSection(section, i, hsv(hue, 235, static_cast<uint8_t>(90U + wave * 165U / 255U)));
-            }
+        if (handoff) {
+            const SystemState& system = state();
+            const AppSettings& settings = settingsService().settings();
+            const LedCategory category = settings.ledOtherMode
+                ? LedCategory::Other : categoryForState(system);
+            renderCategory(category,
+                           settings.ledAnimation[static_cast<uint8_t>(category)],
+                           millis(), system.printProgress, system.chamberTempC, system.filamentColorRgb);
+            applyInsidePolicy();
+        }
+        for (uint16_t i = 0; i < hw::LedCount; ++i) {
+            targetFrame_[i] = handoff ? blend(signature[i], targetFrame_[i], handoff) : signature[i];
         }
         return;
     }
 
-    const uint8_t handoff = static_cast<uint8_t>(min<uint32_t>(255U, (elapsedMs - 30000U) * 255U / 5000U));
-    RgbwColor bootFrame[hw::LedCount] = {};
-    for (uint16_t i = 0; i < hw::LedCount; ++i) {
-        const uint8_t hue = static_cast<uint8_t>(i * 7U + elapsedMs / 18U);
-        bootFrame[i] = hsv(hue, 220, static_cast<uint8_t>(150U + wave8(hue) / 3U));
+    const uint8_t coreBreath = static_cast<uint8_t>(34U + wave8(static_cast<uint8_t>(elapsedMs / 17U)) * 126U / 255U);
+    const uint8_t evolvingHue = static_cast<uint8_t>(elapsedMs / 14U);
+    const uint8_t intro = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 4500U));
+    const bool spectrumOpen = elapsedMs >= 11800U;
+    const bool contraction = elapsedMs >= 20500U && elapsedMs < 22000U;
+    const bool climax = elapsedMs >= 22000U && elapsedMs < 30500U;
+
+    for (uint16_t i = 0; i < hw::InsideCount; ++i) {
+        const uint8_t position = static_cast<uint8_t>(i * 255U / (hw::InsideCount - 1U));
+        const uint8_t hue = spectrumOpen
+            ? static_cast<uint8_t>(evolvingHue + position)
+            : static_cast<uint8_t>(182U + elapsedMs / 95U + position / 5U);
+        uint8_t value = static_cast<uint8_t>((coreBreath * intro) / 255U);
+        if (climax) value = static_cast<uint8_t>(120U + wave8(static_cast<uint8_t>(elapsedMs / 7U + position)) / 2U);
+        if (contraction) value = static_cast<uint8_t>(value * 3U / 5U);
+        setSection(LedSection::Inside, i, hsv(hue, spectrumOpen ? 235U : 225U, value));
     }
-    const SystemState& system = state();
-    renderCategory(categoryForState(system),
-                   settingsService().settings().ledAnimation[static_cast<uint8_t>(categoryForState(system))],
-                   millis(), system.printProgress, system.chamberTempC, system.filamentColorRgb);
-    applyInsidePolicy();
-    for (uint16_t i = 0; i < hw::LedCount; ++i) targetFrame_[i] = blend(bootFrame[i], targetFrame_[i], handoff);
+
+    for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+        const uint8_t position = static_cast<uint8_t>(path * 255U / (hw::OuterCount - 1U));
+        const uint8_t resonance = wave8(static_cast<uint8_t>(elapsedMs / 13U + position * 2U));
+        const uint8_t orbit = wave8(static_cast<uint8_t>(elapsedMs / 6U - position));
+        uint8_t hue = spectrumOpen
+            ? static_cast<uint8_t>(evolvingHue + position)
+            : static_cast<uint8_t>(190U + elapsedMs / 82U + position / 8U);
+        uint8_t value = static_cast<uint8_t>(18U + resonance * 70U / 255U);
+        if (elapsedMs >= 4500U) value = static_cast<uint8_t>(value + orbit * 70U / 255U);
+        if (climax) value = static_cast<uint8_t>(110U + resonance * 90U / 255U + orbit * 50U / 255U);
+        value = static_cast<uint8_t>(min<uint16_t>(255U, static_cast<uint16_t>(value) * intro / 255U));
+        if (contraction) value = static_cast<uint8_t>(value * 2U / 5U);
+        setOuterVisualPathPixel(path, hsv(hue, spectrumOpen ? 245U : 230U, value));
+    }
+
+    if (elapsedMs >= 30600U) {
+        const uint8_t handoff = static_cast<uint8_t>(min<uint32_t>(255U, (elapsedMs - 30600U) * 255U / 4400U));
+        RgbwColor signature[hw::LedCount];
+        memcpy(signature, targetFrame_, sizeof(signature));
+        const SystemState& system = state();
+        const AppSettings& settings = settingsService().settings();
+        const LedCategory category = settings.ledOtherMode
+            ? LedCategory::Other : categoryForState(system);
+        renderCategory(category,
+                       settings.ledAnimation[static_cast<uint8_t>(category)],
+                       millis(), system.printProgress, system.chamberTempC, system.filamentColorRgb);
+        applyInsidePolicy();
+        for (uint16_t i = 0; i < hw::LedCount; ++i) targetFrame_[i] = blend(signature[i], targetFrame_[i], handoff);
+    }
 }
 
 void LedService::renderCategory(LedCategory category, uint8_t animation, uint32_t now,
@@ -636,8 +678,23 @@ void LedService::applyOutputPolicies() {
             brightnessSum += settings.ledBrightness[index];
         }
         const uint8_t average = static_cast<uint8_t>((brightnessSum + 2U) / enumCount(LedSection{}));
-        const uint8_t scaleValue = static_cast<uint8_t>(static_cast<uint16_t>(average) * 255U / 100U);
-        for (uint16_t i = 0; i < hw::LedCount; ++i) targetFrame_[i] = scaled(targetFrame_[i], scaleValue);
+        const uint32_t elapsed = bootExperience().timelineMs();
+        const uint8_t handoff = bootExperience().full()
+            ? (elapsed > 30600U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 30600U) * 255U / 4400U)) : 0U)
+            : (elapsed > 1850U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 1850U) * 255U / 750U)) : 0U);
+        for (uint8_t sectionIndex = 0; sectionIndex < enumCount(LedSection{}); ++sectionIndex) {
+            const uint8_t sectionPercent = settings.ledBrightness[sectionIndex];
+            const uint8_t percent = static_cast<uint8_t>(
+                (static_cast<uint16_t>(average) * (255U - handoff) +
+                 static_cast<uint16_t>(sectionPercent) * handoff + 127U) / 255U);
+            const uint8_t scaleValue = static_cast<uint8_t>(static_cast<uint16_t>(percent) * 255U / 100U);
+            const LedSection section = static_cast<LedSection>(sectionIndex);
+            const uint16_t count = sectionCount(section);
+            for (uint16_t i = 0; i < count; ++i) {
+                const uint16_t physical = sectionPhysicalIndex(section, i);
+                targetFrame_[physical] = scaled(targetFrame_[physical], scaleValue);
+            }
+        }
         return;
     }
 
