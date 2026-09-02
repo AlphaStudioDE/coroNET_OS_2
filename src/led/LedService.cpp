@@ -136,6 +136,25 @@ RgbwColor blend(const RgbwColor& a, const RgbwColor& b, uint8_t amount) {
         static_cast<uint8_t>((static_cast<uint16_t>(a.w) * inverse + static_cast<uint16_t>(b.w) * amount + 127U) / 255U));
 }
 
+uint8_t approachChannel(uint8_t current, uint8_t target, uint8_t amount) {
+    if (current == target || amount == 255U) return target;
+
+    const uint8_t distance = current > target ? current - target : target - current;
+    const uint8_t step = max<uint8_t>(
+        1U, static_cast<uint8_t>((static_cast<uint16_t>(distance) * amount + 127U) / 255U));
+    if (current < target) {
+        return static_cast<uint8_t>(current + min<uint8_t>(distance, step));
+    }
+    return static_cast<uint8_t>(current - min<uint8_t>(distance, step));
+}
+
+RgbwColor approach(const RgbwColor& current, const RgbwColor& target, uint8_t amount) {
+    return RgbwColor(approachChannel(current.r, target.r, amount),
+                     approachChannel(current.g, target.g, amount),
+                     approachChannel(current.b, target.b, amount),
+                     approachChannel(current.w, target.w, amount));
+}
+
 RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
     return RgbwColor(
         static_cast<uint8_t>((static_cast<uint16_t>(color.r) * scale + 127U) / 255U),
@@ -646,7 +665,7 @@ bool LedService::smoothAndShow(bool immediate) {
     const uint8_t blendAmount = immediate ? 255U : 96U;
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
-        const RgbwColor next = blend(currentFrame_[i], targetFrame_[i], blendAmount);
+        const RgbwColor next = approach(currentFrame_[i], targetFrame_[i], blendAmount);
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;
