@@ -2,6 +2,13 @@
 
 ## 2026-09-02
 
+### Companion Settings Reliability
+
+- Fixed controls that could appear to work only once when a BLE settings snapshot was delayed or missed.
+- Added immediate local settings feedback so button labels, switches, and subsequent actions always use the latest selected value.
+- Added a delayed BLE settings reconciliation after edits without allowing an older response to undo a newer choice.
+- Serialized WiFi settings writes and guarded periodic refreshes against stale out-of-order responses.
+
 ### Printer Telemetry Contract
 
 - Added explicit telemetry validity plus independent telemetry, connection, and printer-event revisions.

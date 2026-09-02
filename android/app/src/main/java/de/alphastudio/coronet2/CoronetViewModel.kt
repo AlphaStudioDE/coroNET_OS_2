@@ -10,11 +10,17 @@ import de.alphastudio.coronet2.data.DeviceStore
 import de.alphastudio.coronet2.model.*
 import de.alphastudio.coronet2.transport.CoronetBleManager
 import de.alphastudio.coronet2.transport.CoronetWifiClient
+import de.alphastudio.coronet2.transport.parseSettings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class CoronetViewModel(application: Application) : AndroidViewModel(application) {
     private val store = DeviceStore(application)
@@ -35,6 +41,11 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private var pendingPairingId: String? = null
     private var scanJob: Job? = null
     private var pollingJob: Job? = null
+    private var bleSettingsRefreshJob: Job? = null
+    private val settingsMutationMutex = Mutex()
+    private val settingsMutationRevision = AtomicLong(0)
+    private val pendingSettingsMutations = AtomicInteger(0)
+    @Volatile private var ignoreBleSettingsUntilMs = 0L
     private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings, ::onPairing, ::onEvent)
 
     init { createNotificationChannel(); select(_selectedId.value) }
@@ -66,7 +77,9 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     fun select(id: String?) {
         _selectedId.value = id
         scanJob?.cancel(); ble.stopScan(); _scanning.value = false
-        pollingJob?.cancel(); ble.disconnect()
+        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ble.disconnect()
+        settingsMutationRevision.incrementAndGet()
+        ignoreBleSettingsUntilMs = 0L
         val device = _devices.value.firstOrNull { it.id == id }
         _snapshot.value = DeviceSnapshot(device = device)
         _settings.value = DeviceSettings()
@@ -77,7 +90,12 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
                 while (isActive) {
                     onSnapshot(wifi.fetch(device))
                     if (settingsCountdown-- <= 0) {
-                        wifi.fetchSettings(device)?.let { _settings.value = it }
+                        val expectedRevision = settingsMutationRevision.get()
+                        val fetched = wifi.fetchSettings(device)
+                        if (fetched != null && pendingSettingsMutations.get() == 0 &&
+                            settingsMutationRevision.get() == expectedRevision) {
+                            _settings.value = fetched
+                        }
                         settingsCountdown = 1
                     }
                     delay(1500)
@@ -101,16 +119,40 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
 
     fun sendSettings(json: String) {
         val device = _snapshot.value.device ?: return
-        if (_snapshot.value.connection == ConnectionKind.Wifi) {
-            viewModelScope.launch(Dispatchers.IO) {
-                if (wifi.post(device, "/api/settings", json)) {
-                    wifi.fetchSettings(device)?.let { _settings.value = it }
+        val patch = runCatching { JSONObject(json) }.getOrNull() ?: return
+        when (_snapshot.value.connection) {
+            ConnectionKind.Wifi -> {
+                val revision = settingsMutationRevision.incrementAndGet()
+                pendingSettingsMutations.incrementAndGet()
+                _settings.update { parseSettings(patch, it) }
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        settingsMutationMutex.withLock {
+                            wifi.post(device, "/api/settings", json)
+                            val confirmed = wifi.fetchSettings(device)
+                            if (confirmed != null && settingsMutationRevision.get() == revision) {
+                                _settings.value = confirmed
+                            }
+                        }
+                    } finally {
+                        pendingSettingsMutations.decrementAndGet()
+                    }
                 }
             }
-        } else {
-            val patch = JSONObject(json)
-            patch.put("cmd", "setSettings")
-            ble.send(patch.toString())
+            ConnectionKind.Ble -> {
+                patch.put("cmd", "setSettings")
+                if (ble.send(patch.toString())) {
+                    settingsMutationRevision.incrementAndGet()
+                    _settings.update { parseSettings(patch, it) }
+                    ignoreBleSettingsUntilMs = android.os.SystemClock.elapsedRealtime() + 350L
+                    bleSettingsRefreshJob?.cancel()
+                    bleSettingsRefreshJob = viewModelScope.launch {
+                        delay(500)
+                        requestBleSettings()
+                    }
+                }
+            }
+            ConnectionKind.Offline -> Unit
         }
     }
 
@@ -135,7 +177,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun onBleSettings(json: JSONObject) {
-        _settings.value = de.alphastudio.coronet2.transport.parseSettings(json, _settings.value)
+        if (android.os.SystemClock.elapsedRealtime() < ignoreBleSettingsUntilMs) return
+        _settings.update { parseSettings(json, it) }
     }
 
     private fun onPairing(id: String, token: String): Boolean = runCatching {
@@ -177,6 +220,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     override fun onCleared() {
         scanJob?.cancel()
         pollingJob?.cancel()
+        bleSettingsRefreshJob?.cancel()
         ble.disconnect()
         super.onCleared()
     }
