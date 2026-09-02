@@ -25,6 +25,9 @@ constexpr uint32_t FeatureStartMs = 7000U;
 constexpr uint32_t FeatureSlotMs = 3000U;
 constexpr uint32_t FeatureFadeInMs = 480U;
 constexpr uint32_t FeatureFadeOutMs = 620U;
+constexpr uint32_t LogoSpectrumStartMs = 5400U;
+constexpr uint32_t LogoSpectrumBlendMs = 900U;
+constexpr uint16_t LogoSpectrumBaseHue = 174U;
 
 uint8_t ramp(uint32_t elapsed, uint32_t start, uint32_t duration) {
     if (elapsed <= start) return 0;
@@ -176,21 +179,27 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     const uint8_t pulse = triangle(elapsedMs, 1680U);
 
     uint32_t color = 0x27D3C2;
-    if (elapsedMs >= 11800U && elapsedMs < 30500U) {
-        const uint16_t hue = static_cast<uint16_t>(((elapsedMs - 11800U) / 13U) % 360U);
+    if (elapsedMs >= LogoSpectrumStartMs && elapsedMs < 30500U) {
+        const uint16_t hue = static_cast<uint16_t>(
+            (LogoSpectrumBaseHue + (elapsedMs - LogoSpectrumStartMs) / 13U) % 360U);
         const lv_color_t spectrum = lv_color_hsv_to_rgb(hue, 86, 96);
-        color = lv_color_to32(spectrum);
+        const uint8_t spectrumBlend = ramp(elapsedMs, LogoSpectrumStartMs, LogoSpectrumBlendMs);
+        color = blendRgb(0x27D3C2U, lv_color_to32(spectrum) & 0xFFFFFFU, spectrumBlend);
     } else if (elapsedMs >= 30500U) {
         const uint8_t settle = ramp(elapsedMs, 30500U, 2100U);
-        const uint16_t finalSpectrumHue = static_cast<uint16_t>(((30500U - 11800U) / 13U) % 360U);
+        const uint16_t finalSpectrumHue = static_cast<uint16_t>(
+            (LogoSpectrumBaseHue + (30500U - LogoSpectrumStartMs) / 13U) % 360U);
         const uint32_t finalSpectrum = lv_color_to32(
             lv_color_hsv_to_rgb(finalSpectrumHue, 86, 96)) & 0xFFFFFFU;
         color = blendRgb(finalSpectrum, 0x27D3C2U, settle);
     }
 
     setLogoColor(color);
-    setOpacity(static_cast<uint8_t>(20U + coronaReveal * 235U / 255U),
-               wordReveal, detailReveal);
+    const uint8_t logoOpacity = static_cast<uint8_t>(20U + coronaReveal * 235U / 255U);
+    setOpacity(logoOpacity, wordReveal, detailReveal);
+    const uint8_t arcBreath = static_cast<uint8_t>(222U + static_cast<uint16_t>(pulse) * 33U / 255U);
+    lv_obj_set_style_arc_opa(arc_,
+        static_cast<uint8_t>(static_cast<uint16_t>(logoOpacity) * arcBreath / 255U), LV_PART_MAIN);
     lv_arc_set_bg_angles(arc_, 44,
         static_cast<uint16_t>(46U + static_cast<uint32_t>(coronaReveal) * 270U / 255U));
     lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
@@ -202,14 +211,10 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     lv_obj_set_style_bg_opa(glowLine_,
         static_cast<uint8_t>(detailReveal / 5U), LV_PART_MAIN);
 
-    // Once the horizon reaches the endpoint it remains mechanically locked.
-    // The pre-climax contraction belongs to the light show, not the logo geometry.
+    // Keep the completed logo geometry fixed; later energy comes from light only.
     if (elapsedMs >= 22000U && elapsedMs < 30000U) {
         const uint8_t climax = triangle(elapsedMs - 22000U, 840U);
-        lv_obj_set_style_arc_width(arc_, static_cast<lv_coord_t>(13U + climax / 64U), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(55U + climax / 3U), LV_PART_MAIN);
-    } else {
-        lv_obj_set_style_arc_width(arc_, 13, LV_PART_MAIN);
     }
 
     constexpr uint8_t FeatureCount = sizeof(BootFeatures) / sizeof(BootFeatures[0]);
