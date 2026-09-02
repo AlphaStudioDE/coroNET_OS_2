@@ -226,6 +226,16 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 | 8 | Lava | Two slow opposing flow fields form moving hot orange, red, and magenta molten regions. |
 | 9 | Gradient | A broad two-color gradient spans the complete outer path while both endpoint hues drift together. |
 | 10 | Plasma | Two faster interference fields drive both hue and brightness, creating a continuous energetic plasma surface. |
+| 11 | Section Breathe | Left, Center, and Right breathe in a slow three-phase amber sequence instead of changing together. |
+| 12 | Snow | Cool-white flakes descend independently through each physical section over a faint winter-blue field. |
+| 13 | Color Wipe | One saturated color fills the complete visual path pixel by pixel, holds, erases cleanly, and returns in a new hue. |
+| 14 | Moonlight | A broad pale-blue moon halo circles slowly over a subtly rippling low-light background. |
+| 15 | Tetris | Small discrete multicolor blocks of several lengths travel through the complete OUTER route with visible gaps. |
+| 16 | Running | A repeating two-pixel runner moves continuously around OUTER while its shared saturated hue changes slowly. |
+| 17 | Bubbles | Cool bubbles rise independently through both sides and produce small white-blue pops at the edges of Center. |
+| 18 | Drift | A broad low-saturation aurora ribbon drifts slowly through hue and brightness across the entire route. |
+| 19 | Candle | Independent warm amber flicker combines a slow flame envelope with bounded deterministic variation per LED. |
+| 20 | Starfield | Every LED behaves as an independently timed, low-intensity cool star, creating a continuously living sky rather than sparse flashes. |
 
 ## Finish
 

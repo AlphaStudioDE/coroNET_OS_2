@@ -17,6 +17,16 @@ enum class IdleAnimation : uint8_t {
     Lava,
     Gradient,
     Plasma,
+    SectionBreathe,
+    Snow,
+    ColorWipe,
+    Moonlight,
+    Tetris,
+    Running,
+    Bubbles,
+    Drift,
+    Candle,
+    Starfield,
     Count,
 };
 

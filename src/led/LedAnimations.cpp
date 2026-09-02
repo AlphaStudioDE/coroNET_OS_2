@@ -7,6 +7,8 @@ namespace {
 constexpr const char* IdleNames[] = {
     "Rainbow", "Fireplace", "Ocean", "Star Pulse", "Meteor",
     "Twinkle", "Larson", "Lava", "Gradient", "Plasma",
+    "Section Breathe", "Snow", "Color Wipe", "Moonlight", "Tetris",
+    "Running", "Bubbles", "Drift", "Candle", "Starfield",
 };
 
 constexpr const char* PrintNames[] = {

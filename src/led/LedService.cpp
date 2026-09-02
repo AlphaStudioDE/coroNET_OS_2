@@ -895,6 +895,168 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
             }
             break;
         }
+        case IdleAnimation::SectionBreathe: {
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint8_t breath = wave8(static_cast<uint8_t>(
+                    now / 58U + sectionIndex * 85U));
+                const uint8_t value = static_cast<uint8_t>(38U + breath * 125U / 255U);
+                const uint8_t hue = static_cast<uint8_t>(24U + sectionIndex * 13U);
+                fillSection(section,
+                    decorativeHsv(LedCategory::Idle, hue, 225U, value));
+            }
+            break;
+        }
+        case IdleAnimation::Snow: {
+            const RgbwColor winter = decorativeHsv(LedCategory::Idle, 158U, 75U, 15U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                fillSection(section, winter);
+                for (uint8_t flake = 0; flake < 4U; ++flake) {
+                    const uint16_t route = count + 5U;
+                    const uint16_t position = static_cast<uint16_t>((now / (145U + flake * 23U) +
+                        hash8(sectionIndex * 97U + flake * 61U)) % route);
+                    if (position >= count) continue;
+                    const uint8_t shimmer = static_cast<uint8_t>(175U +
+                        hash8(flake * 43U + sectionIndex * 211U) / 3U);
+                    setSection(section, position, RgbwColor(shimmer, shimmer, 255U));
+                }
+            }
+            break;
+        }
+        case IdleAnimation::ColorWipe: {
+            const uint32_t cycleLength = 2U * hw::OuterCount * 48U + 720U;
+            const uint32_t cycle = now % cycleLength;
+            const uint32_t travelLength = hw::OuterCount * 48U;
+            const uint8_t hue = static_cast<uint8_t>((now / cycleLength) * 47U);
+            uint16_t coverage = 0U;
+            bool reverse = false;
+            if (cycle < travelLength) {
+                coverage = static_cast<uint16_t>(cycle * hw::OuterCount * 255U / travelLength);
+            } else if (cycle < travelLength + 720U) {
+                coverage = hw::OuterCount * 255U;
+            } else {
+                reverse = true;
+                coverage = static_cast<uint16_t>((cycle - travelLength - 720U) *
+                    hw::OuterCount * 255U / travelLength);
+            }
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint32_t start = static_cast<uint32_t>(path) * 255U;
+                uint8_t amount = coverage <= start ? 0U
+                    : static_cast<uint8_t>(min<uint32_t>(255U, coverage - start));
+                if (reverse) amount = static_cast<uint8_t>(255U - amount);
+                if (amount) setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 245U, amount));
+            }
+            break;
+        }
+        case IdleAnimation::Moonlight: {
+            const uint16_t moon = static_cast<uint16_t>((now / 135U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t direct = path > moon ? path - moon : moon - path;
+                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
+                const uint8_t halo = distance < 9U
+                    ? static_cast<uint8_t>(150U - distance * 11U) : 44U;
+                const uint8_t ripple = wave8(static_cast<uint8_t>(now / 79U + path * 5U));
+                const uint8_t value = static_cast<uint8_t>(halo + ripple / 10U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, 164U, 72U, value));
+            }
+            break;
+        }
+        case IdleAnimation::Tetris: {
+            const uint32_t tick = now / 155U;
+            for (uint8_t block = 0; block < 7U; ++block) {
+                const uint16_t route = hw::OuterCount + 11U;
+                const uint16_t head = static_cast<uint16_t>((tick * (1U + block % 2U) +
+                    hash8(block * 91U)) % route);
+                if (head >= hw::OuterCount) continue;
+                const uint8_t length = static_cast<uint8_t>(2U + block % 3U);
+                const uint8_t hue = static_cast<uint8_t>(block * 39U +
+                    (tick / route) * 17U);
+                for (uint8_t part = 0; part < length; ++part) {
+                    if (head < part) continue;
+                    setOuterVisualPathPixel(head - part,
+                        decorativeHsv(LedCategory::Idle, hue, 245U,
+                            part == 0U ? 205U : 145U));
+                }
+            }
+            break;
+        }
+        case IdleAnimation::Running: {
+            const uint16_t shift = static_cast<uint16_t>(now / 72U);
+            const uint8_t hue = static_cast<uint8_t>(now / 42U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t lane = static_cast<uint8_t>((path + shift) % 6U);
+                const uint8_t value = lane < 2U ? 195U : lane == 2U ? 75U : 12U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 240U, value));
+            }
+            break;
+        }
+        case IdleAnimation::Bubbles: {
+            fillSection(LedSection::Center,
+                decorativeHsv(LedCategory::Idle, 150U, 180U, 14U));
+            constexpr LedSection sides[2] = {LedSection::Left, LedSection::Right};
+            for (uint8_t sideIndex = 0; sideIndex < 2U; ++sideIndex) {
+                const LedSection section = sides[sideIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint8_t bubble = 0; bubble < 5U; ++bubble) {
+                    const uint16_t route = count + 4U;
+                    const uint16_t position = static_cast<uint16_t>((now / (112U + bubble * 17U) +
+                        bubble * 3U + sideIndex * 2U) % route);
+                    if (position < count) {
+                        const uint8_t hue = static_cast<uint8_t>(143U + bubble * 15U);
+                        setSection(section, position,
+                            decorativeHsv(LedCategory::Idle, hue, 180U, 175U));
+                    } else if (position == count) {
+                        const uint16_t pop = sideIndex == 0U ? bubble * 4U % hw::CenterCount
+                            : hw::CenterCount - 1U - bubble * 4U % hw::CenterCount;
+                        setSection(LedSection::Center, pop, RgbwColor(180U, 225U, 255U));
+                    }
+                }
+            }
+            break;
+        }
+        case IdleAnimation::Drift: {
+            const uint8_t base = static_cast<uint8_t>(now / 105U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t ribbon = wave8(static_cast<uint8_t>(now / 91U + path * 8U));
+                const uint8_t hue = static_cast<uint8_t>(base + path * 4U + ribbon / 9U);
+                const uint8_t value = static_cast<uint8_t>(55U + ribbon * 95U / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 195U, value));
+            }
+            break;
+        }
+        case IdleAnimation::Candle: {
+            const uint32_t tick = now / 62U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t slow = wave8(static_cast<uint8_t>(now / 83U + path * 7U));
+                const uint8_t noise = hash8(tick * 73U + path * 101U);
+                const uint8_t value = static_cast<uint8_t>(75U + slow / 5U + noise / 4U);
+                const uint8_t hue = static_cast<uint8_t>(17U + noise / 24U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 250U, value));
+            }
+            break;
+        }
+        case IdleAnimation::Starfield: {
+            const uint8_t drift = static_cast<uint8_t>(now / 170U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t identity = hash8(path * 127U + 29U);
+                const uint8_t twinkle = wave8(static_cast<uint8_t>(
+                    now / (56U + identity % 59U) + identity + drift));
+                const uint8_t floor = static_cast<uint8_t>(identity / 12U);
+                const uint8_t value = static_cast<uint8_t>(floor + twinkle *
+                    (65U + identity / 2U) / 255U);
+                const uint8_t hue = static_cast<uint8_t>(150U + identity / 8U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, hue, 48U, value));
+            }
+            break;
+        }
         case IdleAnimation::Count:
         default:
             break;
