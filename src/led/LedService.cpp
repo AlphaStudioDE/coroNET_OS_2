@@ -2496,6 +2496,142 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             setSection(LedSection::Center, marker, scaled(filament, 145U));
             break;
         }
+        case PauseAnimation::SoftHold: {
+            const uint8_t breath = static_cast<uint8_t>(36U + wave8(now / 73U) / 7U);
+            fillSection(LedSection::Left, scaled(filament, breath));
+            fillSection(LedSection::Right, scaled(filament, breath));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > marker ? i - marker : marker - i;
+                const uint8_t value = distance < 5U
+                    ? static_cast<uint8_t>(95U - distance * 17U + wave8(now / 67U + distance * 23U) / 10U)
+                    : (i < lit ? 20U : 3U);
+                setSection(LedSection::Center, i, scaled(amber, value));
+            }
+            break;
+        }
+        case PauseAnimation::AmberTheater: {
+            const uint8_t step = static_cast<uint8_t>((now / 145U) % 6U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint16_t inward = i <= (count - 1U) / 2U ? i : count - 1U - i;
+                    const bool lamp = ((inward + step) % 6U) < 2U;
+                    setSection(section, i, scaled(amber, lamp ? 190U : 8U));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 230U));
+            break;
+        }
+        case PauseAnimation::BreathingDots: {
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    uint8_t value = 2U;
+                    if ((i + sectionIndex) % 4U == 0U) {
+                        value = static_cast<uint8_t>(20U + wave8(now / 49U + i * 29U + sectionIndex * 61U) / 2U);
+                    }
+                    setSection(section, i, scaled(amber, value));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 145U));
+            break;
+        }
+        case PauseAnimation::WaitingRipple: {
+            const uint16_t origin = static_cast<uint16_t>(hw::LeftCount + marker);
+            const uint16_t radius = static_cast<uint16_t>((now / 92U) % (hw::OuterCount / 2U + 7U));
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t direct = path > origin ? path - origin : origin - path;
+                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
+                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                const uint8_t value = delta < 4U ? static_cast<uint8_t>(185U - delta * 43U) : 4U;
+                setOuterVisualPathPixel(path, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 210U));
+            break;
+        }
+        case PauseAnimation::ParkingLights: {
+            const uint32_t cycle = now % 3000U;
+            const uint8_t signal = cycle < 110U || (cycle >= 230U && cycle < 340U) ? 225U : 48U;
+            fillSection(LedSection::Left, scaled(amber, 8U));
+            fillSection(LedSection::Right, scaled(amber, 8U));
+            setSection(LedSection::Left, 0U, scaled(amber, signal));
+            setSection(LedSection::Left, hw::LeftCount - 1U, scaled(amber, signal));
+            setSection(LedSection::Right, 0U, scaled(amber, signal));
+            setSection(LedSection::Right, hw::RightCount - 1U, scaled(amber, signal));
+            frozenProgress(filament, 35U, 2U, 115U);
+            break;
+        }
+        case PauseAnimation::DimSparks: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t seed = hash8(path * 127U + now / 125U);
+                uint8_t value = 3U;
+                if (seed > 244U) value = static_cast<uint8_t>(45U + (seed - 244U) * 10U);
+                setOuterVisualPathPixel(path, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 115U));
+            break;
+        }
+        case PauseAnimation::SlowScan: {
+            const uint32_t cycle = now % 6200U;
+            const uint32_t half = cycle < 3100U ? cycle : 6200U - cycle;
+            const uint16_t scan = static_cast<uint16_t>(half * (hw::CenterCount - 1U) / 3100U);
+            fillSection(LedSection::Left, scaled(filament, 32U));
+            fillSection(LedSection::Right, scaled(filament, 32U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > scan ? i - scan : scan - i;
+                uint8_t value = i < lit ? 26U : 3U;
+                if (distance < 5U) value = static_cast<uint8_t>(195U - distance * 38U);
+                setSection(LedSection::Center, i, scaled(cool, value));
+            }
+            setSection(LedSection::Center, marker, scaled(amber, 150U));
+            break;
+        }
+        case PauseAnimation::FrozenGold: {
+            const RgbwColor gold = decorativeHsv(LedCategory::Pause, 31U, 220U, 255U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t facet = hash8(i * 73U + sectionIndex * 113U);
+                    const uint8_t value = static_cast<uint8_t>(18U + facet / 5U);
+                    setSection(section, i, scaled(gold, value));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(RgbwColor(255U, 238U, 170U), 205U));
+            break;
+        }
+        case PauseAnimation::ClockTick: {
+            const uint16_t second = static_cast<uint16_t>((now / 1000U) % hw::CenterCount);
+            const uint8_t tickPulse = static_cast<uint8_t>(255U - min<uint32_t>(220U, (now % 1000U) * 220U / 1000U));
+            fillSection(LedSection::Left, scaled(amber, 10U));
+            fillSection(LedSection::Right, scaled(amber, 10U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const bool quarter = i % 5U == 0U;
+                const uint8_t value = i == second ? tickPulse : (quarter ? 36U : 4U);
+                setSection(LedSection::Center, i, scaled(amber, value));
+            }
+            setSection(LedSection::Left, progress / 10U, scaled(filament, 120U));
+            setSection(LedSection::Right, progress / 10U, scaled(filament, 120U));
+            break;
+        }
+        case PauseAnimation::CalmOrbit: {
+            const uint16_t first = static_cast<uint16_t>((now / 105U) % hw::OuterCount);
+            const uint16_t second = static_cast<uint16_t>((first + hw::OuterCount / 2U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t directA = path > first ? path - first : first - path;
+                const uint16_t directB = path > second ? path - second : second - path;
+                const uint16_t distanceA = min<uint16_t>(directA, hw::OuterCount - directA);
+                const uint16_t distanceB = min<uint16_t>(directB, hw::OuterCount - directB);
+                const uint8_t valueA = distanceA < 4U ? static_cast<uint8_t>(135U - distanceA * 31U) : 0U;
+                const uint8_t valueB = distanceB < 4U ? static_cast<uint8_t>(120U - distanceB * 27U) : 0U;
+                const RgbwColor color = blend(scaled(amber, valueA), scaled(cool, valueB), 128U);
+                setOuterVisualPathPixel(path, color);
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 105U));
+            break;
+        }
         case PauseAnimation::Count:
         default:
             break;

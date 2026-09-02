@@ -84,6 +84,16 @@ enum class PauseAnimation : uint8_t {
     Spinner,
     MorseWait,
     BlueBreathe,
+    SoftHold,
+    AmberTheater,
+    BreathingDots,
+    WaitingRipple,
+    ParkingLights,
+    DimSparks,
+    SlowScan,
+    FrozenGold,
+    ClockTick,
+    CalmOrbit,
     Count,
 };
 

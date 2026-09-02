@@ -27,6 +27,8 @@ constexpr const char* PauseNames[] = {
     "Progress Bar", "Crossfade", "Phase", "Yellow-White", "Watchful Eyes",
     "Amber Strobe", "Zigzag", "Neon", "Hourglass", "Amber Wave",
     "Bounce", "Slow Comet", "Spinner", "Morse Wait", "Blue Breathe",
+    "Soft Hold", "Amber Theater", "Breathing Dots", "Waiting Ripple", "Parking Lights",
+    "Dim Sparks", "Slow Scan", "Frozen Gold", "Clock Tick", "Calm Orbit",
 };
 
 constexpr const char* ErrorNames[] = {
