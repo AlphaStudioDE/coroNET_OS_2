@@ -341,6 +341,16 @@ enum class OtherAnimation : uint8_t {
     Maintenance,
     Calibration,
     HeatmapDemo,
+    ProductHero,
+    NightLight,
+    FocusMode,
+    PartyLock,
+    RetroTerminal,
+    PlasmaCore,
+    StatusMirror,
+    TimeBreath,
+    SectionDemo,
+    CinemaIdle,
     Count,
 };
 

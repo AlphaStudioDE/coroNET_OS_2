@@ -390,6 +390,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 58 | Maintenance | Left reports Wi-Fi health, Center scans printer telemetry, and Right reports ventilation safety using stable green, amber, or red service indicators. |
 | 59 | Calibration | Major, minor, and physical-section ruler marks remain fixed while an orange verification cursor traverses the complete mapped OUTER path. |
 | 60 | Heatmap Demo | Left meters bed temperature, Center meters active-nozzle temperature, and Right meters chamber temperature with independent real-data thermal colors and levels. |
+| 61 | Product Hero | A staged coroNET presentation grows from a cyan Center ignition into a cyan-orange power field and settles into a warm premium display. |
+| 62 | Night Light | Three very low amber pools breathe almost imperceptibly, with each section shaped around its own center for comfortable continuous light. |
+| 63 | Focus Mode | A stable cool-cyan task-light pool concentrates on Center while both side sections remain dim and spatially balanced. |
+| 64 | Party Lock | Two multicolor gates move inward, lock at Center, and release one bounded color burst before the choreography resets. |
+| 65 | Retro Terminal | A phosphor-green cursor writes around OUTER with a five-pixel decay trail over deterministic terminal glyph noise. |
+| 66 | Plasma Core | A dense violet-blue Center core breathes while concentric energy shells are emitted toward both ends of the complete path. |
+| 67 | Status Mirror | Actual print progress fills Center while both sides mirror printer, telemetry, and ventilation health in green, amber, or red. |
+| 68 | Time Breath | One slow breath spans every real minute, its palette advances with the minute value, and small section offsets preserve spatial depth. |
+| 69 | Section Demo | Left, Center, and Right hold unmistakably different reference colors while one neutral marker verifies the complete logical OUTER route and mirror mapping. |
+| 70 | Cinema Idle | A warm projector beam travels through a dark frame cadence while cooler side curtains keep the scene theatrical rather than uniformly amber. |
 
 ## Boot LED Experience
 
