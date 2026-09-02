@@ -57,6 +57,32 @@ The `.pio` directory is intentionally excluded from Git. Build products are repr
 
 The current 16 MB flash layout reserves two 6 MB OTA application slots, 3 MB for the local filesystem, and dedicated NVS, OTA metadata, and coredump partitions. Changing from an older development partition table requires a complete USB flash that includes `partitions.bin`; an application-only OTA cannot safely redefine its own slot layout.
 
+## Espressif Flash Download Tool Package
+
+Tester and factory packages contain a merged image that can be written at `0x0` with the official [Espressif Flash Download Tool](https://www.espressif.com/en/support/download/other-tools). This is the recommended method for installing coroNET OS 2 on a new board or recovering a board with an unknown partition table.
+
+The package also includes the equivalent individual images:
+
+| Address | Image |
+| --- | --- |
+| `0x0` | `coronet_bootloader.bin` |
+| `0x8000` | `coronet_partitions.bin` |
+| `0xE000` | `coronet_boot_app0.bin` |
+| `0x10000` | `coronet_os2.bin` |
+
+Use the included `FLASH_TOOL_INSTRUCTIONS.txt`. Do not select the merged image and individual images together. A complete erase is intentional for a factory flash and removes Wi-Fi credentials, companion pairing, and device settings.
+
+To create a package from a tested local build:
+
+```powershell
+$env:CORONET_FIRMWARE_VERSION = "0.1.4-test.1"
+pio run
+python scripts/validate_release_artifacts.py .pio/build/coronet_os2 $env:CORONET_FIRMWARE_VERSION
+python scripts/prepare_flash_tool_package.py .pio/build/coronet_os2 $env:CORONET_FIRMWARE_VERSION
+```
+
+Generated packages are placed under `dist/` and are intentionally excluded from Git.
+
 ## Over-The-Air Updates
 
 Once a full development or factory image is installed, later application updates can be installed from **Settings > Firmware update** on coroNET or from the Android companion while it is connected over local Wi-Fi.
@@ -99,7 +125,7 @@ Create a release tag only from a tested commit. Publishing a tag makes that firm
 - Every commit and pull request is compiled by GitHub Actions.
 - CI artifacts are for development verification.
 - Tested user-installable binaries belong in a versioned GitHub Release with generated checksums.
-- A future factory package will include all images and exact addresses required by Espressif Flash Download Tool.
+- Factory packages include a merged image, individual images, exact addresses, and SHA-256/MD5 checksums for Espressif Flash Download Tool.
 - Do not download random firmware binaries from issue attachments or unofficial mirrors.
 
 Official Espressif tools:

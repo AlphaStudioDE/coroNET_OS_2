@@ -1,6 +1,8 @@
 .pio/
 .pioenvs/
 .piolibdeps/
+dist/
+__pycache__/
 .cache/
 .idea/
 .gradle/

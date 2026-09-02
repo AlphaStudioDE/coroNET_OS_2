@@ -65,6 +65,12 @@ jobs:
           md5sum dist/coronet_os2.bin | awk '{print $1}' > dist/coronet_os2.bin.md5
           (cd dist && sha256sum coronet_os2.bin coronet_bootloader.bin coronet_partitions.bin > SHA256SUMS.txt)
 
+      - name: Prepare Flash Download Tool package
+        run: >-
+          python scripts/prepare_flash_tool_package.py
+          .pio/build/coronet_os2
+          "${{ steps.version.outputs.version }}"
+
       - name: Upload development firmware
         uses: actions/upload-artifact@v7
         with:
@@ -77,6 +83,7 @@ jobs:
             dist/coronet_bootloader.bin
             dist/coronet_partitions.bin
             dist/SHA256SUMS.txt
+            dist/*_Flash_Tool.zip
 
       - name: Publish tagged GitHub release
         if: github.ref_type == 'tag'
@@ -94,4 +101,5 @@ jobs:
             dist/coronet_bootloader.bin \
             dist/coronet_partitions.bin \
             dist/SHA256SUMS.txt \
+            dist/coroNET_OS_2_*_Flash_Tool.zip \
             --clobber
