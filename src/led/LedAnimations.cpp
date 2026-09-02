@@ -72,7 +72,8 @@ constexpr const char* FinishNames[] = {
 };
 
 constexpr const char* OtherNames[] = {
-    "Synth Current", "Ambient Drift", "Prism Field", "Color Theater",
+    "Matrix", "Candle", "Static Rainbow", "Neon Club", "Synthwave",
+    "Jellyfish", "Snow", "Sunset", "Volcano", "Techno",
 };
 
 template <size_t N>
@@ -120,5 +121,6 @@ static_assert(arrayCount(PrintNames) == static_cast<uint8_t>(PrintAnimation::Cou
 static_assert(arrayCount(PauseNames) == static_cast<uint8_t>(PauseAnimation::Count));
 static_assert(arrayCount(ErrorNames) == static_cast<uint8_t>(ErrorAnimation::Count));
 static_assert(arrayCount(FinishNames) == static_cast<uint8_t>(FinishAnimation::Count));
+static_assert(arrayCount(OtherNames) == static_cast<uint8_t>(OtherAnimation::Count));
 
 }

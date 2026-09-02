@@ -280,6 +280,20 @@ enum class FinishAnimation : uint8_t {
     Count,
 };
 
+enum class OtherAnimation : uint8_t {
+    Matrix = 0,
+    Candle,
+    StaticRainbow,
+    NeonClub,
+    Synthwave,
+    Jellyfish,
+    Snow,
+    Sunset,
+    Volcano,
+    Techno,
+    Count,
+};
+
 constexpr uint32_t SnakeFinishDurationMs = 1400U;
 
 struct LedAnimationContext {

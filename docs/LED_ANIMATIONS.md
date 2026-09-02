@@ -33,7 +33,7 @@ The following behavior is shared by the entire catalog:
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
-| Other | 4 | Initial OS 2 set; expanded rebuild pending |
+| Other | 10 | Rebuild in progress; first reviewed set implemented on the OS 2 engine |
 
 ## Print
 
@@ -326,14 +326,20 @@ Finish animations celebrate a completed job. The complete rebuilt set combines s
 
 ## Other
 
-Other is independent of printer status and is intended for manually selected ambient scenes. The current four entries are the initial OS 2 set and will be replaced by individually rebuilt scenes.
+Other is independent of printer status and is intended for manually selected ambient scenes. The large coroNET 1 collection is being rebuilt in reviewed sets so similarly named effects retain clearly different motion and composition.
 
 | # | Animation | What it shows |
 | ---: | --- | --- |
-| 1 | Synth Current | A bright synthetic color current travels through the three outer sections. |
-| 2 | Ambient Drift | A cool, slowly modulated hue field drifts through the strip with independent brightness waves. |
-| 3 | Prism Field | Warm deterministic flicker produces a changing field of red and amber prism-like fragments. |
-| 4 | Color Theater | A saturated cool color stage moves through the sections with theater-style intensity modulation. |
+| 1 | Matrix | Three independent green code streams descend through every physical section, each with a bright head and decaying digital trail. |
+| 2 | Candle | Left, Center, and Right become three spatial candle flames whose warm cores, edges, and bounded flicker remain individually shaped. |
+| 3 | Static Rainbow | A complete stationary spectrum is repeated within each physical section, keeping every color visible without motion. |
+| 4 | Neon Club | Cyan and magenta bar groups move under a three-section club beat without using full-white strobe flashes. |
+| 5 | Synthwave | Cyan and magenta side perspective feeds a receding Center grid with a bright moving horizon line. |
+| 6 | Jellyfish | A translucent violet-blue bell drifts independently through each section with several softly fading tendrils behind it. |
+| 7 | Snow | Five flakes fall within each section over a cold snow-globe field and gradually collect at the lower edge before the globe resets. |
+| 8 | Sunset | A warm sun moves through a red-to-violet sky independently inside all three physical sections. |
+| 9 | Volcano | Center forms a breathing molten crater while timed eruptions throw orange sparks symmetrically through both side sections. |
+| 10 | Techno | A deterministic 16-step cyan and magenta sequencer moves gated pixels across all sections and emphasizes only its downbeats. |
 
 ## Boot LED Experience
 
