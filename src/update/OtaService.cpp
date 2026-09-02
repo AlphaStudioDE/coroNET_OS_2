@@ -27,7 +27,7 @@ namespace coronet {
 
 namespace {
 OtaService gOtaService;
-constexpr uint32_t kTaskStackBytes = 12288;
+constexpr uint32_t kTaskStackBytes = 8192;
 constexpr uint32_t kMinimumImageBytes = 128U * 1024U;
 constexpr size_t kMaximumReleaseMetadataBytes = 64U * 1024U;
 constexpr uint32_t kValidationDelayMs = 30000U;
@@ -190,6 +190,8 @@ bool OtaService::startRequest(Request request) {
         return false;
     }
     pendingRequest_ = request;
+    // Keep the task small enough to avoid consuming the contiguous internal-RAM
+    // block needed by mbedTLS. Network/LWIP tasks cannot use an external stack.
     const BaseType_t result = xTaskCreatePinnedToCore(taskEntry, "coronet-ota",
                                                       kTaskStackBytes, this, 6, &task_, 0);
     if (result != pdPASS) task_ = nullptr;
@@ -209,6 +211,8 @@ void OtaService::taskEntry(void* context) {
     service->task_ = nullptr;
     service->pendingRequest_ = Request::None;
     portEXIT_CRITICAL(&service->mux_);
+    Serial.printf("[ota] task stack headroom=%uB\n",
+                  static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
     vTaskDelete(nullptr);
 }
 
