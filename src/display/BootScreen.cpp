@@ -156,6 +156,11 @@ void BootScreen::begin() {
 void BootScreen::update() {
     if (!root_) return;
     BootExperience& experience = bootExperience();
+    if (!experience.active()) {
+        if (experience.full()) updateFull(BootExperience::FullDurationMs);
+        else updateQuick(BootExperience::QuickDurationMs);
+        return;
+    }
     if (!experience.performanceStarted()) {
         updatePrelude(experience.preludeMs());
     } else if (experience.full()) {
