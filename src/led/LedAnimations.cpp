@@ -11,6 +11,8 @@ constexpr const char* IdleNames[] = {
 constexpr const char* PrintNames[] = {
     "Progress Bar", "Laser", "Wave", "Thermal", "Stripes",
     "Progress Pulse", "Comet", "Active Section", "Running", "Breathe",
+    "Wipe", "Shimmer", "Bicolor", "Thermometer", "Snake",
+    "Rainbow Progress", "Heartbeat", "DNA Helix", "Pixel Rain", "Orbit",
 };
 
 constexpr const char* PauseNames[] = {

@@ -17,8 +17,20 @@ enum class PrintAnimation : uint8_t {
     ActiveSection,
     Running,
     Breathe,
+    Wipe,
+    Shimmer,
+    Bicolor,
+    Thermometer,
+    Snake,
+    RainbowProgress,
+    Heartbeat,
+    DnaHelix,
+    PixelRain,
+    Orbit,
     Count,
 };
+
+constexpr uint32_t SnakeFinishDurationMs = 1400U;
 
 struct LedAnimationContext {
     uint32_t nowMs = 0;
@@ -31,6 +43,7 @@ struct LedAnimationContext {
     uint32_t printDurationSec = 0;
     uint32_t printEtaSec = 0;
     bool preview = false;
+    bool finishing = false;
 };
 
 uint8_t ledAnimationCount(LedCategory category);

@@ -76,6 +76,17 @@ private:
     uint32_t shows_ = 0;
     uint32_t skippedShows_ = 0;
     UBaseType_t appliedTaskPriority_ = TaskPriority;
+    uint32_t lastPrinterEventSequence_ = 0;
+    bool snakeFinishActive_ = false;
+    uint32_t snakeFinishStartedMs_ = 0;
+    uint8_t lastPrintAnimation_ = 0xFF;
+    bool snakeWasPreview_ = false;
+    uint32_t snakePreviewStartedMs_ = 0;
+    uint32_t snakeLastStepMs_ = 0;
+    uint16_t snakeHead_ = 0;
+    uint16_t snakeFood_ = 0;
+    uint8_t snakeLength_ = 2;
+    uint8_t snakeGrowthBucket_ = 0;
 };
 
 LedService& ledService();

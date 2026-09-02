@@ -6,6 +6,7 @@
 #include "../config/HardwareConfig.h"
 #include "../boot/BootExperience.h"
 #include "../core/SystemState.h"
+#include "../led/LedAnimations.h"
 #include "../settings/SettingsService.h"
 
 namespace coronet {
@@ -641,7 +642,20 @@ void AudioService::processPrinterSoundEvents() {
     const SystemState& system = state();
     if (bootExperience().active() || bootAudioActive_) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
+        pendingFinishSound_ = false;
         return;
+    }
+
+    if (pendingFinishSound_) {
+        if (system.printerStateEventSequence != pendingFinishEventSequence_) {
+            pendingFinishSound_ = false;
+        } else if (static_cast<int32_t>(millis() - pendingFinishSoundDueMs_) >= 0) {
+            pendingFinishSound_ = false;
+            playScenario(SoundScenario::Finish);
+            return;
+        } else {
+            return;
+        }
     }
     if (system.printerStateEventSequence == observedPrinterEventSequence_) return;
     observedPrinterEventSequence_ = system.printerStateEventSequence;
@@ -658,6 +672,19 @@ void AudioService::processPrinterSoundEvents() {
         scenario = SoundScenario::Pause;
         shouldPlay = true;
     } else if (system.printerEventTo == PrinterState::Complete) {
+        const AppSettings& settings = settingsService().settings();
+        const uint8_t selectedPrintAnimation = normalizeLedAnimation(
+            LedCategory::Print,
+            settings.ledAnimation[static_cast<uint8_t>(LedCategory::Print)]);
+        if (settings.ledEnabled && !settings.ledOtherMode &&
+            (system.printerEventFrom == PrinterState::Printing ||
+             system.printerEventFrom == PrinterState::Paused) &&
+            selectedPrintAnimation == static_cast<uint8_t>(PrintAnimation::Snake)) {
+            pendingFinishSound_ = true;
+            pendingFinishEventSequence_ = system.printerStateEventSequence;
+            pendingFinishSoundDueMs_ = millis() + SnakeFinishDurationMs;
+            return;
+        }
         scenario = SoundScenario::Finish;
         shouldPlay = true;
     } else if (system.printerEventTo == PrinterState::Idle) {

@@ -116,6 +116,9 @@ private:
     uint32_t writeFailures_ = 0;
     uint32_t completedFiles_ = 0;
     uint32_t observedPrinterEventSequence_ = 0;
+    bool pendingFinishSound_ = false;
+    uint32_t pendingFinishSoundDueMs_ = 0;
+    uint32_t pendingFinishEventSequence_ = 0;
 };
 
 AudioService& audioService();
