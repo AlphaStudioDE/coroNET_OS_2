@@ -56,6 +56,8 @@ constexpr const char* FinishNames[] = {
     "Champagne", "Wipe Out", "Fill", "Waterfall", "Starburst",
     "Victory Lap", "Gold Theater", "Ribbon Dance", "Trophy Glow", "Star Glitter",
     "Dual Comets", "Applause", "Prism Bloom", "Pixel Toast", "Crown Chase",
+    "Cooldown Progress", "Print Signature", "Smart Applause", "Take Me", "Cool To Touch",
+    "Last Layer Glow", "Gallery Mode", "Filament Fireworks", "Inspection Light", "Quiet Pride",
 };
 
 constexpr const char* OtherNames[] = {

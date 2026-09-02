@@ -4186,6 +4186,179 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             setSection(LedSection::Right, hw::RightCount - 1U - sideMarker, RgbwColor(255U, 250U, 220U));
             break;
         }
+        case FinishAnimation::CooldownProgress: {
+            const uint8_t chamberHeat = temperaturePercent(context.chamberTempC, 20.0f, 70.0f, 25U);
+            const uint8_t toolHeat = temperaturePercent(context.activeToolTempC, 30.0f, 260.0f, 35U);
+            const uint8_t cooling = static_cast<uint8_t>(100U - max(chamberHeat, toolHeat));
+            const RgbwColor chamberColor = temperatureColor(chamberHeat);
+            const RgbwColor toolColor = temperatureColor(toolHeat);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t chamberCoverage = progressCoverage(chamberHeat, hw::LeftCount, i);
+                const uint8_t toolCoverage = progressCoverage(toolHeat, hw::RightCount, i);
+                setSection(LedSection::Left, i,
+                           scaled(chamberColor, chamberCoverage ? static_cast<uint8_t>(55U + chamberCoverage * 160U / 255U) : 8U));
+                setSection(LedSection::Right, hw::RightCount - 1U - i,
+                           scaled(toolColor, toolCoverage ? static_cast<uint8_t>(55U + toolCoverage * 160U / 255U) : 8U));
+            }
+            const RgbwColor ready = cooling > 70U ? green
+                : decorativeHsv(LedCategory::Finish, 145U, 225U, 255U);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(cooling, hw::CenterCount, i);
+                setSection(LedSection::Center, i,
+                           scaled(ready, coverage ? static_cast<uint8_t>(65U + coverage * 150U / 255U) : 7U));
+            }
+            break;
+        }
+        case FinishAnimation::PrintSignature: {
+            fillSection(LedSection::Center, scaled(filament, 135U));
+            const uint16_t head = static_cast<uint16_t>((now / 52U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t direct = path > head ? path - head : head - path;
+                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
+                if (distance > 7U) continue;
+                const uint8_t value = static_cast<uint8_t>(235U - distance * 29U);
+                const RgbwColor signature = distance == 0U
+                    ? RgbwColor(255U, 255U, 245U) : filament;
+                setOuterVisualPathPixel(path, scaled(signature, value));
+            }
+            break;
+        }
+        case FinishAnimation::SmartApplause: {
+            const uint8_t jobScale = static_cast<uint8_t>(min<uint32_t>(100U,
+                context.printDurationSec / 180U));
+            const uint32_t period = max<uint32_t>(620U, 1050U - jobScale * 4U);
+            const uint32_t beat = now % period;
+            const bool clap = beat < 85U || (beat >= 180U && beat < 265U);
+            const uint8_t value = clap
+                ? static_cast<uint8_t>(170U + jobScale * 85U / 100U) : 18U;
+            fillSection(LedSection::Left, scaled(gold, value));
+            fillSection(LedSection::Right, scaled(gold, value));
+            const uint16_t half = hw::CenterCount / 2U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i < half ? half - 1U - i : i - half;
+                const uint8_t centerValue = clap
+                    ? static_cast<uint8_t>(max<int>(45, value - distance * 17)) : 10U;
+                setSection(LedSection::Center, i, scaled(gold, centerValue));
+            }
+            break;
+        }
+        case FinishAnimation::TakeMe: {
+            const uint16_t half = hw::CenterCount / 2U;
+            const uint8_t step = static_cast<uint8_t>((now / 180U) % 6U);
+            fillSection(LedSection::Left, scaled(green, 48U));
+            fillSection(LedSection::Right, scaled(green, 48U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i < half ? half - 1U - i : i - half;
+                const bool arrow = distance < 9U && (distance / 2U) == step;
+                setSection(LedSection::Center, i,
+                           scaled(green, arrow ? 245U : (distance < 3U ? 105U : 8U)));
+            }
+            const uint8_t sidePulse = static_cast<uint8_t>(70U + wave8(now / 42U) / 2U);
+            setSection(LedSection::Left, hw::LeftCount - 1U, scaled(green, sidePulse));
+            setSection(LedSection::Right, 0U, scaled(green, sidePulse));
+            break;
+        }
+        case FinishAnimation::CoolToTouch: {
+            const uint8_t toolHeat = temperaturePercent(context.activeToolTempC, 35.0f, 230.0f, 30U);
+            const uint8_t bedHeat = temperaturePercent(context.bedTempC, 30.0f, 100.0f, 25U);
+            const uint8_t hottest = max(toolHeat, bedHeat);
+            const bool safe = hottest <= 18U;
+            const RgbwColor statusColor = safe ? green : temperatureColor(hottest);
+            const uint8_t pulse = safe ? static_cast<uint8_t>(70U + wave8(now / 70U) / 5U)
+                : static_cast<uint8_t>(65U + wave8(now / max<uint8_t>(8U, 34U - hottest / 5U)) * 165U / 255U);
+            fillSection(LedSection::Left, scaled(statusColor, pulse));
+            fillSection(LedSection::Right, scaled(statusColor, pulse));
+            const uint8_t safePercent = static_cast<uint8_t>(100U - hottest);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(safePercent, hw::CenterCount, i);
+                setSection(LedSection::Center, i,
+                           scaled(statusColor, coverage ? static_cast<uint8_t>(50U + coverage * 170U / 255U) : 6U));
+            }
+            break;
+        }
+        case FinishAnimation::LastLayerGlow: {
+            const uint16_t half = hw::CenterCount / 2U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i < half ? half - 1U - i : i - half;
+                const uint8_t ridge = wave8(static_cast<uint8_t>(now / 35U + distance * 21U));
+                setSection(LedSection::Center, i,
+                           scaled(filament, static_cast<uint8_t>(105U + ridge / 2U)));
+            }
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t shimmerLeft = wave8(static_cast<uint8_t>(now / 29U + i * 18U));
+                const uint8_t shimmerRight = wave8(static_cast<uint8_t>(now / 31U - i * 18U));
+                setSection(LedSection::Left, i, scaled(filament, static_cast<uint8_t>(35U + shimmerLeft / 3U)));
+                setSection(LedSection::Right, i, scaled(filament, static_cast<uint8_t>(35U + shimmerRight / 3U)));
+            }
+            break;
+        }
+        case FinishAnimation::GalleryMode: {
+            const uint8_t white = static_cast<uint8_t>(85U + wave8(now / 92U) / 10U);
+            fillSection(LedSection::Center, RgbwColor(white, white,
+                                                     static_cast<uint8_t>(white * 9U / 10U)));
+            const uint8_t side = static_cast<uint8_t>(42U + wave8(now / 73U) / 10U);
+            fillSection(LedSection::Left, scaled(filament, side));
+            fillSection(LedSection::Right, scaled(filament, side));
+            const uint16_t reflection = static_cast<uint16_t>((now / 160U) % hw::CenterCount);
+            setSection(LedSection::Center, reflection, RgbwColor(175U, 175U, 165U));
+            break;
+        }
+        case FinishAnimation::FilamentFireworks: {
+            RgbwColor palette[4];
+            for (uint8_t slot = 0; slot < 4U; ++slot) {
+                palette[slot] = (context.filamentColorMask & (1U << slot))
+                    ? fromRgb(context.filamentColorsRgb[slot])
+                    : decorativeHsv(LedCategory::Finish,
+                        static_cast<uint8_t>(28U + slot * 61U), 240U, 255U);
+                if (max(palette[slot].r, max(palette[slot].g, palette[slot].b)) < 12U) {
+                    palette[slot] = decorativeHsv(LedCategory::Finish,
+                        static_cast<uint8_t>(28U + slot * 61U), 240U, 255U);
+                }
+            }
+            const uint32_t cycle = now % 2100U;
+            const uint32_t epoch = now / 2100U;
+            const uint8_t selected = static_cast<uint8_t>(epoch & 3U);
+            const uint16_t origin = static_cast<uint16_t>(
+                hash8(epoch * 151U + selected * 43U) % hw::OuterCount);
+            const uint16_t radius = static_cast<uint16_t>(cycle * 19U / 1500U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t direct = path > origin ? path - origin : origin - path;
+                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
+                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                if (cycle >= 1500U || delta > 2U) continue;
+                const uint8_t value = static_cast<uint8_t>(max<int>(20,
+                    245 - static_cast<int>(cycle * 120U / 1500U) - delta * 45));
+                setOuterVisualPathPixel(path, scaled(palette[selected], value));
+            }
+            break;
+        }
+        case FinishAnimation::InspectionLight: {
+            const uint16_t sweep = static_cast<uint16_t>((now / 62U) % (hw::CenterCount * 2U - 2U));
+            const uint16_t head = sweep < hw::CenterCount
+                ? sweep : hw::CenterCount * 2U - 2U - sweep;
+            fillSection(LedSection::Left, RgbwColor(65U, 65U, 60U));
+            fillSection(LedSection::Right, RgbwColor(65U, 65U, 60U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > head ? i - head : head - i;
+                const uint8_t value = distance < 4U
+                    ? static_cast<uint8_t>(245U - distance * 48U) : 58U;
+                setSection(LedSection::Center, i,
+                           RgbwColor(value, value, static_cast<uint8_t>(value * 9U / 10U)));
+            }
+            break;
+        }
+        case FinishAnimation::QuietPride: {
+            const uint8_t breath = static_cast<uint8_t>(70U + wave8(now / 88U) / 8U);
+            fillSection(LedSection::Left, scaled(filament, breath));
+            fillSection(LedSection::Right, scaled(filament, breath));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t arch = wave8(static_cast<uint8_t>(64U +
+                    i * 128U / max<uint16_t>(1U, hw::CenterCount - 1U)));
+                setSection(LedSection::Center, i,
+                           scaled(gold, static_cast<uint8_t>(95U + arch / 3U)));
+            }
+            break;
+        }
         case FinishAnimation::Count:
         default:
             break;

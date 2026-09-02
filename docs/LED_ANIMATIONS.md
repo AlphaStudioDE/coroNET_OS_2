@@ -32,7 +32,7 @@ The following behavior is shared by the entire catalog:
 | Pause | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 4 | Initial OS 2 set; expanded rebuild pending |
-| Finish | 30 | Rebuild in progress; first three sets implemented on the OS 2 engine |
+| Finish | 40 | Rebuild in progress; first four sets implemented on the OS 2 engine |
 | Other | 4 | Initial OS 2 set; expanded rebuild pending |
 
 ## Print
@@ -257,6 +257,16 @@ Finish animations celebrate a completed job. The rebuilt set combines show-orien
 | 28 | Prism Bloom | White light opens slowly from Center and separates into increasingly saturated colors toward both ends before fading. |
 | 29 | Pixel Toast | Gold pixels rise through Center, settle into a warm completed surface, and briefly pop filament-colored markers onto the sides. |
 | 30 | Crown Chase | Center forms a five-point gold crown while a changing jewel and mirrored side highlights travel around it. |
+| 31 | Cooldown Progress | Left meters chamber heat, Right meters nozzle heat, and Center fills toward a green ready state as the hottest reading falls. |
+| 32 | Print Signature | The completed filament color fills Center while a white-tipped signature highlight repeatedly circles the full result. |
+| 33 | Smart Applause | Paired gold claps become faster and stronger for longer completed jobs, with the brightest impact at Center. |
+| 34 | Take Me | Green arrows move inward toward a held Center target to signal that the finished object is waiting for the user. |
+| 35 | Cool To Touch | The hotter of bed and nozzle controls warning color and pulse speed; Center fills toward green as the machine becomes safe to touch. |
+| 36 | Last Layer Glow | A textured filament-colored ridge glows across the complete Center while matching side reflections move more softly. |
+| 37 | Gallery Mode | Neutral warm-white Center illumination presents the finished object while dim filament-colored sides provide a restrained frame. |
+| 38 | Filament Fireworks | Firework shells cycle through up to four loaded filament colors, using separated fallback hues for empty or near-black slots. |
+| 39 | Inspection Light | A neutral high-visibility beam scans back and forth across Center while both sides remain steadily illuminated. |
+| 40 | Quiet Pride | A calm filament breath surrounds a stable gold Center arch for a low-motion completion scene. |
 
 ## Other
 

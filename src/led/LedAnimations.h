@@ -203,6 +203,16 @@ enum class FinishAnimation : uint8_t {
     PrismBloom,
     PixelToast,
     CrownChase,
+    CooldownProgress,
+    PrintSignature,
+    SmartApplause,
+    TakeMe,
+    CoolToTouch,
+    LastLayerGlow,
+    GalleryMode,
+    FilamentFireworks,
+    InspectionLight,
+    QuietPride,
     Count,
 };
 
