@@ -36,7 +36,6 @@ private:
     volatile bool systemReady_ = false;
     volatile bool performanceStarted_ = false;
     bool audioRequested_ = false;
-    bool audioExpected_ = false;
     uint32_t beginMs_ = 0;
     uint32_t audioRequestMs_ = 0;
     volatile uint32_t performanceStartMs_ = 0;

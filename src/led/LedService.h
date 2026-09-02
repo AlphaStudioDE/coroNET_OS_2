@@ -53,7 +53,6 @@ private:
     void fillSection(LedSection section, const RgbwColor& color);
     uint16_t sectionCount(LedSection section) const;
     uint16_t sectionPhysicalIndex(LedSection section, uint16_t logical) const;
-    RgbwColor sectionColor(LedSection section, const RgbwColor& color) const;
     RgbwColor decorativeHsv(LedCategory category, uint8_t hue, uint8_t saturation,
                             uint8_t value) const;
 

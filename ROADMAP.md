@@ -30,7 +30,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] Coronet, Graphite, Aurora, and Minimal UI skins
 - [x] dark and light mode for every skin
 - [x] revisioned settings with immediate service application and debounced NVS persistence
-- [ ] physical pairing reset/confirmation screen
+- [x] physical pairing reset/confirmation screen
 - [x] seven clock styles, screen saver, display-off mode, and printer-error wake
 - [ ] accessibility, localization, and touch calibration review
 
@@ -52,7 +52,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] layered RGBW LED engine
 - [x] logical right, center, left, and inside mapping
 - [x] ambient, dimming, mirroring, and previews
-- [ ] final boot light-and-sound show
+- [x] full first-run and short daily boot experiences with synchronized screen, LED, audio, and live-state handoff
 - [ ] printer-aware LED layers and selected OS 1 animation concepts
 - [x] PWM fan control
 - [x] servo flap control and calibration

@@ -25,6 +25,8 @@ constexpr uint8_t NibbleLutLo[16] = {
     0x88, 0x8C, 0xC8, 0xCC, 0x88, 0x8C, 0xC8, 0xCC,
     0x88, 0x8C, 0xC8, 0xCC, 0x88, 0x8C, 0xC8, 0xCC,
 };
+constexpr uint32_t FullLedHandoffStartMs = 31800U;
+constexpr uint32_t QuickLedHandoffStartMs = 2700U;
 
 LedService gLedService;
 
@@ -346,7 +348,6 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
     }
 
     if (!full) {
-        constexpr uint32_t QuickLedHandoffStartMs = 2700U;
         const uint8_t reveal = static_cast<uint8_t>(min<uint32_t>(255U, elapsedMs * 255U / 1050U));
         const uint8_t handoff = elapsedMs > QuickLedHandoffStartMs
             ? static_cast<uint8_t>(min<uint32_t>(255U,
@@ -565,8 +566,9 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
         }
     }
 
-    if (elapsedMs >= 31800U) {
-        const uint8_t handoff = ease(elapsedMs - 31800U, 3200U);
+    if (elapsedMs >= FullLedHandoffStartMs) {
+        const uint8_t handoff = ease(elapsedMs - FullLedHandoffStartMs,
+                                     BootExperience::FullDurationMs - FullLedHandoffStartMs);
         RgbwColor signature[hw::LedCount];
         memcpy(signature, targetFrame_, sizeof(signature));
         const SystemState& system = state();
@@ -829,8 +831,14 @@ void LedService::applyOutputPolicies() {
         const uint8_t average = static_cast<uint8_t>((brightnessSum + 2U) / enumCount(LedSection{}));
         const uint32_t elapsed = bootExperience().timelineMs();
         const uint8_t handoff = bootExperience().full()
-            ? (elapsed > 31800U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 31800U) * 255U / 3200U)) : 0U)
-            : (elapsed > 1850U ? static_cast<uint8_t>(min<uint32_t>(255U, (elapsed - 1850U) * 255U / 750U)) : 0U);
+            ? (elapsed > FullLedHandoffStartMs
+                ? static_cast<uint8_t>(min<uint32_t>(255U,
+                    (elapsed - FullLedHandoffStartMs) * 255U /
+                    (BootExperience::FullDurationMs - FullLedHandoffStartMs))) : 0U)
+            : (elapsed > QuickLedHandoffStartMs
+                ? static_cast<uint8_t>(min<uint32_t>(255U,
+                    (elapsed - QuickLedHandoffStartMs) * 255U /
+                    (BootExperience::QuickDurationMs - QuickLedHandoffStartMs))) : 0U);
         for (uint8_t sectionIndex = 0; sectionIndex < enumCount(LedSection{}); ++sectionIndex) {
             const uint8_t sectionPercent = settings.ledBrightness[sectionIndex];
             const uint8_t percent = static_cast<uint8_t>(
@@ -968,11 +976,6 @@ uint16_t LedService::sectionPhysicalIndex(LedSection section, uint16_t logical) 
     if (!count) return 0;
     if (logical >= count) logical = count - 1U;
     return mappedSectionIndex(section, logical, frameMirror_);
-}
-
-RgbwColor LedService::sectionColor(LedSection section, const RgbwColor& color) const {
-    const uint8_t percent = settingsService().settings().ledBrightness[static_cast<uint8_t>(section)];
-    return scaled(color, static_cast<uint8_t>(static_cast<uint16_t>(percent) * 255U / 100U));
 }
 
 RgbwColor LedService::decorativeHsv(LedCategory category, uint8_t hue,

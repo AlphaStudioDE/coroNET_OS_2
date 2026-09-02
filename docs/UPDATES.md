@@ -2,6 +2,14 @@
 
 ## 2026-09-02
 
+### Boot Experience
+
+- Added a full first-run coroNET Boot Experience synchronized to `boot.wav`, followed by a smooth handoff into setup.
+- Added a quiet 3.5-second daily boot with a complete branded splash and no repetitive startup audio.
+- Added coordinated screen and RGBW LED transitions into the live printer animation without a hard final-frame cut.
+- Refined the quick LED signature so Right, Center, and Left each present a complete color spectrum with continuous tonal boundaries.
+- Kept connectivity services active during the quick boot while protecting full-boot LED and audio timing from background work.
+
 ### Companion Settings Reliability
 
 - Fixed controls that could appear to work only once when a BLE settings snapshot was delayed or missed.

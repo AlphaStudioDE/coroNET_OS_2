@@ -32,7 +32,6 @@ void BootExperience::begin(bool setupDone) {
     systemReady_ = false;
     performanceStarted_ = false;
     audioRequested_ = false;
-    audioExpected_ = false;
     beginMs_ = millis();
     audioRequestMs_ = 0;
     performanceStartMs_ = 0;
@@ -54,9 +53,9 @@ void BootExperience::startFullPerformance() {
     if (audioRequested_ || performanceStarted_) return;
     audioRequested_ = true;
     audioRequestMs_ = millis();
-    audioExpected_ = audioService().playFile(
+    const bool audioExpected = audioService().playFile(
         "/boot.wav", bootVolumePercent(), false, SoundScenario::Start, true);
-    if (!audioExpected_) {
+    if (!audioExpected) {
         performanceStartMs_ = audioRequestMs_;
         performanceStarted_ = true;
         Serial.println("[boot-experience] boot.wav unavailable; using visual timeline");
