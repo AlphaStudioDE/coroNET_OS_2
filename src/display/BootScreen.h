@@ -29,6 +29,7 @@ private:
     lv_obj_t* descriptorLabel_ = nullptr;
     lv_obj_t* editionLabel_ = nullptr;
     lv_obj_t* featureLabel_ = nullptr;
+    lv_obj_t* authorLabel_ = nullptr;
     lv_obj_t* glowLine_ = nullptr;
     int8_t featureIndex_ = -1;
 };

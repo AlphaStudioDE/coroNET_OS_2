@@ -148,6 +148,15 @@ void BootScreen::begin() {
     lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
     featureIndex_ = -1;
 
+    authorLabel_ = lv_label_create(root_);
+    lv_label_set_text_static(authorLabel_, "Created by Damian Borkowski");
+    lv_obj_set_pos(authorLabel_, 218, 298);
+    lv_obj_set_width(authorLabel_, 250);
+    lv_obj_set_style_text_align(authorLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(authorLabel_, &lv_font_montserrat_10, LV_PART_MAIN);
+    lv_obj_set_style_text_color(authorLabel_, lv_color_hex(0x78909C), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(authorLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
+
     setLogoColor(0x27D3C2);
     setOpacity(20, 0, 0);
     lv_obj_set_style_bg_opa(core_, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -181,6 +190,7 @@ void BootScreen::updatePrelude(uint32_t elapsedMs) {
     lv_obj_set_style_bg_opa(endpoint_, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_text_opa(authorLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
 }
 
 void BootScreen::updateFull(uint32_t elapsedMs) {
@@ -190,6 +200,7 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     const uint8_t endpointReveal = ramp(elapsedMs, 3060U, 200U);
     const uint8_t wordReveal = ramp(elapsedMs, 3260U, 580U);
     const uint8_t detailReveal = ramp(elapsedMs, 3920U, 700U);
+    const uint8_t authorReveal = ramp(elapsedMs, 4650U, 350U);
     const uint8_t pulse = triangle(elapsedMs, 1680U);
 
     uint32_t color = 0x27D3C2;
@@ -226,6 +237,7 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
     lv_obj_set_style_bg_opa(endpoint_, endpointOpacity, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_,
         static_cast<uint8_t>(detailReveal / 5U), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(authorLabel_, authorReveal, LV_PART_MAIN);
 
     // Keep the completed logo geometry fixed; later energy comes from light only.
     if (elapsedMs >= 22000U && elapsedMs < 30000U) {
@@ -260,25 +272,22 @@ void BootScreen::updateFull(uint32_t elapsedMs) {
         lv_obj_set_style_bg_opa(endpoint_,
             static_cast<uint8_t>(static_cast<uint16_t>(endpointOpacity) * remaining / 255U), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(remaining / 5U), LV_PART_MAIN);
+        lv_obj_set_style_text_opa(authorLabel_,
+            static_cast<uint8_t>(static_cast<uint16_t>(authorReveal) * remaining / 255U), LV_PART_MAIN);
     }
 }
 
 void BootScreen::updateQuick(uint32_t elapsedMs) {
-    const uint8_t logoReveal = ramp(elapsedMs, 0U, 750U);
-    const uint8_t coreReveal = ramp(elapsedMs, 800U, 220U);
-    const uint8_t horizonReveal = ramp(elapsedMs, 1100U, 600U);
-    const uint8_t endpointReveal = ramp(elapsedMs, 1700U, 220U);
-    const uint8_t wordReveal = ramp(elapsedMs, 1950U, 330U);
-    const uint8_t detailReveal = ramp(elapsedMs, 2300U, 450U);
+    const uint8_t reveal = ramp(elapsedMs, 0U, 500U);
     setLogoColor(0x27D3C2);
-    setOpacity(static_cast<uint8_t>(20U + logoReveal * 235U / 255U), wordReveal, detailReveal);
-    lv_arc_set_bg_angles(arc_, 44,
-        static_cast<uint16_t>(46U + static_cast<uint32_t>(logoReveal) * 270U / 255U));
-    lv_obj_set_style_bg_opa(core_, coreReveal, LV_PART_MAIN);
-    lv_obj_set_width(horizon_, static_cast<lv_coord_t>(horizonReveal * 78U / 255U));
-    lv_obj_set_style_bg_opa(endpoint_, endpointReveal, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(wordReveal / 6U), LV_PART_MAIN);
+    setOpacity(reveal, reveal, reveal);
+    lv_arc_set_bg_angles(arc_, 44, 316);
+    lv_obj_set_style_bg_opa(core_, reveal, LV_PART_MAIN);
+    lv_obj_set_width(horizon_, 78);
+    lv_obj_set_style_bg_opa(endpoint_, reveal, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(reveal / 6U), LV_PART_MAIN);
     lv_obj_set_style_text_opa(featureLabel_, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_text_opa(authorLabel_, reveal, LV_PART_MAIN);
 
     if (elapsedMs >= QuickHandoffStartMs) {
         const uint8_t handoff = ramp(elapsedMs, QuickHandoffStartMs,
@@ -288,6 +297,7 @@ void BootScreen::updateQuick(uint32_t elapsedMs) {
         lv_obj_set_style_bg_opa(core_, remaining, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(endpoint_, remaining, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(glowLine_, static_cast<uint8_t>(remaining / 6U), LV_PART_MAIN);
+        lv_obj_set_style_text_opa(authorLabel_, remaining, LV_PART_MAIN);
     }
 }
 
