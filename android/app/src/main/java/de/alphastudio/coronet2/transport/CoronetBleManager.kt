@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import de.alphastudio.coronet2.model.*
 import org.json.JSONObject
@@ -32,6 +33,8 @@ class CoronetBleManager(
         private val CommandUuid = UUID.fromString("7b7e0003-9f2a-4f3c-8d2a-c0a0e7c0ffee")
         private val EventUuid = UUID.fromString("7b7e0004-9f2a-4f3c-8d2a-c0a0e7c0ffee")
         private val Cccd = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private const val ProtocolVersion = 2
+        private const val StateSnapshotBytes = 185
         private const val MaxCommandBytes = 384
         private const val MaxPendingCommands = 16
     }
@@ -50,6 +53,12 @@ class CoronetBleManager(
     @Volatile private var subscriptionsReady = false
     @Volatile private var serviceDiscoveryStarted = false
     private val serviceDiscoveryFallback = Runnable { gatt?.let(::discoverServicesOnce) }
+    @Volatile private var reconnectEnabled = false
+    private var reconnectAttempt = 0
+    private val reconnectRunnable = Runnable {
+        val device = activeDevice
+        if (reconnectEnabled && device != null && gatt == null) connectGatt(device)
+    }
 
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
@@ -75,21 +84,41 @@ class CoronetBleManager(
     @SuppressLint("MissingPermission")
     fun connect(device: CoronetDevice) {
         if (!hasConnectPermission() || device.address.isBlank()) return
-        stopScan(); gatt?.close(); activeDevice = device
+        Log.i("coroNET-BLE", "connect requested address=${device.address}")
+        stopScan()
+        mainHandler.removeCallbacks(reconnectRunnable)
+        reconnectEnabled = true
+        reconnectAttempt = 0
+        activeDevice = device
+        connectGatt(device)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun connectGatt(device: CoronetDevice) {
+        if (!reconnectEnabled || !hasConnectPermission() || device.address.isBlank()) return
+        Log.i("coroNET-BLE", "GATT attempt=${reconnectAttempt + 1} address=${device.address}")
+        gatt?.close()
+        gatt = null
         synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
         descriptorWrites.clear(); synchronized(assemblies) { assemblies.clear() }; subscriptionsReady = false
         serviceDiscoveryStarted = false
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
-        gatt = adapter?.getRemoteDevice(device.address)?.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+        gatt = runCatching {
+            adapter?.getRemoteDevice(device.address)?.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+        }.getOrNull()
+        if (gatt == null) scheduleReconnect()
     }
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
+        mainHandler.removeCallbacks(reconnectRunnable)
+        reconnectEnabled = false
         gatt?.disconnect()
         gatt?.close()
         gatt = null
         command = null
+        activeDevice = null
         subscriptionsReady = false
         serviceDiscoveryStarted = false
         synchronized(assemblies) { assemblies.clear() }
@@ -135,15 +164,18 @@ class CoronetBleManager(
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            Log.i("coroNET-BLE", "connection status=$status state=$newState address=${gatt.device.address}")
             if (this@CoronetBleManager.gatt !== gatt) {
                 if (newState == BluetoothProfile.STATE_DISCONNECTED) gatt.close()
                 return
             }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                mainHandler.removeCallbacks(reconnectRunnable)
+                reconnectAttempt = 0
                 val mtuRequestStarted = gatt.requestMtu(247)
                 if (mtuRequestStarted) mainHandler.postDelayed(serviceDiscoveryFallback, 1200)
                 else discoverServicesOnce(gatt)
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 mainHandler.removeCallbacks(serviceDiscoveryFallback)
                 command = null
                 subscriptionsReady = false
@@ -152,6 +184,7 @@ class CoronetBleManager(
                 activeDevice?.let { onSnapshot(DeviceSnapshot(device = it)) }
                 if (this@CoronetBleManager.gatt === gatt) this@CoronetBleManager.gatt = null
                 gatt.close()
+                scheduleReconnect()
             }
         }
 
@@ -163,6 +196,7 @@ class CoronetBleManager(
 
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            Log.i("coroNET-BLE", "services status=$status service=${gatt.getService(ServiceUuid) != null}")
             if (gatt !== this@CoronetBleManager.gatt || status != BluetoothGatt.GATT_SUCCESS) return
             val service = gatt.getService(ServiceUuid) ?: return
             command = service.getCharacteristic(CommandUuid)
@@ -234,8 +268,18 @@ class CoronetBleManager(
         if (!serviceDiscoveryStarted) mainHandler.postDelayed(serviceDiscoveryFallback, 350)
     }
 
+    private fun scheduleReconnect() {
+        if (!reconnectEnabled || activeDevice == null) return
+        mainHandler.removeCallbacks(reconnectRunnable)
+        val exponent = reconnectAttempt.coerceAtMost(3)
+        val delayMs = (1000L shl exponent).coerceAtMost(10000L)
+        reconnectAttempt++
+        Log.i("coroNET-BLE", "reconnect scheduled in ${delayMs}ms")
+        mainHandler.postDelayed(reconnectRunnable, delayMs)
+    }
+
     private fun acceptFrame(source: UUID, frame: ByteArray) {
-        if (frame.size < 8 || frame[0].toInt() != 1) return
+        if (frame.size < 8 || (frame[0].toInt() and 0xff) != ProtocolVersion) return
         val header = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN)
         header.get(); val type = header.get().toInt() and 0xff
         val messageId = header.short.toInt() and 0xffff
@@ -275,9 +319,12 @@ class CoronetBleManager(
     }
 
     private fun parseSnapshot(bytes: ByteArray) {
-        if (bytes.size < 175) return
+        if (bytes.size != StateSnapshotBytes || (bytes[0].toInt() and 0xff) != ProtocolVersion ||
+            (bytes[1].toInt() and 0xff) != 1) return
         val b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        b.get(); b.get(); b.short; b.int; b.int
+        b.get(); b.get()
+        if ((b.short.toInt() and 0xffff) != StateSnapshotBytes) return
+        b.int; b.int
         val flags = b.short.toInt() and 0xffff
         val stateValue = b.get().toInt() and 0xff
         val progress = b.get().toInt() and 0xff

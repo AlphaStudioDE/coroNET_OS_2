@@ -1,6 +1,7 @@
 package de.alphastudio.coronet2
 
 import android.app.*
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -19,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -45,6 +47,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private val settingsMutationMutex = Mutex()
     private val settingsMutationRevision = AtomicLong(0)
     private val pendingSettingsMutations = AtomicInteger(0)
+    private val wifiReachable = AtomicBoolean(false)
     @Volatile private var ignoreBleSettingsUntilMs = 0L
     private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings, ::onPairing, ::onEvent)
 
@@ -79,17 +82,25 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         scanJob?.cancel(); ble.stopScan(); _scanning.value = false
         pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
+        wifiReachable.set(false)
         ignoreBleSettingsUntilMs = 0L
         val device = _devices.value.firstOrNull { it.id == id }
+        Log.i("coroNET", "select id=${device?.id.orEmpty()} ble=${device?.address.orEmpty()} wifi=${device?.host.orEmpty()}")
         _snapshot.value = DeviceSnapshot(device = device)
         _settings.value = DeviceSettings()
         if (device == null) return
+        if (device.address.isNotBlank()) ble.connect(device)
         if (device.host.isNotBlank() && device.token.isNotBlank()) {
             pollingJob = viewModelScope.launch(Dispatchers.IO) {
                 var settingsCountdown = 0
                 while (isActive) {
-                    onSnapshot(wifi.fetch(device))
-                    if (settingsCountdown-- <= 0) {
+                    val wifiSnapshot = wifi.fetch(device)
+                    val reachable = wifiSnapshot.connection == ConnectionKind.Wifi
+                    wifiReachable.set(reachable)
+                    if (reachable || _snapshot.value.connection != ConnectionKind.Ble) {
+                        onSnapshot(wifiSnapshot)
+                    }
+                    if (reachable && settingsCountdown-- <= 0) {
                         val expectedRevision = settingsMutationRevision.get()
                         val fetched = wifi.fetchSettings(device)
                         if (fetched != null && pendingSettingsMutations.get() == 0 &&
@@ -101,7 +112,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
                     delay(1500)
                 }
             }
-        } else if (device.address.isNotBlank()) ble.connect(device)
+        }
     }
 
     fun saveDevice(device: CoronetDevice) {
@@ -120,7 +131,12 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     fun sendSettings(json: String) {
         val device = _snapshot.value.device ?: return
         val patch = runCatching { JSONObject(json) }.getOrNull() ?: return
-        when (_snapshot.value.connection) {
+        val connection = when {
+            wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank() -> ConnectionKind.Wifi
+            _snapshot.value.connection == ConnectionKind.Ble -> ConnectionKind.Ble
+            else -> ConnectionKind.Offline
+        }
+        when (connection) {
             ConnectionKind.Wifi -> {
                 val revision = settingsMutationRevision.incrementAndGet()
                 pendingSettingsMutations.incrementAndGet()
@@ -164,6 +180,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
 
     private fun onSnapshot(value: DeviceSnapshot) {
         if (value.device?.id != _selectedId.value && value.device?.address != _snapshot.value.device?.address) return
+        if (value.connection == ConnectionKind.Ble && wifiReachable.get()) return
         val stateKey = value.device?.id?.takeIf { it.isNotBlank() }
             ?: value.device?.address?.takeIf { it.isNotBlank() }
             ?: return

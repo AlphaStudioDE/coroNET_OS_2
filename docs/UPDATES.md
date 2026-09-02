@@ -8,6 +8,9 @@
 - Added immediate local settings feedback so button labels, switches, and subsequent actions always use the latest selected value.
 - Added a delayed BLE settings reconciliation after edits without allowing an older response to undo a newer choice.
 - Serialized WiFi settings writes and guarded periodic refreshes against stale out-of-order responses.
+- Fixed the Android companion rejecting every protocol V2 frame as if it were an obsolete V1 frame.
+- Added automatic BLE reconnection and a verified WiFi-to-BLE fallback when the preferred local HTTP endpoint is unavailable.
+- Kept BLE connected while probing WiFi and prevented failed WiFi polls from replacing a healthy BLE session with an Offline state.
 
 ### Printer Telemetry Contract
 
