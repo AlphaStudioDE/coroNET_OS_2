@@ -6867,6 +6867,209 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             }
             break;
         }
+        case OtherAnimation::LuxuryAmbient: {
+            const RgbwColor gold = decorativeHsv(LedCategory::Other, 25U, 185U, 145U);
+            const RgbwColor sapphire = decorativeHsv(LedCategory::Other, 162U, 215U, 115U);
+            const RgbwColor pearl(155U, 145U, 125U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t foldA = wave8(static_cast<uint8_t>(now / 181U + path * 7U));
+                const uint8_t foldB = wave8(static_cast<uint8_t>(now / 263U - path * 5U + 89U));
+                const uint8_t amount = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(foldA) + foldB) / 2U);
+                RgbwColor color = blend(sapphire, gold, amount);
+                const uint8_t sheen = foldA > 232U
+                    ? static_cast<uint8_t>((foldA - 232U) * 7U) : 0U;
+                color = blend(scaled(color, static_cast<uint8_t>(62U + amount / 4U)),
+                              pearl, sheen);
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::SpectrumScanner: {
+            const uint16_t head = static_cast<uint16_t>((now / 48U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t trail = static_cast<uint16_t>(
+                    (head + hw::OuterCount - path) % hw::OuterCount);
+                if (trail > 15U) {
+                    setOuterVisualPathPixel(path, RgbwColor(2U, 2U, 2U));
+                    continue;
+                }
+                const uint8_t hue = static_cast<uint8_t>(trail * 255U / 15U);
+                const uint8_t value = trail == 0U ? 220U
+                    : static_cast<uint8_t>(190U - trail * 10U);
+                const uint8_t saturation = trail == 0U ? 35U : 250U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, saturation, value));
+            }
+            break;
+        }
+        case OtherAnimation::CalmDown: {
+            constexpr uint32_t CycleMs = 8400U;
+            const uint32_t phase = now % CycleMs;
+            const uint8_t envelope = phase < 3400U
+                ? static_cast<uint8_t>(phase * 255U / 3400U)
+                : phase < 6800U
+                    ? static_cast<uint8_t>((6800U - phase) * 255U / 3400U) : 0U;
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t spatial = static_cast<uint8_t>(max<int>(70,
+                    255 - static_cast<int>(distance) * 7));
+                const uint8_t value = static_cast<uint8_t>(18U +
+                    static_cast<uint16_t>(envelope) * spatial * 92U / 65025U);
+                const uint8_t hue = static_cast<uint8_t>(112U + distance * 2U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, 165U, value));
+            }
+            break;
+        }
+        case OtherAnimation::Meditation: {
+            constexpr uint32_t CycleMs = 10000U;
+            const uint32_t phase = now % CycleMs;
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            const uint16_t radius = phase < 4000U
+                ? static_cast<uint16_t>(phase * center / 4000U)
+                : phase < 8000U
+                    ? static_cast<uint16_t>((8000U - phase) * center / 4000U) : 0U;
+            const uint8_t rest = phase < 8000U ? 255U : 0U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                const uint8_t value = !rest ? 2U : delta <= 5U
+                    ? static_cast<uint8_t>(145U - delta * 24U) : 6U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, 118U, 135U, value));
+            }
+            break;
+        }
+        case OtherAnimation::Bioluminescence: {
+            const uint32_t epoch = now / 3600U;
+            const uint32_t phase = now % 3600U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t current = wave8(static_cast<uint8_t>(now / 221U + path * 5U));
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, 157U, 225U,
+                        static_cast<uint8_t>(4U + current / 18U)));
+            }
+            for (uint8_t bloom = 0; bloom < 4U; ++bloom) {
+                const uint16_t origin = static_cast<uint16_t>(
+                    hash8(epoch * 61U + bloom * 97U) * hw::OuterCount / 256U);
+                const uint16_t radius = static_cast<uint16_t>(
+                    ((phase + bloom * 730U) % 3600U) * 9U / 3600U);
+                const uint8_t fade = static_cast<uint8_t>(220U - radius * 20U);
+                for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                    const uint16_t distance = path > origin ? path - origin : origin - path;
+                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                    if (delta > 2U) continue;
+                    const uint8_t value = static_cast<uint8_t>(fade * (3U - delta) / 3U);
+                    setOuterVisualPathPixel(path,
+                        decorativeHsv(LedCategory::Other,
+                            static_cast<uint8_t>(118U + bloom * 14U), 205U, value));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::LiquidGlass: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t causticA = wave8(static_cast<uint8_t>(now / 97U + path * 11U));
+                const uint8_t causticB = wave8(static_cast<uint8_t>(now / 151U - path * 17U + 73U));
+                const uint8_t crossing = static_cast<uint8_t>(
+                    255U - min<uint16_t>(255U,
+                        static_cast<uint16_t>(abs(static_cast<int>(causticA) - causticB)) * 2U));
+                const uint8_t value = static_cast<uint8_t>(28U +
+                    (static_cast<uint16_t>(causticA) + causticB) / 7U + crossing / 8U);
+                const uint8_t saturation = static_cast<uint8_t>(115U - crossing / 4U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other,
+                        static_cast<uint8_t>(148U + causticB / 16U), saturation, value));
+            }
+            break;
+        }
+        case OtherAnimation::EmberRoom: {
+            const uint32_t tick = now / 95U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t coal = wave8(static_cast<uint8_t>(now / 183U + path * 9U));
+                const uint8_t texture = hash8(path * 101U + tick * 23U);
+                const uint8_t swell = wave8(static_cast<uint8_t>(now / 337U - path * 4U));
+                const uint8_t value = static_cast<uint8_t>(28U + coal / 6U + swell / 8U + texture / 18U);
+                const uint8_t hue = static_cast<uint8_t>(
+                    1U + max<uint8_t>(coal, swell) * 24U / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, 255U, value));
+            }
+            break;
+        }
+        case OtherAnimation::NeonRain: {
+            constexpr LedSection sections[3] = {
+                LedSection::Left, LedSection::Center, LedSection::Right,
+            };
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = sections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                fillSection(section, decorativeHsv(LedCategory::Other, 175U, 235U, 3U));
+                for (uint8_t drop = 0; drop < 4U; ++drop) {
+                    const uint16_t route = count + 8U;
+                    const uint16_t head = static_cast<uint16_t>((now /
+                        (58U + drop * 13U) + hash8(sectionIndex * 79U + drop * 113U)) % route);
+                    for (uint8_t tail = 0; tail < 6U; ++tail) {
+                        if (head < tail || head - tail >= count) continue;
+                        setSection(section, head - tail,
+                            decorativeHsv(LedCategory::Other,
+                                static_cast<uint8_t>(sectionIndex * 75U + drop * 29U + now / 81U),
+                                250U, static_cast<uint8_t>(210U - tail * 34U)));
+                    }
+                }
+            }
+            break;
+        }
+        case OtherAnimation::SolarEclipse: {
+            constexpr uint32_t CycleMs = 11000U;
+            const uint32_t phase = now % CycleMs;
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            const int16_t moon = static_cast<int16_t>(
+                phase * (hw::OuterCount + 12U) / CycleMs) - 6;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t solarDistance = path > center ? path - center : center - path;
+                const uint16_t moonDistance = static_cast<uint16_t>(abs(
+                    static_cast<int>(path) - moon));
+                uint8_t value = static_cast<uint8_t>(max<int>(4,
+                    175 - static_cast<int>(solarDistance) * 6));
+                if (moonDistance <= 3U) value = moonDistance == 3U ? 105U : 1U;
+                else if (moonDistance <= 7U) value = max<uint8_t>(value,
+                    static_cast<uint8_t>(205U - (moonDistance - 4U) * 33U));
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, 23U, 245U, value));
+            }
+            break;
+        }
+        case OtherAnimation::CrystalPrism: {
+            constexpr uint32_t CycleMs = 7200U;
+            const uint32_t phase = now % CycleMs;
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            const uint16_t spread = phase < 3000U
+                ? static_cast<uint16_t>(phase * center / 3000U)
+                : phase < 6000U
+                    ? static_cast<uint16_t>((6000U - phase) * center / 3000U) : 0U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                if (phase >= 6000U) {
+                    const uint8_t fade = static_cast<uint8_t>((CycleMs - phase) * 120U / 1200U);
+                    setOuterVisualPathPixel(path, distance <= 2U
+                        ? RgbwColor(fade, fade, fade) : RgbwColor());
+                    continue;
+                }
+                if (distance > spread + 2U) continue;
+                const uint8_t hue = static_cast<uint8_t>(
+                    distance * 255U / max<uint16_t>(1U, center));
+                const uint8_t saturation = spread < 3U ? 25U : 240U;
+                const uint8_t value = distance <= spread
+                    ? static_cast<uint8_t>(95U + distance * 105U / max<uint16_t>(1U, center))
+                    : 35U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, saturation, value));
+            }
+            break;
+        }
         case OtherAnimation::Count:
         default:
             break;

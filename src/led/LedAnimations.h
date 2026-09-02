@@ -351,6 +351,16 @@ enum class OtherAnimation : uint8_t {
     TimeBreath,
     SectionDemo,
     CinemaIdle,
+    LuxuryAmbient,
+    SpectrumScanner,
+    CalmDown,
+    Meditation,
+    Bioluminescence,
+    LiquidGlass,
+    EmberRoom,
+    NeonRain,
+    SolarEclipse,
+    CrystalPrism,
     Count,
 };
 

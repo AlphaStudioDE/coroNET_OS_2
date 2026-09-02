@@ -400,6 +400,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 68 | Time Breath | One slow breath spans every real minute, its palette advances with the minute value, and small section offsets preserve spatial depth. |
 | 69 | Section Demo | Left, Center, and Right hold unmistakably different reference colors while one neutral marker verifies the complete logical OUTER route and mirror mapping. |
 | 70 | Cinema Idle | A warm projector beam travels through a dark frame cadence while cooler side curtains keep the scene theatrical rather than uniformly amber. |
+| 71 | Luxury Ambient | Broad sapphire and gold folds cross slowly under sparse pearl highlights, creating a restrained premium atmosphere rather than a flat warm fill. |
+| 72 | Spectrum Scanner | A pale scanning lens decomposes into a compact complete-spectrum trail and leaves darkness behind as it circles OUTER. |
+| 73 | Calm Down | One long green-cyan inhale expands from Center, exhales symmetrically, and includes a deliberate dark rest in every 8.4-second cycle. |
+| 74 | Meditation | A single muted jade ring expands from Center, contracts at the same pace, and pauses in darkness before the next ten-second breath. |
+| 75 | Bioluminescence | Four deterministic underwater light blooms emerge at separate positions and expand as rings over a nearly black moving current. |
+| 76 | Liquid Glass | Two slow cyan caustic fields interfere to create moving transparent folds and pale crossing lines without discrete particles. |
+| 77 | Ember Room | A low red-orange coal bed carries broad heat swells and bounded deterministic texture, avoiding random single-frame sparks. |
+| 78 | Neon Rain | Four independently paced neon drops fall through each physical section with saturated heads and five-step colored tails. |
+| 79 | Solar Eclipse | A dark occluding core crosses a fixed amber sun while a compact bright corona remains visible around its moving edge. |
+| 80 | Crystal Prism | A white Center beam separates symmetrically into a full spectrum, reaches both ends, recombines, and rests before repeating. |
 
 ## Boot LED Experience
 
