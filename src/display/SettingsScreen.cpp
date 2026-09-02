@@ -538,6 +538,7 @@ void SettingsScreen::update() {
 void SettingsScreen::showPairingWizard() {
     if (pairingOverlay_) return;
     const PairingSnapshot pairing = pairingService().beginPairing();
+    pairingSuccessCloseAtMs_ = 0;
 
     pairingOverlay_ = lv_obj_create(root_);
     lv_obj_set_size(pairingOverlay_, 480, 320);
@@ -595,28 +596,47 @@ void SettingsScreen::showPairingWizard() {
 void SettingsScreen::updatePairingWizard() {
     if (!pairingOverlay_) return;
     const PairingSnapshot pairing = pairingService().snapshot();
+    const uint32_t now = millis();
     const uint32_t remainingMs = static_cast<int32_t>(pairing.expiresAtMs - millis()) > 0
                                      ? pairing.expiresAtMs - millis() : 0;
-    lv_label_set_text_fmt(pairingCodeLabel_, "%03lu %03lu",
-                          static_cast<unsigned long>(pairing.code / 1000U),
-                          static_cast<unsigned long>(pairing.code % 1000U));
-    lv_label_set_text_fmt(pairingTimerLabel_, "%02lu:%02lu",
-                          static_cast<unsigned long>(remainingMs / 60000U),
-                          static_cast<unsigned long>((remainingMs / 1000U) % 60U));
+
+    if (pairing.phase != PairingPhase::Completed) {
+        pairingSuccessCloseAtMs_ = 0;
+        lv_label_set_text_fmt(pairingCodeLabel_, "%03lu %03lu",
+                              static_cast<unsigned long>(pairing.code / 1000U),
+                              static_cast<unsigned long>(pairing.code % 1000U));
+        lv_obj_set_style_text_color(pairingCodeLabel_, lv_color_hex(ui::ColorText), LV_PART_MAIN);
+        lv_label_set_text_fmt(pairingTimerLabel_, "%02lu:%02lu",
+                              static_cast<unsigned long>(remainingMs / 60000U),
+                              static_cast<unsigned long>((remainingMs / 1000U) % 60U));
+    }
 
     const bool terminal = pairing.phase == PairingPhase::Completed ||
                           pairing.phase == PairingPhase::Cancelled ||
                           pairing.phase == PairingPhase::Expired;
     if (terminal) {
-        lv_label_set_text(pairingStatusLabel_,
-                          pairing.phase == PairingPhase::Completed ? "Phone paired successfully"
-                          : pairing.phase == PairingPhase::Expired ? "Pairing session expired"
-                                                                  : "Pairing cancelled");
+        if (pairing.phase == PairingPhase::Completed) {
+            if (pairingSuccessCloseAtMs_ == 0) pairingSuccessCloseAtMs_ = now + 10000U;
+            if (static_cast<int32_t>(pairingSuccessCloseAtMs_ - now) <= 0) {
+                closePairingWizard();
+                return;
+            }
+            const uint32_t secondsLeft = (pairingSuccessCloseAtMs_ - now + 999U) / 1000U;
+            lv_label_set_text(pairingCodeLabel_, "SUCCESS!");
+            lv_obj_set_style_text_color(pairingCodeLabel_, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+            lv_label_set_text(pairingStatusLabel_, "Your phone is securely paired and ready.");
+            lv_label_set_text_fmt(pairingTimerLabel_,
+                                  "This window will close automatically in %lu seconds.",
+                                  static_cast<unsigned long>(secondsLeft));
+        } else {
+            lv_label_set_text(pairingStatusLabel_,
+                              pairing.phase == PairingPhase::Expired ? "Pairing session expired"
+                                                                     : "Pairing cancelled");
+            lv_label_set_text(pairingTimerLabel_,
+                              pairing.phase == PairingPhase::Expired ? "SESSION EXPIRED"
+                                                                     : "SESSION CLOSED");
+        }
         lv_label_set_text(pairingConfirmLabel_, "CLOSE");
-        lv_label_set_text(pairingTimerLabel_,
-                          pairing.phase == PairingPhase::Completed ? "SECURE LINK READY"
-                          : pairing.phase == PairingPhase::Expired ? "SESSION EXPIRED"
-                                                                  : "SESSION CLOSED");
         actionBindings_[21].action = Action::PairingDone;
         lv_obj_clear_state(pairingConfirmButton_, LV_STATE_DISABLED);
         lv_obj_add_flag(pairingCancelButton_, LV_OBJ_FLAG_HIDDEN);
@@ -649,6 +669,7 @@ void SettingsScreen::closePairingWizard() {
     pairingConfirmButton_ = nullptr;
     pairingConfirmLabel_ = nullptr;
     pairingCancelButton_ = nullptr;
+    pairingSuccessCloseAtMs_ = 0;
     pairingService().dismiss();
     lv_obj_del_async(overlay);
     cacheValid_ = false;

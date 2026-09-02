@@ -83,6 +83,7 @@ private:
     lv_obj_t* pairingConfirmButton_ = nullptr;
     lv_obj_t* pairingConfirmLabel_ = nullptr;
     lv_obj_t* pairingCancelButton_ = nullptr;
+    uint32_t pairingSuccessCloseAtMs_ = 0;
     lv_obj_t* deviceNameLabel_ = nullptr;
     lv_obj_t* brightnessLabel_ = nullptr;
     lv_obj_t* brightnessSlider_ = nullptr;
