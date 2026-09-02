@@ -246,6 +246,16 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 | 28 | Theater Glow | Soft cyan marquee bulbs chase in a five-pixel rhythm over a low breathing auditorium glow. |
 | 29 | Tidal Pool | A separate aqua ripple expands from the center of each physical section, producing three offset pools. |
 | 30 | Neon Drift | Wide cyan and magenta neon bands move in opposite directions and blend only where they cross. |
+| 31 | Ready Breath | Printer availability selects cyan ready or amber waiting light; the sides breathe while Center holds a softer confirmation field. |
+| 32 | Ambient Clock | Minute and second positions are mapped around OUTER as a gold marker and a moving cyan hand, with an uptime fallback before time sync. |
+| 33 | Temp Idle | Mirrored side meters and a Center thermal gradient display the current chamber temperature from 20 to 65 C. |
+| 34 | Last Print Echo | The remembered filament color and progress remain visible while a soft highlight repeatedly scans the completed Center bar. |
+| 35 | WiFi Beacon | Amber, cyan, or green identifies no Wi-Fi, Wi-Fi without printer telemetry, or a complete online path; orbit speed reinforces the state. |
+| 36 | Sleepy Core | Almost-dark blue sides surround a very slow violet Center core for the lowest-motion decorative idle scene. |
+| 37 | Material Shelf | Four separated OUTER compartments show the printer's loaded filament colors, with distinct restrained fallbacks for empty slots. |
+| 38 | Status Ring | Left reports Wi-Fi, Center reports printer connection, and Right reports telemetry freshness using independently meaningful colors. |
+| 39 | Chamber Lantern | Actual chamber temperature colors a low breathing side aura and a brighter symmetric Center lantern. |
+| 40 | Ready Split | Loaded filament color frames both sides while Center scans green when the printer is available or amber while waiting. |
 
 ## Finish
 

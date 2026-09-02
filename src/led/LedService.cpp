@@ -1,6 +1,7 @@
 #include "LedService.h"
 
 #include <esp_heap_caps.h>
+#include <time.h>
 
 #include "../config/HardwareConfig.h"
 #include "../boot/BootExperience.h"
@@ -418,6 +419,16 @@ void LedService::render(uint32_t now) {
         context.printDurationSec = system.printDurationSec;
         context.printEtaSec = system.printEtaSec;
         context.printerOnline = system.printerConnected && system.printerTelemetryValid;
+        context.wifiConnected = system.wifiConnected;
+        context.timeReady = system.timeReady;
+        if (context.timeReady) {
+            const time_t epoch = time(nullptr);
+            struct tm local {};
+            if (localtime_r(&epoch, &local)) {
+                context.secondOfMinute = static_cast<uint8_t>(local.tm_sec);
+                context.minuteOfHour = static_cast<uint8_t>(local.tm_min);
+            }
+        }
         context.ventFailsafe = system.ventFailsafe;
         context.printerTelemetryAgeMs = system.lastPrinterUpdateMs
             ? now - system.lastPrinterUpdateMs : UINT32_MAX;
@@ -441,6 +452,10 @@ void LedService::render(uint32_t now) {
             context.printDurationSec = 4260U;
             context.printEtaSec = 1740U;
             context.printerOnline = true;
+            context.wifiConnected = true;
+            context.timeReady = true;
+            context.secondOfMinute = static_cast<uint8_t>((now / 1000U) % 60U);
+            context.minuteOfHour = 18U;
             context.ventFailsafe = false;
             context.printerTelemetryAgeMs = 0U;
         }
@@ -742,11 +757,12 @@ void LedService::renderCategory(LedCategory category, uint8_t animation,
         case LedCategory::Finish: renderFinish(animation, context); break;
         case LedCategory::Other: renderOther(animation, context.nowMs); break;
         case LedCategory::Idle:
-        default: renderIdle(animation, context.nowMs); break;
+        default: renderIdle(animation, context); break;
     }
 }
 
-void LedService::renderIdle(uint8_t animation, uint32_t now) {
+void LedService::renderIdle(uint8_t animation, const LedAnimationContext& context) {
+    const uint32_t now = context.nowMs;
     switch (static_cast<IdleAnimation>(animation)) {
         case IdleAnimation::Rainbow: {
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
@@ -1214,6 +1230,193 @@ void LedService::renderIdle(uint8_t animation, uint32_t now) {
                 const uint8_t value = static_cast<uint8_t>(30U +
                     max<uint8_t>(cyanBand, pinkBand) * 155U / 255U);
                 setOuterVisualPathPixel(path, scaled(blend(cyan, pink, amount), value));
+            }
+            break;
+        }
+        case IdleAnimation::ReadyBreath: {
+            const uint8_t breath = static_cast<uint8_t>(52U + wave8(now / 74U) * 115U / 255U);
+            const RgbwColor ready = context.printerOnline
+                ? decorativeHsv(LedCategory::Idle, 139U, 210U, 255U)
+                : decorativeHsv(LedCategory::Idle, 24U, 225U, 255U);
+            fillSection(LedSection::Left, scaled(ready, breath));
+            fillSection(LedSection::Right, scaled(ready, breath));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t center = static_cast<uint8_t>(70U +
+                    wave8(static_cast<uint8_t>(now / 74U + i * 4U)) * 80U / 255U);
+                setSection(LedSection::Center, i,
+                    context.printerOnline ? RgbwColor(center, center, center)
+                                          : scaled(ready, center));
+            }
+            break;
+        }
+        case IdleAnimation::AmbientClock: {
+            const uint8_t second = context.timeReady
+                ? context.secondOfMinute : static_cast<uint8_t>((now / 1000U) % 60U);
+            const uint8_t minute = context.timeReady
+                ? context.minuteOfHour : static_cast<uint8_t>((now / 60000U) % 60U);
+            const uint16_t secondPosition = static_cast<uint16_t>(
+                static_cast<uint32_t>(second) * hw::OuterCount / 60U);
+            const uint16_t minutePosition = static_cast<uint16_t>(
+                static_cast<uint32_t>(minute) * hw::OuterCount / 60U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, 150U, 160U, path % 7U == 0U ? 28U : 8U));
+            }
+            for (uint8_t tail = 0; tail < 5U; ++tail) {
+                const uint16_t path = static_cast<uint16_t>(
+                    (secondPosition + hw::OuterCount - tail) % hw::OuterCount);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Idle, 143U, 145U,
+                        static_cast<uint8_t>(215U - tail * 38U)));
+            }
+            setOuterVisualPathPixel(minutePosition,
+                decorativeHsv(LedCategory::Idle, 30U, 205U, 230U));
+            break;
+        }
+        case IdleAnimation::TemperatureIdle: {
+            const uint8_t chamber = temperaturePercent(context.chamberTempC, 20.0f, 65.0f, 22U);
+            const RgbwColor temperature = temperatureColor(chamber);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t leftCoverage = progressCoverage(chamber, hw::LeftCount, i);
+                const uint8_t rightCoverage = progressCoverage(chamber, hw::RightCount,
+                    hw::RightCount - 1U - i);
+                setSection(LedSection::Left, i,
+                    scaled(temperature, leftCoverage ? static_cast<uint8_t>(55U + leftCoverage * 165U / 255U) : 8U));
+                setSection(LedSection::Right, i,
+                    scaled(temperature, rightCoverage ? static_cast<uint8_t>(55U + rightCoverage * 165U / 255U) : 8U));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t position = static_cast<uint8_t>(
+                    i * 255U / max<uint16_t>(1U, hw::CenterCount - 1U));
+                setSection(LedSection::Center, i,
+                    blend(scaled(temperature, 28U), scaled(temperature, 85U), position));
+            }
+            break;
+        }
+        case IdleAnimation::LastPrintEcho: {
+            RgbwColor filament = fromRgb(context.filamentRgb);
+            if (max(filament.r, max(filament.g, filament.b)) < 12U) {
+                filament = decorativeHsv(LedCategory::Idle, static_cast<uint8_t>(now / 90U), 230U, 255U);
+            }
+            const uint8_t breath = static_cast<uint8_t>(38U + wave8(now / 86U) / 5U);
+            fillSection(LedSection::Left, scaled(filament, breath));
+            fillSection(LedSection::Right, scaled(filament, breath));
+            const uint8_t remembered = context.progress ? min<uint8_t>(context.progress, 100U) : 100U;
+            const uint16_t echo = static_cast<uint16_t>((now / 145U) % hw::CenterCount);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t coverage = progressCoverage(remembered, hw::CenterCount, i);
+                const uint16_t distance = i > echo ? i - echo : echo - i;
+                uint8_t value = coverage ? static_cast<uint8_t>(42U + coverage / 4U) : 4U;
+                if (distance <= 3U) value = max<uint8_t>(value,
+                    static_cast<uint8_t>(175U - distance * 42U));
+                setSection(LedSection::Center, i, scaled(filament, value));
+            }
+            break;
+        }
+        case IdleAnimation::WifiBeacon: {
+            const RgbwColor status = !context.wifiConnected
+                ? decorativeHsv(LedCategory::Idle, 18U, 245U, 255U)
+                : context.printerOnline
+                    ? decorativeHsv(LedCategory::Idle, 96U, 225U, 255U)
+                    : decorativeHsv(LedCategory::Idle, 143U, 215U, 255U);
+            const uint16_t speed = !context.wifiConnected ? 48U
+                : context.printerOnline ? 125U : 82U;
+            const uint16_t head = static_cast<uint16_t>((now / speed) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t trail = static_cast<uint16_t>(
+                    (head + hw::OuterCount - path) % hw::OuterCount);
+                const uint8_t value = trail <= 6U
+                    ? static_cast<uint8_t>(215U - trail * 30U) : 12U;
+                setOuterVisualPathPixel(path, scaled(status, value));
+            }
+            break;
+        }
+        case IdleAnimation::SleepyCore: {
+            const uint8_t core = static_cast<uint8_t>(16U + wave8(now / 118U) / 9U);
+            fillSection(LedSection::Left,
+                decorativeHsv(LedCategory::Idle, 160U, 210U, 5U));
+            fillSection(LedSection::Right,
+                decorativeHsv(LedCategory::Idle, 160U, 210U, 5U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t center = hw::CenterCount / 2U;
+                const uint16_t distance = i > center ? i - center : center - i;
+                const uint8_t value = static_cast<uint8_t>(max<int>(4,
+                    core - static_cast<int>(distance)));
+                setSection(LedSection::Center, i,
+                    decorativeHsv(LedCategory::Idle, 191U, 220U, value));
+            }
+            break;
+        }
+        case IdleAnimation::MaterialShelf: {
+            RgbwColor palette[4];
+            for (uint8_t slot = 0; slot < 4U; ++slot) {
+                palette[slot] = (context.filamentColorMask & (1U << slot))
+                    ? fromRgb(context.filamentColorsRgb[slot])
+                    : decorativeHsv(LedCategory::Idle,
+                        static_cast<uint8_t>(34U + slot * 58U), 180U, 130U);
+                if (max(palette[slot].r, max(palette[slot].g, palette[slot].b)) < 12U) {
+                    palette[slot] = decorativeHsv(LedCategory::Idle,
+                        static_cast<uint8_t>(34U + slot * 58U), 220U, 190U);
+                }
+            }
+            const uint8_t shimmer = static_cast<uint8_t>(78U + wave8(now / 103U) / 6U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t slot = min<uint8_t>(3U,
+                    static_cast<uint8_t>(path * 4U / hw::OuterCount));
+                const bool divider = path > 0U && (path * 4U / hw::OuterCount) !=
+                    ((path - 1U) * 4U / hw::OuterCount);
+                setOuterVisualPathPixel(path, divider
+                    ? RgbwColor(145U, 145U, 135U) : scaled(palette[slot], shimmer));
+            }
+            break;
+        }
+        case IdleAnimation::StatusRing: {
+            const bool telemetryFresh = context.printerTelemetryAgeMs < 15000U;
+            const RgbwColor wifi = context.wifiConnected
+                ? decorativeHsv(LedCategory::Idle, 143U, 210U, 255U)
+                : decorativeHsv(LedCategory::Idle, 18U, 240U, 255U);
+            const RgbwColor printer = context.printerOnline
+                ? decorativeHsv(LedCategory::Idle, 96U, 225U, 255U)
+                : decorativeHsv(LedCategory::Idle, 24U, 235U, 255U);
+            const RgbwColor telemetry = telemetryFresh
+                ? decorativeHsv(LedCategory::Idle, 96U, 225U, 255U)
+                : decorativeHsv(LedCategory::Idle, 0U, 235U, 255U);
+            const uint8_t pulse = static_cast<uint8_t>(55U + wave8(now / 62U) / 3U);
+            fillSection(LedSection::Left, scaled(wifi, pulse));
+            fillSection(LedSection::Center, scaled(printer, pulse));
+            fillSection(LedSection::Right, scaled(telemetry, pulse));
+            break;
+        }
+        case IdleAnimation::ChamberLantern: {
+            const uint8_t chamber = temperaturePercent(context.chamberTempC, 20.0f, 65.0f, 22U);
+            const RgbwColor temperature = temperatureColor(chamber);
+            const uint8_t breath = static_cast<uint8_t>(52U + wave8(now / 105U) / 8U);
+            fillSection(LedSection::Left, scaled(temperature, breath));
+            fillSection(LedSection::Right, scaled(temperature, breath));
+            const uint16_t half = hw::CenterCount / 2U;
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i < half ? half - 1U - i : i - half;
+                const uint8_t lantern = static_cast<uint8_t>(max<int>(50,
+                    150 - static_cast<int>(distance) * 10));
+                setSection(LedSection::Center, i, scaled(temperature, lantern));
+            }
+            break;
+        }
+        case IdleAnimation::PrintReadySplit: {
+            RgbwColor filament = fromRgb(context.filamentRgb);
+            if (max(filament.r, max(filament.g, filament.b)) < 12U) {
+                filament = decorativeHsv(LedCategory::Idle, 139U, 220U, 210U);
+            }
+            fillSection(LedSection::Left, scaled(filament, 112U));
+            fillSection(LedSection::Right, scaled(filament, 112U));
+            const RgbwColor ready = context.printerOnline
+                ? decorativeHsv(LedCategory::Idle, 96U, 230U, 255U)
+                : decorativeHsv(LedCategory::Idle, 24U, 230U, 255U);
+            const uint16_t shift = static_cast<uint16_t>(now / (context.printerOnline ? 145U : 78U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t lane = static_cast<uint8_t>((i + shift) % 7U);
+                setSection(LedSection::Center, i,
+                    scaled(ready, lane < 3U ? 185U : 24U));
             }
             break;
         }

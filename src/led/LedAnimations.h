@@ -37,6 +37,16 @@ enum class IdleAnimation : uint8_t {
     TheaterGlow,
     TidalPool,
     NeonDrift,
+    ReadyBreath,
+    AmbientClock,
+    TemperatureIdle,
+    LastPrintEcho,
+    WifiBeacon,
+    SleepyCore,
+    MaterialShelf,
+    StatusRing,
+    ChamberLantern,
+    PrintReadySplit,
     Count,
 };
 
@@ -276,6 +286,10 @@ struct LedAnimationContext {
     uint32_t printEtaSec = 0;
     uint32_t printerTelemetryAgeMs = UINT32_MAX;
     bool printerOnline = false;
+    bool wifiConnected = false;
+    bool timeReady = false;
+    uint8_t secondOfMinute = 0;
+    uint8_t minuteOfHour = 0;
     bool ventFailsafe = false;
     bool preview = false;
     bool finishing = false;

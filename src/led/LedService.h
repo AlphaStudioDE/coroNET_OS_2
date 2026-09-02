@@ -34,7 +34,7 @@ private:
     void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted);
     void renderCategory(LedCategory category, uint8_t animation,
                         const LedAnimationContext& context);
-    void renderIdle(uint8_t animation, uint32_t now);
+    void renderIdle(uint8_t animation, const LedAnimationContext& context);
     void renderPrint(uint8_t animation, const LedAnimationContext& context);
     void renderPause(uint8_t animation, const LedAnimationContext& context);
     void renderError(uint8_t animation, const LedAnimationContext& context);
