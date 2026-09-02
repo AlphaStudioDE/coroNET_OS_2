@@ -72,15 +72,17 @@ uint8_t toolIndexFromObject(const char* objectName) {
     return 0;
 }
 
-uint32_t parseFilamentColor(const char* text) {
-    if (!text) return 0xFFFFFF;
+bool parseFilamentColor(const char* text, uint32_t& output) {
+    if (!text) return false;
     while (*text == '#' || *text == ' ') ++text;
-    if (strlen(text) < 6) return 0xFFFFFF;
+    if (strlen(text) < 6) return false;
     char rgb[7] = {};
     memcpy(rgb, text, 6);
     char* end = nullptr;
     const unsigned long value = strtoul(rgb, &end, 16);
-    return end == rgb + 6 ? static_cast<uint32_t>(value) : 0xFFFFFF;
+    if (end != rgb + 6) return false;
+    output = static_cast<uint32_t>(value);
+    return true;
 }
 
 String baseUrl(const char* host, uint16_t port) {
@@ -604,6 +606,9 @@ void PrinterService::applyResult(const PollResult& result) {
     system.printDurationSec = result.printDurationSec;
     system.printEtaSec = result.printEtaSec;
     system.filamentColorRgb = result.filamentColorRgb;
+    memcpy(system.filamentColorsRgb, result.filamentColorsRgb,
+           sizeof(system.filamentColorsRgb));
+    system.filamentColorMask = result.filamentColorMask;
     setConnectionState(true);
     const uint32_t now = millis();
     system.printerState = nextState;
@@ -724,8 +729,17 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
                                  : 0;
     }
     JsonArrayConst colors = status["print_task_config"]["filament_color_rgba"].as<JsonArrayConst>();
-    if (!colors.isNull() && tool < colors.size()) {
-        result.filamentColorRgb = parseFilamentColor(colors[tool] | "");
+    if (!colors.isNull()) {
+        for (uint8_t index = 0; index < 4U && index < colors.size(); ++index) {
+            uint32_t color = 0;
+            if (parseFilamentColor(colors[index] | "", color)) {
+                result.filamentColorsRgb[index] = color;
+                result.filamentColorMask |= static_cast<uint8_t>(1U << index);
+            }
+        }
+        if (tool < 4U && (result.filamentColorMask & (1U << tool))) {
+            result.filamentColorRgb = result.filamentColorsRgb[tool];
+        }
     }
     JsonArrayConst materials = status["print_task_config"]["filament_type"].as<JsonArrayConst>();
     const char* material = (!materials.isNull() && tool < materials.size()) ? (materials[tool] | "-") : "-";

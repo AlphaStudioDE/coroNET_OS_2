@@ -27,6 +27,16 @@ enum class PrintAnimation : uint8_t {
     DnaHelix,
     PixelRain,
     Orbit,
+    ExtruderSpark,
+    LayerScan,
+    HeatRipple,
+    FilamentComets,
+    ProgressTheater,
+    NozzleTrace,
+    BuildPlate,
+    MicroSteps,
+    FlowWave,
+    ToolheadOrbit,
     Count,
 };
 
@@ -40,6 +50,8 @@ struct LedAnimationContext {
     float bedTempC = NAN;
     float chamberTempC = NAN;
     uint32_t filamentRgb = 0xFFFFFF;
+    uint32_t filamentColorsRgb[4] = {};
+    uint8_t filamentColorMask = 0;
     uint32_t printDurationSec = 0;
     uint32_t printEtaSec = 0;
     bool preview = false;

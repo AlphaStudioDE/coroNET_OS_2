@@ -13,6 +13,8 @@ constexpr const char* PrintNames[] = {
     "Progress Pulse", "Comet", "Active Section", "Running", "Breathe",
     "Wipe", "Shimmer", "Bicolor", "Thermometer", "Snake",
     "Rainbow Progress", "Heartbeat", "DNA Helix", "Pixel Rain", "Orbit",
+    "Extruder Spark", "Layer Scan", "Heat Ripple", "Filament Comets", "Progress Theater",
+    "Nozzle Trace", "Build Plate", "Micro Steps", "Flow Wave", "Toolhead Orbit",
 };
 
 constexpr const char* PauseNames[] = {

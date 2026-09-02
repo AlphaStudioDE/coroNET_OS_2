@@ -66,6 +66,8 @@ private:
         uint32_t printDurationSec = 0;
         uint32_t printEtaSec = 0;
         uint32_t filamentColorRgb = 0xFFFFFF;
+        uint32_t filamentColorsRgb[4] = {};
+        uint8_t filamentColorMask = 0;
         char filename[65] = "";
         char material[25] = "";
         char message[96] = "";

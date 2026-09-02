@@ -75,6 +75,8 @@ struct SystemState {
     char printFilename[65] = "";
     char materialName[25] = "";
     uint32_t filamentColorRgb = 0xFFFFFF;
+    uint32_t filamentColorsRgb[4] = {};
+    uint8_t filamentColorMask = 0;
     char printerStatusText[96] = "";
 
     bool screenSaverActive = false;
