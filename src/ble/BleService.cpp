@@ -10,6 +10,7 @@
 #include "../companion/PairingService.h"
 #include "../config/AppConfig.h"
 #include "../core/DeviceIdentity.h"
+#include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
@@ -130,6 +131,7 @@ BleService& bleService() {
 }
 
 void BleService::begin() {
+    logHeapDiagnostics("ble-before-queue");
     if (!commandQueue_) {
         commandQueue_ = xQueueCreate(CommandQueueDepth, sizeof(QueuedCommand));
         if (!commandQueue_) {
@@ -138,6 +140,7 @@ void BleService::begin() {
             return;
         }
     }
+    logHeapDiagnostics("ble-after-queue");
 
     gActiveService = this;
     strlcpy(deviceId_, deviceIdentity().id(), sizeof(deviceId_));
@@ -221,8 +224,10 @@ void BleService::startStack() {
     disconnectEventPending_ = false;
     portEXIT_CRITICAL(&connectionMux_);
 
+    logHeapDiagnostics("ble-before-init");
     refreshAdvertisedName();
     NimBLEDevice::init(advertisedName_);
+    logHeapDiagnostics("ble-after-init");
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
     NimBLEDevice::setMTU(247);
 
@@ -231,6 +236,7 @@ void BleService::startStack() {
         NimBLEDevice::deinit(true);
         return;
     }
+    logHeapDiagnostics("ble-after-server");
     server->setCallbacks(new ServerCallbacks());
     server->advertiseOnDisconnect(true);
 
@@ -260,6 +266,7 @@ void BleService::startStack() {
         gEventChr = nullptr;
         return;
     }
+    logHeapDiagnostics("ble-after-chars");
 
     gCommandChr->setCallbacks(new CommandCallbacks());
     server->start();
@@ -275,6 +282,7 @@ void BleService::startStack() {
     portEXIT_CRITICAL(&connectionMux_);
     state().bleReady = startOk;
     stateDirty_ = true;
+    logHeapDiagnostics("ble-after-advert");
     Serial.printf("[ble] advertising id=%s name=%s uuid=%u nameOk=%u start=%u fallback=%u\n",
                   deviceId_, advertisedName_, uuidOk ? 1 : 0, nameOk ? 1 : 0,
                   startOk ? 1 : 0, fallbackActive_ ? 1 : 0);

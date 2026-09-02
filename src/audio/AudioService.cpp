@@ -275,12 +275,14 @@ bool AudioService::setSampleRate(uint32_t sampleRate) {
 }
 
 void AudioService::logStatus() const {
+    const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
     Serial.printf(
-        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu files=%lu path=%s\n",
+        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu files=%lu stackHeadroom=%uB path=%s\n",
         driverReady_ ? 1U : 0U, storageReady_ ? 1U : 0U, playing_ ? 1U : 0U,
         bootAudioActive_ ? 1U : 0U, profileName(profile_), static_cast<unsigned long>(sampleRate_),
         static_cast<unsigned>(dmaBufferCount_), static_cast<unsigned>(BufferFrames),
         static_cast<unsigned long>(writeFailures_), static_cast<unsigned long>(completedFiles_),
+        static_cast<unsigned>(stackHeadroom),
         state().activeSoundPath[0] ? state().activeSoundPath : "-");
     logMemory("status");
 }

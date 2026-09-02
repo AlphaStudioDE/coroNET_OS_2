@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 
 #include "audio/AudioService.h"
@@ -19,6 +20,8 @@
 #include "wifi/WifiService.h"
 #include "vent/VentService.h"
 #include "update/OtaService.h"
+
+SET_LOOP_TASK_STACK_SIZE(6144);
 
 namespace {
 
@@ -102,6 +105,27 @@ void logBootDiagnostics() {
                   static_cast<unsigned>(reason), resetReasonName(reason),
                   priorStageValid ? bootStageName(rtcBootStageValue) : "unavailable");
     setBootStage(BootStage::Entry);
+}
+
+void logTaskDiagnostics() {
+    const UBaseType_t capacity = uxTaskGetNumberOfTasks() + 8U;
+    TaskStatus_t* tasks = static_cast<TaskStatus_t*>(heap_caps_calloc(
+        capacity, sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!tasks) {
+        Serial.println("[tasks] PSRAM allocation failed");
+        return;
+    }
+
+    const UBaseType_t count = uxTaskGetSystemState(tasks, capacity, nullptr);
+    Serial.printf("[tasks] count=%u (stack headroom is minimum observed)\n",
+                  static_cast<unsigned>(count));
+    for (UBaseType_t i = 0; i < count; ++i) {
+        Serial.printf("[task] %-16s priority=%u stackHeadroom=%uB\n",
+                      tasks[i].pcTaskName,
+                      static_cast<unsigned>(tasks[i].uxCurrentPriority),
+                      static_cast<unsigned>(tasks[i].usStackHighWaterMark));
+    }
+    heap_caps_free(tasks);
 }
 
 void executeSerialCommand() {
@@ -195,6 +219,13 @@ void executeSerialCommand() {
         Serial.printf("[console] SD recovery %s\n", coronet::otaService().requestSdRecovery() ? "queued" : "busy");
     } else if (strcmp(serialCommand, "ota status") == 0) {
         coronet::otaService().logStatus();
+    } else if (strcmp(serialCommand, "memory detail") == 0) {
+        coronet::logHeapDiagnostics("console");
+        coronet::ledService().logStatus();
+        coronet::audioService().logStatus();
+        coronet::printerService().logStatus();
+    } else if (strcmp(serialCommand, "memory tasks") == 0) {
+        logTaskDiagnostics();
     } else if (strcmp(serialCommand, "led status") == 0) {
         coronet::ledService().logStatus();
     } else if (strcmp(serialCommand, "led preview stop") == 0) {
@@ -304,6 +335,7 @@ void setup() {
     coronet::audioService().begin();
     setBootStage(BootStage::Audio);
     systemHealth.checkpoint("audio");
+    coronet::memoryService().reserveStartupDma(64U * 1024U);
     coronet::wifiService().begin();
     setBootStage(BootStage::Wifi);
     systemHealth.checkpoint("wifi");
@@ -346,6 +378,7 @@ void loop() {
     coronet::ventService().loop();
     coronet::pandaBreathService().loop();
     webControlService.loop();
+    coronet::memoryService().runtimeLoop(coronet::state().webReady);
     coronet::pairingService().loop();
     coronet::bleService().loop();
     coronet::otaService().loop();

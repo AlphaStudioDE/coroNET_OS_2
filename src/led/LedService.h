@@ -21,7 +21,7 @@ public:
 private:
     static constexpr uint32_t FrameIntervalMs = 30;
     static constexpr uint32_t SpiClockHz = 3200000;
-    static constexpr uint32_t TaskStackBytes = 5120;
+    static constexpr uint32_t TaskStackBytes = 3584;
     static constexpr UBaseType_t TaskPriority = 8;
     static constexpr UBaseType_t BootTaskPriority = 19;
     static constexpr BaseType_t TaskCore = 1;

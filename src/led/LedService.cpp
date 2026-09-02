@@ -260,12 +260,14 @@ bool LedService::copyFrame(RgbwColor* output, size_t count) const {
 }
 
 void LedService::logStatus() const {
-    Serial.printf("[led] ready=%u boot=%u preview=%u mirror=%u shows=%lu skipped=%lu frames=%lu dropped=%lu\n",
+    const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
+    Serial.printf("[led] ready=%u boot=%u preview=%u mirror=%u shows=%lu skipped=%lu frames=%lu dropped=%lu stackHeadroom=%uB\n",
                   started_ ? 1U : 0U, bootActive_ ? 1U : 0U, previewActive_ ? 1U : 0U,
                   settingsService().settings().mirrorLedLayout ? 1U : 0U,
                   static_cast<unsigned long>(shows_), static_cast<unsigned long>(skippedShows_),
                   static_cast<unsigned long>(state().ledFrameCount),
-                  static_cast<unsigned long>(state().ledDroppedFrames));
+                  static_cast<unsigned long>(state().ledDroppedFrames),
+                  static_cast<unsigned>(stackHeadroom));
 }
 
 void LedService::taskEntry(void* context) {

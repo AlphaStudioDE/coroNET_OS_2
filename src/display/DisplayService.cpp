@@ -30,7 +30,7 @@ void DisplayService::begin() {
     };
     cfg.lvgl_port_cfg.task_priority = 16;
     cfg.lvgl_port_cfg.task_affinity = 1;
-    cfg.lvgl_port_cfg.task_stack = 8192;
+    cfg.lvgl_port_cfg.task_stack = 6144;
     cfg.lvgl_port_cfg.task_max_sleep_ms = 40;
     cfg.lvgl_port_cfg.timer_period_ms = 5;
 

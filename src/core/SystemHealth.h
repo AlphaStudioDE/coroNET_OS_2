@@ -21,4 +21,6 @@ private:
     bool checkpointReady_ = false;
 };
 
+void logHeapDiagnostics(const char* label);
+
 }

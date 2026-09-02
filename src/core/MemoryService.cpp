@@ -4,6 +4,7 @@
 #include <esp_heap_caps.h>
 
 #include "../config/AppConfig.h"
+#include "SystemHealth.h"
 #include "SystemState.h"
 
 #if F_CPU != 240000000L
@@ -89,6 +90,40 @@ void MemoryService::sampleState(bool externalMallocEnabled) {
     s.psramReady = psramFound() && ESP.getPsramSize() > 0;
     s.externalMallocEnabled = externalMallocEnabled;
     s.externalMallocThreshold = externalMallocEnabled ? config::PsramMallocThresholdBytes : 0;
+}
+
+bool MemoryService::reserveStartupDma(size_t bytes) {
+    if (startupDmaReservation_ || bytes == 0) return startupDmaReservation_ != nullptr;
+    startupDmaReservation_ = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (!startupDmaReservation_) {
+        Serial.printf("[memory] startup DMA reservation failed: %uB\n", static_cast<unsigned>(bytes));
+        return false;
+    }
+    startupDmaReservationBytes_ = bytes;
+    Serial.printf("[memory] startup DMA reservation=%uB\n", static_cast<unsigned>(bytes));
+    logHeapDiagnostics("startup-dma-held");
+    return true;
+}
+
+void MemoryService::runtimeLoop(bool webReady) {
+    if (!startupDmaReservation_) return;
+    const uint32_t now = millis();
+    if (runtimeStartedMs_ == 0) runtimeStartedMs_ = now;
+    if (webReady) {
+        releaseStartupDma("web-ready");
+    } else if (now - runtimeStartedMs_ >= 10000U) {
+        releaseStartupDma("runtime-timeout");
+    }
+}
+
+void MemoryService::releaseStartupDma(const char* reason) {
+    if (!startupDmaReservation_) return;
+    heap_caps_free(startupDmaReservation_);
+    startupDmaReservation_ = nullptr;
+    Serial.printf("[memory] startup DMA reservation released=%uB reason=%s\n",
+                  static_cast<unsigned>(startupDmaReservationBytes_), reason ? reason : "-");
+    startupDmaReservationBytes_ = 0;
+    logHeapDiagnostics("startup-dma-free");
 }
 
 }
