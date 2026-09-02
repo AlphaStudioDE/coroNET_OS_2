@@ -44,6 +44,9 @@ constexpr const char* ErrorNames[] = {
     "Lockdown", "Warning Ticks", "Breach Scan", "Fault Sparks", "Red Juggle",
     "Evacuate", "Cause Hint", "Stack Light", "Smart Heartbeat", "Location Split",
     "Blackout Flash", "Recovery Wait", "Siren Scan", "Diagnostic Bits", "Service Beacon",
+    "Safe Shutdown", "Calm Alert", "Fault Locator", "Thermal Cut", "Network Lost",
+    "Service Code", "Containment", "Safe Breath", "Escalation", "Repair Beacon",
+    "Cooling Alarm",
 };
 
 constexpr const char* FinishNames[] = {

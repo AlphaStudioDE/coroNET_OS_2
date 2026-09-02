@@ -3494,6 +3494,173 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             setOuterVisualPathPixel(center, scaled(red, static_cast<uint8_t>(95U + pulse / 2U)));
             break;
         }
+        case ErrorAnimation::SafeShutdown: {
+            const uint32_t cycle = now % 5200U;
+            const uint8_t fade = cycle < 3600U
+                ? static_cast<uint8_t>(255U - cycle * 235U / 3600U)
+                : 20U;
+            const uint16_t center = hw::OuterCount / 2U;
+            const uint16_t boundary = static_cast<uint16_t>(cycle < 3600U
+                ? cycle * center / 3600U : center);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t edge = min<uint16_t>(path, hw::OuterCount - 1U - path);
+                const uint8_t value = edge >= boundary ? fade : 2U;
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            if (cycle >= 3900U && cycle < 4080U) {
+                setOuterVisualPathPixel(center, scaled(amber, 145U));
+            }
+            break;
+        }
+        case ErrorAnimation::CalmAlert: {
+            const uint8_t breath = static_cast<uint8_t>(38U + wave8(now / 52U) * 125U / 255U);
+            fillSection(LedSection::Left, scaled(red, breath));
+            fillSection(LedSection::Right, scaled(red, breath));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t edge = min<uint16_t>(i, hw::CenterCount - 1U - i);
+                const uint8_t value = static_cast<uint8_t>(breath * (150U + edge * 10U) / 255U);
+                setSection(LedSection::Center, i, scaled(amber, value));
+            }
+            break;
+        }
+        case ErrorAnimation::FaultLocator: {
+            uint16_t faultPath = hw::OuterCount / 2U;
+            if (networkFault) faultPath = hw::LeftCount / 2U;
+            else if (thermalFault) faultPath = hw::LeftCount + hw::CenterCount + hw::RightCount / 2U;
+            const uint16_t scan = static_cast<uint16_t>((now / 62U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t scanDistance = path > scan ? path - scan : scan - path;
+                uint8_t value = scanDistance < 4U ? static_cast<uint8_t>(165U - scanDistance * 38U) : 5U;
+                RgbwColor color = red;
+                const uint16_t faultDistance = path > faultPath ? path - faultPath : faultPath - path;
+                if (faultDistance <= 1U) {
+                    value = ((now / 145U) & 1U) ? 240U : 70U;
+                    color = networkFault ? blue : amber;
+                }
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
+        case ErrorAnimation::ThermalCut: {
+            const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 75U);
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 45U);
+            const uint8_t hottest = max(toolPercent, chamberPercent);
+            const RgbwColor heat = temperatureColor(hottest);
+            const uint8_t pulse = static_cast<uint8_t>(65U +
+                wave8(now / max<uint8_t>(7U, 30U - hottest / 5U)) * 175U / 255U);
+            const uint16_t cut = static_cast<uint16_t>(hottest * hw::OuterCount / 100U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const bool severed = path == cut || path + 1U == cut;
+                setOuterVisualPathPixel(path, severed ? RgbwColor() : scaled(heat, pulse));
+            }
+            if (cut < hw::OuterCount) setOuterVisualPathPixel(cut, scaled(RgbwColor(255U, 255U, 255U), 180U));
+            break;
+        }
+        case ErrorAnimation::NetworkLost: {
+            const uint8_t offset = static_cast<uint8_t>(now / 105U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t packet = static_cast<uint8_t>((path + offset) % 13U);
+                const bool payload = packet < 4U;
+                const bool dropped = hash8((now / 650U) * 83U + path * 17U) > 224U;
+                const RgbwColor color = dropped ? red : blue;
+                const uint8_t value = dropped ? 180U : (payload ? 165U : 5U);
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
+        case ErrorAnimation::ServiceCode: {
+            uint8_t code = 1U;
+            if (networkFault) code = 2U;
+            if (thermalFault) code = 3U;
+            if (networkFault && thermalFault) code = 4U;
+            const uint32_t cycle = now % 4200U;
+            const uint8_t flashIndex = static_cast<uint8_t>(cycle / 420U);
+            const bool flash = flashIndex < code * 2U && (flashIndex & 1U) == 0U && (cycle % 420U) < 150U;
+            fillSection(LedSection::Left, scaled(amber, flash ? 210U : 18U));
+            fillSection(LedSection::Right, scaled(amber, flash ? 210U : 18U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const bool digit = i < code * 4U && (i % 4U) < 2U;
+                setSection(LedSection::Center, i, scaled(red, digit ? 145U : 4U));
+            }
+            break;
+        }
+        case ErrorAnimation::Containment: {
+            const uint32_t cycle = now % 3600U;
+            const uint16_t gate = cycle < 1800U
+                ? static_cast<uint16_t>(cycle * (hw::CenterCount / 2U) / 1800U)
+                : hw::CenterCount / 2U;
+            fillSection(LedSection::Left, scaled(red, 80U));
+            fillSection(LedSection::Right, scaled(red, 80U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t edge = min<uint16_t>(i, hw::CenterCount - 1U - i);
+                uint8_t value = edge <= gate ? 175U : 5U;
+                if (gate >= hw::CenterCount / 2U &&
+                    (i == hw::CenterCount / 2U || i + 1U == hw::CenterCount / 2U)) {
+                    value = ((now / 160U) & 1U) ? 245U : 70U;
+                }
+                setSection(LedSection::Center, i, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::SafeBreath: {
+            const uint8_t breath = wave8(now / 64U);
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t phase = static_cast<uint8_t>(breath + distance * 10U);
+                const uint8_t value = static_cast<uint8_t>(18U + wave8(phase) * 80U / 255U);
+                setOuterVisualPathPixel(path, scaled(red, value));
+            }
+            break;
+        }
+        case ErrorAnimation::Escalation: {
+            const uint32_t cycle = now % 6000U;
+            const uint8_t ramp = static_cast<uint8_t>(cycle * 255U / 6000U);
+            const uint32_t period = max<uint32_t>(130U, 760U - ramp * 620U / 255U);
+            const uint8_t pulse = (cycle % period) < period / 3U
+                ? static_cast<uint8_t>(65U + ramp * 190U / 255U)
+                : static_cast<uint8_t>(10U + ramp / 8U);
+            fillSection(LedSection::Left, scaled(red, pulse));
+            fillSection(LedSection::Center, scaled(blend(red, amber, ramp), pulse));
+            fillSection(LedSection::Right, scaled(red, pulse));
+            if (ramp > 220U) {
+                const uint16_t flash = static_cast<uint16_t>((now / 45U) % hw::OuterCount);
+                setOuterVisualPathPixel(flash, RgbwColor(245U, 245U, 245U));
+            }
+            break;
+        }
+        case ErrorAnimation::RepairBeacon: {
+            const bool ready = !networkFault && !thermalFault;
+            const RgbwColor stateColor = ready ? green : amber;
+            const uint16_t head = static_cast<uint16_t>((now / 92U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t direct = path > head ? path - head : head - path;
+                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
+                const uint8_t value = distance < 5U ? static_cast<uint8_t>(190U - distance * 38U) : 8U;
+                setOuterVisualPathPixel(path, scaled(stateColor, value));
+            }
+            const uint8_t heartbeat = ((now % 1800U) < 110U) ? 220U : 42U;
+            fillSection(LedSection::Center, scaled(ready ? green : red, heartbeat));
+            break;
+        }
+        case ErrorAnimation::CoolingAlarm: {
+            const uint8_t chamberPercent = temperaturePercent(context.chamberTempC, 20.0f, 80.0f, 45U);
+            const RgbwColor heat = temperatureColor(chamberPercent);
+            const RgbwColor cooling = decorativeHsv(LedCategory::Error, 145U, 235U, 255U);
+            const uint8_t speed = max<uint8_t>(8U, 32U - chamberPercent / 4U);
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint8_t wave = wave8(static_cast<uint8_t>(now / speed + i * 22U));
+                setSection(LedSection::Left, i, scaled(cooling, static_cast<uint8_t>(25U + wave / 2U)));
+                setSection(LedSection::Right, hw::RightCount - 1U - i,
+                           scaled(heat, static_cast<uint8_t>(45U + wave * chamberPercent / 150U)));
+            }
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t amount = static_cast<uint8_t>(i * 255U / (hw::CenterCount - 1U));
+                setSection(LedSection::Center, i,
+                           scaled(blend(cooling, heat, amount), static_cast<uint8_t>(55U + wave8(now / speed + i * 13U) / 3U)));
+            }
+            break;
+        }
         case ErrorAnimation::Count:
         default:
             break;

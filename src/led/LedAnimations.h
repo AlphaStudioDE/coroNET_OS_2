@@ -158,6 +158,17 @@ enum class ErrorAnimation : uint8_t {
     SirenScan,
     DiagnosticBits,
     ServiceBeacon,
+    SafeShutdown,
+    CalmAlert,
+    FaultLocator,
+    ThermalCut,
+    NetworkLost,
+    ServiceCode,
+    Containment,
+    SafeBreath,
+    Escalation,
+    RepairBeacon,
+    CoolingAlarm,
     Count,
 };
 
