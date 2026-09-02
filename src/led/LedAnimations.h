@@ -213,6 +213,16 @@ enum class FinishAnimation : uint8_t {
     FilamentFireworks,
     InspectionLight,
     QuietPride,
+    CalmDone,
+    SilkUnveil,
+    GoldenHour,
+    Starfall,
+    SignatureSweep,
+    InspectReady,
+    PrintEcho,
+    SoftApplause,
+    CooldownAura,
+    ShowcaseLoop,
     Count,
 };
 

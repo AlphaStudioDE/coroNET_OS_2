@@ -223,7 +223,7 @@ The current Idle set is the compact initial OS 2 collection. These four effects 
 
 ## Finish
 
-Finish animations celebrate a completed job. The rebuilt set combines show-oriented scenes with filament-aware choices; later batches will also include cooldown and inspection-oriented results.
+Finish animations celebrate a completed job. The complete rebuilt set combines show-oriented scenes with filament-aware, cooldown, inspection, and deliberately calm choices.
 
 | # | Animation | What it shows |
 | ---: | --- | --- |
@@ -267,6 +267,16 @@ Finish animations celebrate a completed job. The rebuilt set combines show-orien
 | 38 | Filament Fireworks | Firework shells cycle through up to four loaded filament colors, using separated fallback hues for empty or near-black slots. |
 | 39 | Inspection Light | A neutral high-visibility beam scans back and forth across Center while both sides remain steadily illuminated. |
 | 40 | Quiet Pride | A calm filament breath surrounds a stable gold Center arch for a low-motion completion scene. |
+| 41 | Calm Done | A very slow filament-and-green settle keeps the completed state visible without demanding attention. |
+| 42 | Silk Unveil | Two broad interference folds travel through the filament color and catch a restrained pearl sheen like moving silk. |
+| 43 | Golden Hour | A spatial amber-to-gold horizon surrounds a brighter Center sun with slow natural light movement. |
+| 44 | Starfall | Sparse cool-white and warm stars fall symmetrically from both outer ends toward Center over a dark night field. |
+| 45 | Signature Sweep | A white-tipped filament stroke writes across Center and dries into a finished signature between two gold seals. |
+| 46 | Inspect Ready | A neutral inspection beam checks Left, Center, and Right in sequence, then holds a green all-clear presentation. |
+| 47 | Print Echo | Three alternating filament and gold echoes repeatedly travel outward from the completed object's Center. |
+| 48 | Soft Applause | Two broad low-intensity gold waves approach from the ends, meet gently, and fade without a hard flash. |
+| 49 | Cooldown Aura | Nozzle and bed heat continuously move a breathing full-bar aura from hot thermal color toward cool cyan. |
+| 50 | Showcase Loop | A seamless four-scene exhibition loop crossfades through filament reveal, gold orbit, prism light, and gallery illumination. |
 
 ## Other
 
