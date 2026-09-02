@@ -5,7 +5,8 @@ namespace coronet {
 namespace {
 
 constexpr const char* IdleNames[] = {
-    "Slow Orbit", "Ember Breath", "Horizon", "Quiet Spectrum",
+    "Rainbow", "Fireplace", "Ocean", "Star Pulse", "Meteor",
+    "Twinkle", "Larson", "Lava", "Gradient", "Plasma",
 };
 
 constexpr const char* PrintNames[] = {
@@ -106,6 +107,7 @@ const char* ledAnimationName(LedCategory category, uint8_t animation) {
     }
 }
 
+static_assert(arrayCount(IdleNames) == static_cast<uint8_t>(IdleAnimation::Count));
 static_assert(arrayCount(PrintNames) == static_cast<uint8_t>(PrintAnimation::Count));
 static_assert(arrayCount(PauseNames) == static_cast<uint8_t>(PauseAnimation::Count));
 static_assert(arrayCount(ErrorNames) == static_cast<uint8_t>(ErrorAnimation::Count));

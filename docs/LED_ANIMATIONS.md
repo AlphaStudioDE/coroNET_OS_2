@@ -212,14 +212,20 @@ Error animations range from unmistakable emergency signals to diagnostic pattern
 
 ## Idle
 
-The current Idle set is the compact initial OS 2 collection. These four effects will be reviewed and expanded with the same process used for Print, Pause, and Error.
+Idle animations provide useful ready-state cues and lower-motion ambient scenes. The first ten entries have been rebuilt for the OS 2 engine; the remaining coroNET 1 concepts will be added in reviewed batches.
 
 | # | Animation | What it shows |
 | ---: | --- | --- |
-| 1 | Slow Orbit | A softly phased spectrum breathes across each outer section, producing continuous low-motion ambient light. |
-| 2 | Ember Breath | A compact multicolor head with a short fading tail orbits the complete outer path. |
-| 3 | Horizon | Chamber temperature chooses a blue-to-red horizon color and a slow wave carries it through all outer sections. |
-| 4 | Quiet Spectrum | Sparse deterministic spectrum highlights appear over darkness and change at a deliberately relaxed pace. |
+| 1 | Rainbow | A complete, slowly rotating spectrum follows the full visual OUTER route with a restrained spatial shimmer. |
+| 2 | Fireplace | Independent layered flames move through both sides while Center holds a lower amber ember bed. |
+| 3 | Ocean | Two differently paced cyan and blue wave fields combine into broad swells and smaller surface ripples. |
+| 4 | Star Pulse | A softly shaped star-like field breathes from Center while its color advances only once per long cycle. |
+| 5 | Meteor | A saturated meteor with a long fading tail crosses the complete OUTER path, rests in darkness, and returns in a new hue. |
+| 6 | Twinkle | Sparse warm-white stars appear and decay deterministically over darkness without a retained particle buffer. |
+| 7 | Larson | A classic saturated red scanner bounces end to end across all 42 OUTER LEDs with a long directional tail. |
+| 8 | Lava | Two slow opposing flow fields form moving hot orange, red, and magenta molten regions. |
+| 9 | Gradient | A broad two-color gradient spans the complete outer path while both endpoint hues drift together. |
+| 10 | Plasma | Two faster interference fields drive both hue and brightness, creating a continuous energetic plasma surface. |
 
 ## Finish
 

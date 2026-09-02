@@ -6,6 +6,20 @@
 
 namespace coronet {
 
+enum class IdleAnimation : uint8_t {
+    Rainbow = 0,
+    Fireplace,
+    Ocean,
+    StarPulse,
+    Meteor,
+    Twinkle,
+    Larson,
+    Lava,
+    Gradient,
+    Plasma,
+    Count,
+};
+
 enum class PrintAnimation : uint8_t {
     ProgressBar = 0,
     Laser,
