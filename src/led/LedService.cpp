@@ -3839,6 +3839,181 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             }
             break;
         }
+        case FinishAnimation::RainbowExplosion: {
+            const uint32_t cycle = now % 2600U;
+            const uint16_t center = hw::OuterCount / 2U;
+            const uint16_t radius = static_cast<uint16_t>(min<uint32_t>(center + 6U,
+                cycle < 1250U ? cycle * (center + 6U) / 1250U : center + 6U));
+            const uint8_t fade = cycle < 1250U ? 255U
+                : cycle < 2250U ? static_cast<uint8_t>(255U - (cycle - 1250U) * 225U / 1000U)
+                                : 20U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                if (distance > radius) continue;
+                const uint16_t wake = radius - distance;
+                const uint8_t value = wake < 5U
+                    ? static_cast<uint8_t>(fade * (5U - wake) / 5U)
+                    : static_cast<uint8_t>(fade / 5U);
+                setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
+                    static_cast<uint8_t>(distance * 17U + now / 32U), 245U, value));
+            }
+            break;
+        }
+        case FinishAnimation::Disco: {
+            const uint32_t beat = now / 180U;
+            const uint8_t local = static_cast<uint8_t>((now % 180U) * 255U / 180U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                const uint8_t baseHue = hash8(beat * 97U + sectionIndex * 83U);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t block = static_cast<uint8_t>(i / 3U);
+                    const uint8_t hue = static_cast<uint8_t>(baseHue + block * 37U);
+                    const bool active = ((block + beat + sectionIndex) & 1U) == 0U;
+                    const uint8_t value = active
+                        ? static_cast<uint8_t>(225U - local / 5U) : 12U;
+                    setSection(section, i,
+                        decorativeHsv(LedCategory::Finish, hue, 250U, value));
+                }
+            }
+            break;
+        }
+        case FinishAnimation::Heart: {
+            const uint32_t cycle = now % 1650U;
+            uint8_t envelope = 12U;
+            if (cycle < 100U) envelope = static_cast<uint8_t>(45U + cycle * 210U / 100U);
+            else if (cycle < 220U) envelope = static_cast<uint8_t>(255U - (cycle - 100U) * 225U / 120U);
+            else if (cycle >= 310U && cycle < 405U) envelope = static_cast<uint8_t>(45U + (cycle - 310U) * 195U / 95U);
+            else if (cycle >= 405U && cycle < 560U) envelope = static_cast<uint8_t>(240U - (cycle - 405U) * 220U / 155U);
+            const uint16_t center = hw::OuterCount / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t shape = static_cast<uint8_t>(max<int>(70, 255 - distance * 8));
+                const RgbwColor rose = decorativeHsv(LedCategory::Finish,
+                    static_cast<uint8_t>(247U + distance / 3U), 235U, 255U);
+                setOuterVisualPathPixel(path,
+                    scaled(rose, static_cast<uint8_t>(envelope * shape / 255U)));
+            }
+            break;
+        }
+        case FinishAnimation::ColorSpiral: {
+            const uint8_t rotation = static_cast<uint8_t>(now / 13U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t helix = wave8(static_cast<uint8_t>(rotation + path * 19U));
+                const uint8_t hue = static_cast<uint8_t>(rotation / 2U + path * 11U + helix / 6U);
+                const uint8_t value = static_cast<uint8_t>(70U + helix * 165U / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Finish, hue, 245U, value));
+            }
+            break;
+        }
+        case FinishAnimation::Sparkle: {
+            const uint32_t frame = now / 125U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t shimmer = hash8(frame * 137U + path * 71U);
+                RgbwColor color = scaled(filament, 42U);
+                if (shimmer > 232U) {
+                    const uint8_t glint = static_cast<uint8_t>(130U + (shimmer - 232U) * 5U);
+                    color = blend(color, RgbwColor(255U, 250U, 225U), glint);
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case FinishAnimation::Champagne: {
+            fillSection(LedSection::Center, scaled(gold, 10U));
+            const uint32_t step = now / 85U;
+            for (uint8_t bubble = 0; bubble < 6U; ++bubble) {
+                const uint16_t leftPosition = static_cast<uint16_t>((step + bubble * 4U) % (hw::LeftCount + 5U));
+                const uint16_t rightPosition = static_cast<uint16_t>((step + bubble * 6U + 2U) % (hw::RightCount + 5U));
+                if (leftPosition < hw::LeftCount) {
+                    setSection(LedSection::Left, leftPosition,
+                               scaled(gold, static_cast<uint8_t>(150U + bubble * 15U)));
+                } else {
+                    const uint16_t burst = static_cast<uint16_t>((bubble * 3U + step) % hw::CenterCount);
+                    setSection(LedSection::Center, burst, RgbwColor(255U, 248U, 210U));
+                }
+                if (rightPosition < hw::RightCount) {
+                    setSection(LedSection::Right, hw::RightCount - 1U - rightPosition,
+                               scaled(gold, static_cast<uint8_t>(145U + bubble * 16U)));
+                } else {
+                    const uint16_t burst = static_cast<uint16_t>((hw::CenterCount - 1U -
+                        (bubble * 4U + step) % hw::CenterCount));
+                    setSection(LedSection::Center, burst, RgbwColor(255U, 248U, 210U));
+                }
+            }
+            break;
+        }
+        case FinishAnimation::WipeOut: {
+            const uint32_t cycle = now % 3600U;
+            const uint16_t half = (hw::OuterCount + 1U) / 2U;
+            const uint16_t reach = cycle < 1800U
+                ? static_cast<uint16_t>(cycle * half / 1800U)
+                : static_cast<uint16_t>((3600U - cycle) * half / 1800U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t edge = min<uint16_t>(path, hw::OuterCount - 1U - path);
+                if (edge >= reach) continue;
+                const uint8_t amount = static_cast<uint8_t>(path * 255U / (hw::OuterCount - 1U));
+                const RgbwColor color = blend(filament, gold, amount);
+                setOuterVisualPathPixel(path, scaled(color,
+                    static_cast<uint8_t>(105U + wave8(now / 26U + path * 9U) / 2U)));
+            }
+            break;
+        }
+        case FinishAnimation::Fill: {
+            const uint32_t cycle = now % 3900U;
+            const uint32_t exact = min<uint32_t>(hw::OuterCount * 255U,
+                cycle < 2600U ? cycle * hw::OuterCount * 255U / 2600U
+                              : hw::OuterCount * 255U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint32_t start = static_cast<uint32_t>(path) * 255U;
+                const uint8_t coverage = exact <= start ? 0U
+                    : exact >= start + 255U ? 255U : static_cast<uint8_t>(exact - start);
+                if (!coverage) continue;
+                const uint8_t shimmer = cycle >= 2600U
+                    ? static_cast<uint8_t>(160U + wave8(now / 18U + path * 15U) / 3U)
+                    : 205U;
+                setOuterVisualPathPixel(path,
+                    scaled(gold, static_cast<uint8_t>(coverage * shimmer / 255U)));
+            }
+            break;
+        }
+        case FinishAnimation::Waterfall: {
+            const uint16_t phase = static_cast<uint16_t>((now / 58U) % (hw::OuterCount + 12U));
+            for (uint8_t stream = 0; stream < 3U; ++stream) {
+                const uint16_t head = static_cast<uint16_t>((phase + stream * 14U) % hw::OuterCount);
+                for (uint8_t tail = 0; tail < 8U; ++tail) {
+                    if (head < tail) continue;
+                    const uint16_t path = head - tail;
+                    const uint8_t hue = static_cast<uint8_t>(145U + stream * 36U + tail * 2U);
+                    const uint8_t value = static_cast<uint8_t>(225U - tail * 25U);
+                    setOuterVisualPathPixel(path,
+                        decorativeHsv(LedCategory::Finish, hue, 210U, value));
+                }
+            }
+            break;
+        }
+        case FinishAnimation::Starburst: {
+            const uint32_t cycle = now % 1550U;
+            const uint16_t center = hw::OuterCount / 2U;
+            const uint16_t radius = static_cast<uint16_t>(cycle < 650U
+                ? cycle * (center + 4U) / 650U : center + 4U);
+            const uint8_t fade = cycle < 650U ? 255U
+                : static_cast<uint8_t>(max<int>(0, 255 - (cycle - 650U) * 255U / 900U));
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                if (delta > 1U && distance != 0U) continue;
+                const uint8_t value = distance == 0U
+                    ? static_cast<uint8_t>(fade / 2U)
+                    : static_cast<uint8_t>(max<int>(0, fade - delta * 70));
+                const RgbwColor color = distance == 0U ? RgbwColor(255U, 255U, 245U)
+                    : decorativeHsv(LedCategory::Finish,
+                        static_cast<uint8_t>(now / 20U + path * 17U), 240U, 255U);
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
         case FinishAnimation::Count:
         default:
             break;

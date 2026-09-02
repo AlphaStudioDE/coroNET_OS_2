@@ -32,7 +32,7 @@ The following behavior is shared by the entire catalog:
 | Pause | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 4 | Initial OS 2 set; expanded rebuild pending |
-| Finish | 10 | Rebuild in progress; first set implemented on the OS 2 engine |
+| Finish | 20 | Rebuild in progress; first two sets implemented on the OS 2 engine |
 | Other | 4 | Initial OS 2 set; expanded rebuild pending |
 
 ## Print
@@ -237,6 +237,16 @@ Finish animations celebrate a completed job. The rebuilt set combines show-orien
 | 8 | Gold Rain | Offset gold droplets travel through all three sections with bright heads and a low afterglow. |
 | 9 | Strobe Party | Three sections answer a syncopated celebration beat with different saturated colors and brief dark rests. |
 | 10 | Bouncing Balls | Four independently timed colored balls traverse and rebound across the complete 42-LED OUTER route, rather than being confined to Center. |
+| 11 | Rainbow Explosion | A spectrum shell expands from Center, leaves a dim colorful wake, and fades before the next explosion. |
+| 12 | Disco | Held three-LED color blocks alternate on a syncopated beat, producing deliberate stage cuts instead of random full-section changes. |
+| 13 | Heart | A shaped rose-colored double heartbeat is brightest at Center and remains visible as a soft outline between beats. |
+| 14 | Color Spiral | A rotating hue helix winds continuously around the outer visual path with a wave-shaped brightness profile. |
+| 15 | Sparkle | Warm white glints appear over a quiet active-filament surface, like light catching the completed print. |
+| 16 | Champagne | Gold bubbles rise independently through both sides and burst as bright points across Center. |
+| 17 | Wipe Out | Filament and gold light wipe inward from both ends, meet, and withdraw in a continuous cycle. |
+| 18 | Fill | Gold advances smoothly one LED at a time around the full path, then holds as a moving completed shimmer. |
+| 19 | Waterfall | Three cool color streams cascade around the full outer route with long fading tails. |
+| 20 | Starburst | A compact white core emits a fast multicolor shell, then the complete burst decays to darkness. |
 
 ## Other
 

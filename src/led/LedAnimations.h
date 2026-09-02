@@ -183,6 +183,16 @@ enum class FinishAnimation : uint8_t {
     GoldRain,
     StrobeParty,
     BouncingBalls,
+    RainbowExplosion,
+    Disco,
+    Heart,
+    ColorSpiral,
+    Sparkle,
+    Champagne,
+    WipeOut,
+    Fill,
+    Waterfall,
+    Starburst,
     Count,
 };
 

@@ -52,6 +52,8 @@ constexpr const char* ErrorNames[] = {
 constexpr const char* FinishNames[] = {
     "Sweep", "Rainbow", "Pulse", "Filament", "Fireworks",
     "Curtain", "Confetti", "Gold Rain", "Strobe Party", "Bouncing Balls",
+    "Rainbow Explosion", "Disco", "Heart", "Color Spiral", "Sparkle",
+    "Champagne", "Wipe Out", "Fill", "Waterfall", "Starburst",
 };
 
 constexpr const char* OtherNames[] = {
