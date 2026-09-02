@@ -36,7 +36,7 @@ private:
                         const LedAnimationContext& context);
     void renderIdle(uint8_t animation, uint32_t now);
     void renderPrint(uint8_t animation, const LedAnimationContext& context);
-    void renderPause(uint8_t animation, uint32_t now, uint8_t progress, uint32_t filamentRgb);
+    void renderPause(uint8_t animation, const LedAnimationContext& context);
     void renderError(uint8_t animation, uint32_t now);
     void renderFinish(uint8_t animation, uint32_t now, uint32_t filamentRgb);
     void renderOther(uint8_t animation, uint32_t now);

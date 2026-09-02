@@ -737,7 +737,7 @@ void LedService::renderCategory(LedCategory category, uint8_t animation,
     animation = normalizeLedAnimation(category, animation);
     switch (category) {
         case LedCategory::Print: renderPrint(animation, context); break;
-        case LedCategory::Pause: renderPause(animation, context.nowMs, context.progress, context.filamentRgb); break;
+        case LedCategory::Pause: renderPause(animation, context); break;
         case LedCategory::Error: renderError(animation, context.nowMs); break;
         case LedCategory::Finish: renderFinish(animation, context.nowMs, context.filamentRgb); break;
         case LedCategory::Other: renderOther(animation, context.nowMs); break;
@@ -2193,15 +2193,160 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
     }
 }
 
-void LedService::renderPause(uint8_t animation, uint32_t now, uint8_t progress, uint32_t filamentRgb) {
-    const RgbwColor filament = fromRgb(filamentRgb);
-    const uint8_t pulse = static_cast<uint8_t>(35U + wave8(static_cast<uint8_t>(now / (animation % 3U == 0 ? 18U : 30U))) * 180U / 255U);
-    fillSection(LedSection::Left, scaled(RgbwColor(255, 90, 0), pulse));
-    fillSection(LedSection::Right, scaled(RgbwColor(255, 90, 0), pulse));
-    const uint16_t marker = min<uint16_t>(hw::CenterCount - 1U, progress * hw::CenterCount / 100U);
-    for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-        const uint16_t distance = i > marker ? i - marker : marker - i;
-        setSection(LedSection::Center, i, distance <= 1U ? scaled(filament, pulse) : RgbwColor(12, 8, 2));
+void LedService::renderPause(uint8_t animation, const LedAnimationContext& context) {
+    const uint32_t now = context.nowMs;
+    const uint8_t progress = min<uint8_t>(context.progress, 100U);
+    const RgbwColor rawFilament = fromRgb(context.filamentRgb);
+    const uint8_t filamentMaximum = max(rawFilament.r, max(rawFilament.g, rawFilament.b));
+    const RgbwColor filament = filamentMaximum < 12U
+        ? decorativeHsv(LedCategory::Pause, static_cast<uint8_t>(now / 24U), 245U, 235U)
+        : rawFilament;
+    const uint16_t marker = min<uint16_t>(hw::CenterCount - 1U,
+        static_cast<uint16_t>(progress) * (hw::CenterCount - 1U) / 100U);
+    const uint16_t lit = static_cast<uint16_t>((progress * hw::CenterCount + 99U) / 100U);
+    const RgbwColor amber = decorativeHsv(LedCategory::Pause, 24U, 255U, 255U);
+    const RgbwColor cool = decorativeHsv(LedCategory::Pause, 145U, 235U, 255U);
+
+    auto frozenProgress = [&](const RgbwColor& color, uint8_t filledValue,
+                              uint8_t emptyValue, uint8_t markerValue) {
+        for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+            const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+            uint8_t value = coverage
+                ? static_cast<uint8_t>(static_cast<uint16_t>(coverage) * filledValue / 255U)
+                : emptyValue;
+            const uint16_t distance = i > marker ? i - marker : marker - i;
+            if (distance == 0U) value = markerValue;
+            else if (distance == 1U) value = max<uint8_t>(value, markerValue / 3U);
+            setSection(LedSection::Center, i, scaled(color, value));
+        }
+    };
+
+    switch (static_cast<PauseAnimation>(animation)) {
+        case PauseAnimation::Amber: {
+            const uint8_t breath = static_cast<uint8_t>(52U + wave8(now / 34U) * 118U / 255U);
+            fillSection(LedSection::Left, scaled(amber, breath));
+            fillSection(LedSection::Right, scaled(amber, breath));
+            frozenProgress(amber, static_cast<uint8_t>(34U + breath / 3U), 5U,
+                           static_cast<uint8_t>(145U + breath / 3U));
+            break;
+        }
+        case PauseAnimation::Hazard: {
+            const uint32_t cycle = now % 1800U;
+            const bool firstFlash = cycle < 120U;
+            const bool secondFlash = cycle >= 230U && cycle < 350U;
+            const bool leftActive = cycle < 900U;
+            const uint8_t activeValue = (firstFlash || secondFlash) ? 235U : 24U;
+            fillSection(LedSection::Left, scaled(amber, leftActive ? activeValue : 12U));
+            fillSection(LedSection::Right, scaled(amber, leftActive ? 12U : activeValue));
+            frozenProgress(amber, 42U, 4U, (firstFlash || secondFlash) ? 210U : 100U);
+            break;
+        }
+        case PauseAnimation::Freeze: {
+            const uint8_t frostBreath = static_cast<uint8_t>(42U + wave8(now / 62U) / 5U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint8_t crystal = hash8(i * 89U + sectionIndex * 977U + now / 620U);
+                    uint8_t value = frostBreath;
+                    if (crystal > 238U) value = static_cast<uint8_t>(170U + (crystal - 238U) * 5U);
+                    if (section == LedSection::Center && i >= lit) value /= 5U;
+                    setSection(section, i, scaled(cool, value));
+                }
+            }
+            setSection(LedSection::Center, marker, scaled(RgbwColor(220U, 245U, 255U), 205U));
+            break;
+        }
+        case PauseAnimation::Radar: {
+            const uint16_t head = static_cast<uint16_t>((now / 78U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = head >= path ? head - path : head + hw::OuterCount - path;
+                uint8_t value = 6U;
+                if (distance < 9U) {
+                    value = static_cast<uint8_t>(220U - distance * 23U);
+                } else if ((path + now / 420U) % 11U == 0U) {
+                    value = 24U;
+                }
+                setOuterVisualPathPixel(path, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 220U));
+            break;
+        }
+        case PauseAnimation::Heartbeat: {
+            const uint32_t beat = now % 1900U;
+            uint8_t strength = 18U;
+            if (beat < 95U) strength = static_cast<uint8_t>(90U + beat * 165U / 95U);
+            else if (beat < 190U) strength = static_cast<uint8_t>(255U - (beat - 95U) * 225U / 95U);
+            else if (beat >= 280U && beat < 370U) strength = static_cast<uint8_t>(70U + (beat - 280U) * 160U / 90U);
+            else if (beat >= 370U && beat < 500U) strength = static_cast<uint8_t>(230U - (beat - 370U) * 212U / 130U);
+            fillSection(LedSection::Left, scaled(amber, strength));
+            fillSection(LedSection::Right, scaled(amber, strength));
+            frozenProgress(filament, 42U, 3U, max<uint8_t>(100U, strength));
+            break;
+        }
+        case PauseAnimation::ProgressBar: {
+            const uint8_t boundaryPulse = static_cast<uint8_t>(145U + wave8(now / 25U) / 3U);
+            fillSection(LedSection::Left, scaled(filament, 72U));
+            fillSection(LedSection::Right, scaled(filament, 72U));
+            frozenProgress(amber, 118U, 4U, boundaryPulse);
+            break;
+        }
+        case PauseAnimation::Crossfade: {
+            const uint8_t amount = wave8(now / 47U);
+            const RgbwColor mixed = blend(amber, cool, amount);
+            fillSection(LedSection::Left, scaled(mixed, 100U));
+            fillSection(LedSection::Right, scaled(blend(cool, amber, amount), 100U));
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t localAmount = static_cast<uint8_t>(amount + i * 255U / hw::CenterCount);
+                const RgbwColor color = blend(amber, cool, wave8(localAmount));
+                const uint16_t distance = i > marker ? i - marker : marker - i;
+                setSection(LedSection::Center, i,
+                           scaled(color, distance == 0U ? 205U : (i < lit ? 58U : 8U)));
+            }
+            break;
+        }
+        case PauseAnimation::Phase: {
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint8_t phase = static_cast<uint8_t>(now / 31U + sectionIndex * 85U);
+                const uint8_t value = static_cast<uint8_t>(20U + wave8(phase) * 155U / 255U);
+                fillSection(section, scaled(amber, value));
+            }
+            setSection(LedSection::Center, marker, scaled(filament, 230U));
+            break;
+        }
+        case PauseAnimation::YellowWhite: {
+            const uint8_t amount = wave8(now / 43U);
+            const RgbwColor warmWhite(235U, 225U, 190U);
+            const RgbwColor color = blend(amber, warmWhite, amount);
+            const uint8_t value = static_cast<uint8_t>(75U + wave8(now / 61U) / 3U);
+            fillSection(LedSection::Left, scaled(color, value));
+            fillSection(LedSection::Right, scaled(color, value));
+            frozenProgress(color, 90U, 5U, 205U);
+            break;
+        }
+        case PauseAnimation::WatchfulEyes: {
+            const uint32_t cycle = now % 5600U;
+            int16_t glance = 0;
+            if (cycle >= 1100U && cycle < 1900U) glance = static_cast<int16_t>((cycle - 1100U) * 4U / 800U);
+            else if (cycle >= 1900U && cycle < 2700U) glance = static_cast<int16_t>(4 - (cycle - 1900U) * 4U / 800U);
+            else if (cycle >= 3300U && cycle < 4100U) glance = -static_cast<int16_t>((cycle - 3300U) * 4U / 800U);
+            else if (cycle >= 4100U && cycle < 4900U) glance = static_cast<int16_t>(-4 + (cycle - 4100U) * 4U / 800U);
+            const uint16_t eye = static_cast<uint16_t>(max<int16_t>(1, min<int16_t>(hw::LeftCount - 2U,
+                static_cast<int16_t>(hw::LeftCount / 2U) + glance)));
+            fillSection(LedSection::Left, scaled(amber, 10U));
+            fillSection(LedSection::Right, scaled(amber, 10U));
+            for (int8_t offset = -1; offset <= 1; ++offset) {
+                const uint8_t value = offset == 0 ? 225U : 58U;
+                setSection(LedSection::Left, static_cast<uint16_t>(eye + offset), scaled(amber, value));
+                setSection(LedSection::Right, static_cast<uint16_t>(eye + offset), scaled(amber, value));
+            }
+            frozenProgress(filament, 24U, 2U, 85U);
+            break;
+        }
+        case PauseAnimation::Count:
+        default:
+            break;
     }
 }
 

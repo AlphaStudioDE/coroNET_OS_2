@@ -23,7 +23,8 @@ constexpr const char* PrintNames[] = {
 };
 
 constexpr const char* PauseNames[] = {
-    "Gentle Hold", "Amber Pulse", "Frozen Progress", "Pause Beacon",
+    "Amber", "Hazard", "Freeze", "Radar", "Heartbeat",
+    "Progress Bar", "Crossfade", "Phase", "Yellow-White", "Watchful Eyes",
 };
 
 constexpr const char* ErrorNames[] = {
@@ -79,5 +80,6 @@ const char* ledAnimationName(LedCategory category, uint8_t animation) {
 }
 
 static_assert(arrayCount(PrintNames) == static_cast<uint8_t>(PrintAnimation::Count));
+static_assert(arrayCount(PauseNames) == static_cast<uint8_t>(PauseAnimation::Count));
 
 }

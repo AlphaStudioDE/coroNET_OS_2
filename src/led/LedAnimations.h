@@ -63,6 +63,20 @@ enum class PrintAnimation : uint8_t {
     Count,
 };
 
+enum class PauseAnimation : uint8_t {
+    Amber = 0,
+    Hazard,
+    Freeze,
+    Radar,
+    Heartbeat,
+    ProgressBar,
+    Crossfade,
+    Phase,
+    YellowWhite,
+    WatchfulEyes,
+    Count,
+};
+
 constexpr uint32_t SnakeFinishDurationMs = 1400U;
 
 struct LedAnimationContext {
