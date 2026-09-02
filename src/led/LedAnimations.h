@@ -104,6 +104,16 @@ enum class PauseAnimation : uint8_t {
     FilamentHold,
     DoNotTouch,
     HeatHoldSplit,
+    CalmDown,
+    StillWater,
+    SoftLantern,
+    HoldOrb,
+    SuspendedLayer,
+    GentleReminder,
+    BreathGate,
+    WaitingRoom,
+    ToolPark,
+    ResumeRamp,
     Count,
 };
 

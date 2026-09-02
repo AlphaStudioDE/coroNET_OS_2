@@ -31,6 +31,8 @@ constexpr const char* PauseNames[] = {
     "Dim Sparks", "Slow Scan", "Frozen Gold", "Clock Tick", "Calm Orbit",
     "Holding Pattern", "Breathing Amber", "Resume Gate", "Temp Keepalive", "Soft Attention",
     "Operator Wait", "Frozen Layer", "Filament Hold", "Do Not Touch", "Heat Hold Split",
+    "Calm Down", "Still Water", "Soft Lantern", "Hold Orb", "Suspended Layer",
+    "Gentle Reminder", "Breath Gate", "Waiting Room", "Tool Park", "Resume Ramp",
 };
 
 constexpr const char* ErrorNames[] = {
