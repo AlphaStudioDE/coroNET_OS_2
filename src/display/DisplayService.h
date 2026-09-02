@@ -40,7 +40,7 @@ private:
     bool wizardActive_ = false;
     bool screenSaverActive_ = false;
     bool screenSaverClock_ = false;
-    bool printerErrorSeen_ = false;
+    uint32_t observedPrinterEventSequence_ = 0;
     uint8_t appliedBrightness_ = 255;
     uint32_t lastUiUpdateMs_ = 0;
     uint32_t screenSaverActivityMark_ = 0;

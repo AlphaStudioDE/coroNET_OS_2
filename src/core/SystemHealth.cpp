@@ -44,7 +44,7 @@ void SystemHealth::sample() {
 void SystemHealth::log() const {
     const SystemState& s = state();
     Serial.printf(
-        "[health] up=%lums internal=%lu/%lu min=%lu dma=%lu/%lu min=%lu psram=%lu/%lu min=%lu psramReady=%u extMalloc=%u/%luB wifi=%u web=%u printer=%u/%u ble=%u audio=%u display=%u touch=%u touches=%lu\n",
+        "[health] up=%lums internal=%lu/%lu min=%lu dma=%lu/%lu min=%lu psram=%lu/%lu min=%lu psramReady=%u extMalloc=%u/%luB wifi=%u web=%u printer=%u/%u/%u telem=%lu event=%lu ble=%u audio=%u display=%u touch=%u touches=%lu\n",
         static_cast<unsigned long>(s.uptimeMs),
         static_cast<unsigned long>(s.internalFree),
         static_cast<unsigned long>(s.internalLargest),
@@ -62,6 +62,9 @@ void SystemHealth::log() const {
         s.webReady ? 1 : 0,
         s.printerConfigured ? 1 : 0,
         s.printerConnected ? 1 : 0,
+        s.printerTelemetryValid ? 1 : 0,
+        static_cast<unsigned long>(s.printerTelemetryRevision),
+        static_cast<unsigned long>(s.printerStateEventSequence),
         s.bleReady ? 1 : 0,
         s.audioReady ? 1 : 0,
         s.displayReady ? 1 : 0,

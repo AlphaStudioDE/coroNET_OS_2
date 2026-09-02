@@ -46,7 +46,7 @@ Status meanings:
 | NET-05 | Moonraker WebSocket subscription and event updates | OS2 | Retain as a later real-time telemetry milestone after HTTP polling is stable. |
 | NET-06 | Fast/medium/slow telemetry polling groups | REDESIGN | Retain only telemetry cadence that is measured and needed. |
 | NET-07 | Printer and Wi-Fi watchdog/reconnect behavior | OS2 | Initial resilient lifecycle exists and needs soak testing. |
-| NET-08 | BLE companion bridge | OS2 | Implemented with framed protocol V1. |
+| NET-08 | BLE companion bridge | OS2 | Implemented with framed protocol V2 and revisioned printer events. |
 | NET-09 | Local Wi-Fi companion API and mDNS | OS2 | Implemented with token authentication. |
 | NET-10 | Multiple coroNET devices in the Android app | OS2 | Required companion-app behavior. |
 

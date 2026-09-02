@@ -4,12 +4,12 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 
 ## Current capabilities
 
-- BLE discovery and framed protocol V1 reassembly;
+- BLE discovery and framed protocol V2 reassembly;
 - automatic first-pairing token transfer and encrypted per-device storage;
 - multiple saved coroNET devices with fast selection;
 - preferred authenticated local WiFi polling and settings control;
 - Home, LED, Vent, Sound, and Settings screens;
-- printer Error and Finish notifications;
+- revisioned printer Error and Finish notifications without reconnect duplicates;
 - Android 8.0 (API 26) and newer.
 
 ## Build

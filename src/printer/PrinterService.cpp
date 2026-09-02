@@ -40,7 +40,7 @@ const char* printerStateName(PrinterState state) {
 }
 
 PrinterState normalizePrinterState(const char* stateText) {
-    if (!stateText || !*stateText) return PrinterState::Idle;
+    if (!stateText || !*stateText) return PrinterState::Unknown;
     String value(stateText);
     value.trim();
     value.toLowerCase();
@@ -248,9 +248,12 @@ PrinterTestResult PrinterService::testConnection() {
     xSemaphoreGive(httpMutex_);
 
     if (result.ok) {
-        state().printerConnected = true;
-        state().lastPrinterUpdateMs = millis();
-        strlcpy(state().printerStatusText, "online", sizeof(state().printerStatusText));
+        setConnectionState(true);
+        if (!state().printerTelemetryValid) {
+            state().printerState = PrinterState::Unknown;
+            strlcpy(state().printerStatusText, "online_waiting_for_telemetry",
+                    sizeof(state().printerStatusText));
+        }
         consecutiveFailures_ = 0;
         lastPollMs_ = 0;
     }
@@ -440,7 +443,10 @@ void PrinterService::applyResult(const PollResult& result) {
 
     consecutiveFailures_ = 0;
     SystemState& system = state();
-    system.printerState = static_cast<PrinterState>(result.printerState);
+    const PrinterState nextState = static_cast<PrinterState>(result.printerState);
+    const bool hadContinuousTelemetry = system.printerConnected && system.printerTelemetryValid;
+    const PrinterState previousState = system.printerState;
+
     system.printProgress = result.printProgress;
     system.activeTool = result.activeTool;
     system.activeToolTempC = result.activeToolTempC;
@@ -449,11 +455,23 @@ void PrinterService::applyResult(const PollResult& result) {
     system.printDurationSec = result.printDurationSec;
     system.printEtaSec = result.printEtaSec;
     system.filamentColorRgb = result.filamentColorRgb;
-    system.printerConnected = true;
-    system.lastPrinterUpdateMs = millis();
+    setConnectionState(true);
+    const uint32_t now = millis();
+    system.printerState = nextState;
+    system.printerTelemetryValid = true;
+    system.lastPrinterUpdateMs = now;
+    system.printerTelemetryRevision++;
     strlcpy(system.printFilename, result.filename, sizeof(system.printFilename));
     strlcpy(system.materialName, result.material, sizeof(system.materialName));
     strlcpy(system.printerStatusText, printerStateName(system.printerState), sizeof(system.printerStatusText));
+
+    if (hadContinuousTelemetry && previousState != PrinterState::Unknown &&
+        nextState != PrinterState::Unknown && previousState != nextState) {
+        system.printerEventFrom = previousState;
+        system.printerEventTo = nextState;
+        system.printerStateChangedMs = now;
+        system.printerStateEventSequence++;
+    }
 }
 
 bool PrinterService::requestInfo(const PollRequest& request, PrinterTestResult* result) {
@@ -491,7 +509,7 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
 
     static constexpr char Body[] =
         "{\"objects\":{"
-        "\"print_stats\":[\"state\",\"filename\",\"print_duration\",\"total_duration\"],"
+        "\"print_stats\":[\"state\",\"filename\",\"print_duration\"],"
         "\"display_status\":[\"progress\"],"
         "\"toolhead\":[\"extruder\"],"
         "\"extruder\":[\"temperature\"],"
@@ -519,7 +537,17 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     }
 
     const JsonVariantConst status = doc["result"]["status"];
-    const char* rawState = status["print_stats"]["state"] | "standby";
+    if (!status.is<JsonObjectConst>() || !status["print_stats"].is<JsonObjectConst>() ||
+        !status["print_stats"]["state"].is<const char*>()) {
+        strlcpy(result.message, "poll_missing_printer_state", sizeof(result.message));
+        return false;
+    }
+
+    const char* rawState = status["print_stats"]["state"].as<const char*>();
+    if (!rawState || !rawState[0]) {
+        strlcpy(result.message, "poll_empty_printer_state", sizeof(result.message));
+        return false;
+    }
     const char* filename = status["print_stats"]["filename"] | "-";
     const float progress = status["display_status"]["progress"] | 0.0f;
     const char* extruder = status["toolhead"]["extruder"] | "extruder";
@@ -541,8 +569,10 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     result.chamberTempC = status["temperature_sensor cavity"]["temperature"] | NAN;
     result.printDurationSec = duration > 0.0f ? static_cast<uint32_t>(duration + 0.5f) : 0;
     if (progress > 0.001f && progress < 1.0f && duration > 0.0f) {
-        const float eta = duration / progress - duration;
-        result.printEtaSec = eta > 0.0f ? static_cast<uint32_t>(eta + 0.5f) : 0;
+        const double eta = static_cast<double>(duration) / static_cast<double>(progress) - duration;
+        result.printEtaSec = isfinite(eta) && eta > 0.0 && eta <= static_cast<double>(UINT32_MAX)
+                                 ? static_cast<uint32_t>(eta + 0.5)
+                                 : 0;
     }
     JsonArrayConst colors = status["print_task_config"]["filament_color_rgba"].as<JsonArrayConst>();
     if (!colors.isNull() && tool < colors.size()) {
@@ -558,7 +588,8 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
 
 void PrinterService::setOffline(const char* message, int httpCode) {
     SystemState& system = state();
-    system.printerConnected = false;
+    setConnectionState(false);
+    system.printerTelemetryValid = false;
     system.printerState = configured() ? PrinterState::Unknown : PrinterState::Idle;
     if (httpCode) {
         snprintf(system.printerStatusText,
@@ -569,6 +600,13 @@ void PrinterService::setOffline(const char* message, int httpCode) {
     } else {
         strlcpy(system.printerStatusText, message ? message : "offline", sizeof(system.printerStatusText));
     }
+}
+
+void PrinterService::setConnectionState(bool connected) {
+    SystemState& system = state();
+    if (system.printerConnected == connected) return;
+    system.printerConnected = connected;
+    system.printerConnectionRevision++;
 }
 
 void PrinterService::workerTaskEntry(void* context) {

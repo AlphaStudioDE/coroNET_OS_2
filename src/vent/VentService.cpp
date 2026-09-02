@@ -154,9 +154,10 @@ void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targ
         status = "maintenance";
         return;
     }
-    const bool activePrint = printingLike(system.printerState);
-    if (system.printerConnected && activePrint) printingSeen_ = true;
-    if (system.printerConnected && !activePrint) printingSeen_ = false;
+    const bool liveTelemetry = system.printerConnected && system.printerTelemetryValid;
+    const bool activePrint = liveTelemetry && printingLike(system.printerState);
+    if (liveTelemetry && activePrint) printingSeen_ = true;
+    if (liveTelemetry && !activePrint) printingSeen_ = false;
 
     if (settings.ventMode == VentMode::Manual) {
         coolingActive_ = false;
@@ -176,12 +177,12 @@ void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targ
         } else {
             targetFan = 0;
             targetFlap = 0;
-            status = system.printerConnected ? "automatic_waiting" : "automatic_printer_offline";
+            status = liveTelemetry ? "automatic_waiting" : "automatic_printer_offline";
         }
         return;
     }
 
-    const bool stale = !system.printerConnected || system.lastPrinterUpdateMs == 0 ||
+    const bool stale = !liveTelemetry || system.lastPrinterUpdateMs == 0 ||
                        now - system.lastPrinterUpdateMs > SensorStaleMs;
     if (stale || isnan(system.chamberTempC)) {
         if (activePrint || printingSeen_ || settings.ventMode == VentMode::CavityTarget) {

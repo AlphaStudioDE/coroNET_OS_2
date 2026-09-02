@@ -34,6 +34,7 @@ void PandaBreathService::begin() {
 void PandaBreathService::loop() {
     if (!initialized_) return;
     if (state().maintenanceMode) {
+        observedPrinterEventSequence_ = state().printerStateEventSequence;
         if (socketConfigured_) disconnect();
         return;
     }
@@ -41,12 +42,14 @@ void PandaBreathService::loop() {
 
     const AppSettings& settings = settingsService().settings();
     if (!settings.pandaEnabled || !configuredHost_[0]) {
+        observedPrinterEventSequence_ = state().printerStateEventSequence;
         if (socketConfigured_) disconnect();
         state().pandaConnected = false;
         setPhase(PandaWorkflowPhase::Idle, settings.pandaEnabled ? "Panda address required" : "Panda disabled");
         return;
     }
     if (WiFi.status() != WL_CONNECTED) {
+        observedPrinterEventSequence_ = state().printerStateEventSequence;
         state().pandaConnected = false;
         setPhase(PandaWorkflowPhase::Idle, "Waiting for Wi-Fi");
         return;
@@ -143,8 +146,14 @@ void PandaBreathService::handleMessage(const uint8_t* payload, size_t length) {
 
 void PandaBreathService::updateWorkflow(uint32_t now) {
     const AppSettings& settings = settingsService().settings();
-    const PrinterState printer = state().printerState;
+    const SystemState& system = state();
+    const PrinterState printer = system.printerState;
     const bool printerError = printer == PrinterState::Error;
+    const bool printCompleted = system.printerStateEventSequence != observedPrinterEventSequence_ &&
+                                (system.printerEventFrom == PrinterState::Printing ||
+                                 system.printerEventFrom == PrinterState::Paused) &&
+                                system.printerEventTo == PrinterState::Complete;
+    observedPrinterEventSequence_ = system.printerStateEventSequence;
 
     if (settings.pandaMode == PandaBreathMode::Off || printerError) {
         requestOff();
@@ -173,8 +182,7 @@ void PandaBreathService::updateWorkflow(uint32_t now) {
         if (printer == PrinterState::Printing || printer == PrinterState::Paused) {
             requestHeat(settings.pandaPrintTargetTempC, PandaWorkflowPhase::PrintHold,
                         printer == PrinterState::Paused ? "Print paused: chamber hold" : "Automatic print hold");
-        } else if (previousPrinterState_ == PrinterState::Printing && printer == PrinterState::Complete &&
-                   settings.pandaTemperingAfterPrint) {
+        } else if (printCompleted && settings.pandaTemperingAfterPrint) {
             phaseStartedMs_ = now;
             requestHeat(settings.pandaPrintTargetTempC, PandaWorkflowPhase::Tempering,
                         "Post-print tempering");
@@ -206,7 +214,6 @@ void PandaBreathService::updateWorkflow(uint32_t now) {
             }
         }
     }
-    previousPrinterState_ = printer;
 }
 
 void PandaBreathService::setPhase(PandaWorkflowPhase phase, const char* text) {

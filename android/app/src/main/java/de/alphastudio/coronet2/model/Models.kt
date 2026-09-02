@@ -20,6 +20,11 @@ data class PrinterSnapshot(
     val toolTemp: Double? = null,
     val bedTemp: Double? = null,
     val chamberTemp: Double? = null,
+    val telemetryValid: Boolean = false,
+    val telemetryRevision: Long = 0,
+    val eventSequence: Long = 0,
+    val eventFrom: String = "unknown",
+    val eventTo: String = "unknown",
 )
 
 data class DeviceSnapshot(

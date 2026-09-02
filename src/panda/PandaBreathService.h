@@ -55,7 +55,7 @@ private:
     uint32_t lastCommandMs_ = 0;
     uint32_t phaseStartedMs_ = 0;
     uint32_t holdStartedMs_ = 0;
-    PrinterState previousPrinterState_ = PrinterState::Unknown;
+    uint32_t observedPrinterEventSequence_ = 0;
 };
 
 PandaBreathService& pandaBreathService();

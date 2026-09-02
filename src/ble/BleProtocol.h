@@ -5,7 +5,7 @@
 
 namespace coronet::bleprotocol {
 
-static constexpr uint8_t Version = 1;
+static constexpr uint8_t Version = 2;
 static constexpr size_t MaxAttPayload = 244;
 
 enum class MessageType : uint8_t {
@@ -26,6 +26,7 @@ enum StateFlag : uint16_t {
     PrinterConnected = 1U << 7,
     AudioReady = 1U << 8,
     BleFallbackActive = 1U << 9,
+    PrinterTelemetryValid = 1U << 10,
 };
 
 #pragma pack(push, 1)
@@ -38,7 +39,7 @@ struct FrameHeader {
     uint8_t chunkCount;
 };
 
-struct StateSnapshotV1 {
+struct StateSnapshotV2 {
     uint8_t version;
     uint8_t messageType;
     uint16_t size;
@@ -56,10 +57,15 @@ struct StateSnapshotV1 {
     char deviceName[25];
     char printerStatus[48];
     char printFilename[65];
+    uint32_t printerTelemetryRevision;
+    uint32_t printerStateEventSequence;
+    uint8_t printerEventFrom;
+    uint8_t printerEventTo;
 };
 #pragma pack(pop)
 
 static_assert(sizeof(FrameHeader) == 8, "BLE frame header layout changed");
-static_assert(sizeof(StateSnapshotV1) <= 180, "BLE state snapshot no longer fits the preferred MTU");
+static_assert(sizeof(StateSnapshotV2) == 185, "BLE V2 state snapshot layout changed");
+static_assert(sizeof(StateSnapshotV2) <= 236, "BLE state snapshot no longer fits one preferred-MTU frame");
 
 }

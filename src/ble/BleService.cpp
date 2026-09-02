@@ -142,6 +142,16 @@ void BleService::loop() {
     applySettings();
     if (!started_) return;
 
+    const SystemState& system = state();
+    if (observedPrinterTelemetryRevision_ != system.printerTelemetryRevision ||
+        observedPrinterConnectionRevision_ != system.printerConnectionRevision ||
+        observedPrinterEventSequence_ != system.printerStateEventSequence) {
+        observedPrinterTelemetryRevision_ = system.printerTelemetryRevision;
+        observedPrinterConnectionRevision_ = system.printerConnectionRevision;
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
+        stateDirty_ = true;
+    }
+
     bool connectedEvent = false;
     bool disconnectedEvent = false;
     bool overflowEvent = false;
@@ -735,7 +745,7 @@ void BleService::publishState(bool force) {
     if (!force && !stateDirty_ && now - lastNotifyMs_ < config::BleStateNotifyIntervalMs) return;
 
     const SystemState& s = state();
-    bleprotocol::StateSnapshotV1 snapshot{};
+    bleprotocol::StateSnapshotV2 snapshot{};
     snapshot.version = bleprotocol::Version;
     snapshot.messageType = static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot);
     snapshot.size = sizeof(snapshot);
@@ -751,6 +761,7 @@ void BleService::publishState(bool force) {
     if (s.printerConnected) snapshot.flags |= bleprotocol::PrinterConnected;
     if (s.audioReady) snapshot.flags |= bleprotocol::AudioReady;
     if (fallbackActive_) snapshot.flags |= bleprotocol::BleFallbackActive;
+    if (s.printerTelemetryValid) snapshot.flags |= bleprotocol::PrinterTelemetryValid;
     snapshot.printerState = static_cast<uint8_t>(s.printerState);
     snapshot.printProgress = s.printProgress;
     snapshot.activeTool = s.activeTool;
@@ -761,6 +772,10 @@ void BleService::publishState(bool force) {
     strlcpy(snapshot.deviceName, advertisedName_, sizeof(snapshot.deviceName));
     strlcpy(snapshot.printerStatus, s.printerStatusText, sizeof(snapshot.printerStatus));
     strlcpy(snapshot.printFilename, s.printFilename, sizeof(snapshot.printFilename));
+    snapshot.printerTelemetryRevision = s.printerTelemetryRevision;
+    snapshot.printerStateEventSequence = s.printerStateEventSequence;
+    snapshot.printerEventFrom = static_cast<uint8_t>(s.printerEventFrom);
+    snapshot.printerEventTo = static_cast<uint8_t>(s.printerEventTo);
 
     if (sendFramed(gStateChr,
                    static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot),

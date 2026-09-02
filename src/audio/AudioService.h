@@ -113,8 +113,7 @@ private:
     uint32_t outputFrames_ = 0;
     uint32_t writeFailures_ = 0;
     uint32_t completedFiles_ = 0;
-    bool printerBaselineReady_ = false;
-    PrinterState previousPrinterState_ = PrinterState::Unknown;
+    uint32_t observedPrinterEventSequence_ = 0;
 };
 
 AudioService& audioService();

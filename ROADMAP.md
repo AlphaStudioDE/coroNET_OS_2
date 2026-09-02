@@ -65,6 +65,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] non-blocking printer polling worker with consecutive-failure tolerance
 - [x] non-blocking mDNS and local-subnet printer discovery
 - [x] resilient printer connection lifecycle and reconnect telemetry
+- [x] shared revisioned printer telemetry and transition contract
 - [ ] event-driven printer updates where supported
 - [x] OTA update service with rollback validity marker
 - [x] SD recovery update path

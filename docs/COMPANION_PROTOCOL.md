@@ -2,7 +2,7 @@
 
 The Android companion app controls coroNET through structured state and commands, not screen streaming. BLE is the setup and recovery channel. Authenticated local WiFi is the preferred channel for normal use because it is faster and better suited to complete application screens.
 
-The current protocol version is `1`. Multi-byte binary fields use little-endian byte order.
+The current protocol version is `2`. Multi-byte binary fields use little-endian byte order.
 
 ## Device Discovery
 
@@ -45,7 +45,7 @@ Message types are:
 
 The firmware limits an ATT notification to `min(244, negotiatedMtu - 3)` bytes. The app must group chunks by characteristic, message type, and message ID, reject duplicate or out-of-range chunks, verify the reconstructed length, and discard incomplete messages after a timeout. A payload must not be parsed before every chunk is present.
 
-## Binary State Snapshot V1
+## Binary State Snapshot V2
 
 Message type `1` contains this packed payload in order:
 
@@ -68,12 +68,18 @@ Message type `1` contains this packed payload in order:
 | `char[25]` | null-terminated device name |
 | `char[48]` | null-terminated printer status |
 | `char[65]` | null-terminated print filename |
+| `uint32` | printer telemetry revision |
+| `uint32` | printer state-event sequence |
+| `uint8` | previous printer state for the latest event |
+| `uint8` | destination printer state for the latest event |
 
-The V1 snapshot is 175 bytes. Temperature value `-32768` means unavailable.
+The V2 snapshot is 185 bytes. Its first 175 bytes retain the V1 field order. Temperature value `-32768` means unavailable.
 
-Flag bits are: setup done `0`, WiFi connected `1`, web API ready `2`, BLE connected `3`, display ready `4`, touch ready `5`, printer configured `6`, printer connected `7`, audio ready `8`, and temporary BLE fallback active `9`.
+Flag bits are: setup done `0`, WiFi connected `1`, web API ready `2`, BLE connected `3`, display ready `4`, touch ready `5`, printer configured `6`, printer connected `7`, audio ready `8`, temporary BLE fallback active `9`, and valid printer telemetry `10`.
 
 Printer state values follow firmware enum order: unknown `0`, idle `1`, printing `2`, paused `3`, error `4`, and complete `5`.
+
+The event sequence changes only for a genuine state transition observed during uninterrupted valid telemetry. Initial connection and reconnection establish a baseline without manufacturing an event. Clients should baseline the first sequence they receive and notify only when a later sequence changes; this prevents duplicate Error or Finish notifications after transport switching or reconnecting.
 
 ## Commands
 

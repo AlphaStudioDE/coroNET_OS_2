@@ -31,7 +31,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     val selectedId: StateFlow<String?> = _selectedId
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning
-    private val previousPrinterStates = ConcurrentHashMap<String, String>()
+    private val previousPrinterEventSequences = ConcurrentHashMap<String, Long>()
     private var pendingPairingId: String? = null
     private var scanJob: Job? = null
     private var pollingJob: Job? = null
@@ -122,13 +122,14 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
 
     private fun onSnapshot(value: DeviceSnapshot) {
         if (value.device?.id != _selectedId.value && value.device?.address != _snapshot.value.device?.address) return
-        val newState = value.printer.state
         val stateKey = value.device?.id?.takeIf { it.isNotBlank() }
             ?: value.device?.address?.takeIf { it.isNotBlank() }
             ?: return
-        val previousState = previousPrinterStates.put(stateKey, newState)
-        if (previousState != null && newState != previousState && (newState == "error" || newState == "complete")) {
-            notifyPrinter(newState, value.printer.filename)
+        val sequence = value.printer.eventSequence
+        val previousSequence = previousPrinterEventSequences.put(stateKey, sequence)
+        if (value.printer.telemetryValid && previousSequence != null && sequence != previousSequence &&
+            (value.printer.eventTo == "error" || value.printer.eventTo == "complete")) {
+            notifyPrinter(value.printer.eventTo, value.printer.filename)
         }
         _snapshot.value = value
     }

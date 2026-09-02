@@ -56,8 +56,15 @@ struct SystemState {
     uint32_t lastTouchMs = 0;
     bool printerConfigured = false;
     bool printerConnected = false;
+    bool printerTelemetryValid = false;
     uint32_t lastPrinterUpdateMs = 0;
+    uint32_t printerTelemetryRevision = 0;
+    uint32_t printerConnectionRevision = 0;
+    uint32_t printerStateEventSequence = 0;
+    uint32_t printerStateChangedMs = 0;
     PrinterState printerState = PrinterState::Unknown;
+    PrinterState printerEventFrom = PrinterState::Unknown;
+    PrinterState printerEventTo = PrinterState::Unknown;
     uint8_t printProgress = 0;
     uint32_t printDurationSec = 0;
     uint32_t printEtaSec = 0;

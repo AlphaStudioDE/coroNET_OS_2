@@ -106,6 +106,7 @@ private:
     void applyResult(const PollResult& result);
     bool requestInfo(const PollRequest& request, PrinterTestResult* result);
     bool performPoll(const PollRequest& request, PollResult& result);
+    void setConnectionState(bool connected);
     void performDiscovery();
     bool probeMoonraker(const char* host, uint16_t port);
     bool addDiscoveredPrinter(const char* host, uint16_t port, const char* name);

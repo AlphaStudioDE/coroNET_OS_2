@@ -42,6 +42,9 @@ private:
     uint16_t messageId_ = 0;
     uint32_t lastNotifyMs_ = 0;
     uint32_t revision_ = 0;
+    uint32_t observedPrinterTelemetryRevision_ = 0;
+    uint32_t observedPrinterConnectionRevision_ = 0;
+    uint32_t observedPrinterEventSequence_ = 0;
     uint32_t appliedSettingsRevision_ = 0;
     uint32_t wifiOfflineSinceMs_ = 0;
     QueueHandle_t commandQueue_ = nullptr;

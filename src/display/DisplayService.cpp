@@ -147,13 +147,20 @@ void DisplayService::updateTimeService(uint32_t now) {
 }
 
 void DisplayService::updateScreenSaver(uint32_t now) {
-    if (wizardActive_) return;
-    const bool printerError = state().printerState == PrinterState::Error;
-    if (printerError && !printerErrorSeen_) {
+    const SystemState& system = state();
+    if (wizardActive_) {
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
+        return;
+    }
+    const bool printerError = system.printerTelemetryValid && system.printerState == PrinterState::Error;
+    const bool newPrinterEvent = system.printerStateEventSequence != observedPrinterEventSequence_;
+    if (newPrinterEvent) {
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
+    }
+    if (newPrinterEvent && system.printerEventTo == PrinterState::Error) {
         state().lastTouchMs = now;
         if (screenSaverActive_) leaveScreenSaver(true);
     }
-    printerErrorSeen_ = printerError;
     if (printerError) return;
 
     if (screenSaverActive_) {

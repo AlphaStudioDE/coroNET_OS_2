@@ -109,4 +109,7 @@ Development builds expose `audio test`, `audio stop`, `audio status`, `audio rel
 - I2S output runs in a dedicated Core 0 producer task so display, network, and setup work cannot starve the audio ring from the main loop.
 - WiFi credentials are verified before the setup wizard commits them. Snapmaker mDNS discovery and the Moonraker subnet fallback scan reuse the printer worker, while discovered-device storage remains in PSRAM.
 - A single failed printer poll does not erase the last valid state; three consecutive failures are required before the device is marked offline.
+- A successful Moonraker `/printer/info` probe proves reachability only. Telemetry becomes valid exclusively after a structurally valid object-query response containing a real printer state.
+- Every accepted telemetry snapshot increments one telemetry revision. Connection changes use a separate revision, while genuine state changes during uninterrupted valid telemetry publish one shared transition sequence with `from`, `to`, and timestamp metadata.
+- Reconnection establishes a fresh baseline and does not synthesize a printer event. Audio, Panda workflows, display wake, BLE, WiFi, and Android notifications consume the shared transition sequence instead of independently inferring changes.
 - Settings changes become visible immediately through an in-memory revision, while NVS writes are debounced and bounded by a maximum delay.

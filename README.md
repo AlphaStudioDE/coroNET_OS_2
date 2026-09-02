@@ -57,7 +57,7 @@ The repository is public early so that the architecture, documentation, hardware
 | JC3248W535 display and touch | Working on hardware |
 | PSRAM canvas and small DMA transfer windows | Working on hardware |
 | Versioned NVS settings | Working, with live apply and write debounce |
-| Unique device identity and BLE peripheral | Working, framed protocol V1 |
+| Unique device identity and BLE peripheral | Working, framed protocol V2 |
 | Local WiFi HTTP API and mDNS | Token-authenticated implementation |
 | First-run setup wizard | Working on hardware, with WiFi validation and printer discovery |
 | Moonraker HTTP polling and discovery | Background worker implementation |

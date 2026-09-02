@@ -290,12 +290,20 @@ class CoronetBleManager(
         val name = b.readCString(25)
         val status = b.readCString(48)
         val filename = b.readCString(65)
+        val telemetryRevision = if (b.remaining() >= 4) b.int.toLong() and 0xffffffffL else 0L
+        val eventSequence = if (b.remaining() >= 4) b.int.toLong() and 0xffffffffL else 0L
+        val eventFromValue = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
+        val eventToValue = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
         val device = (activeDevice ?: CoronetDevice(id, name)).copy(id = id, name = name)
         val states = arrayOf("unknown", "idle", "printing", "paused", "error", "complete")
         onSnapshot(DeviceSnapshot(device, ConnectionKind.Ble, printer = PrinterSnapshot(
             connected = flags and (1 shl 7) != 0, state = states.getOrElse(stateValue) { "unknown" },
             status = status, filename = filename, progress = progress, tool = tool,
-            toolTemp = toolTemp, bedTemp = bedTemp, chamberTemp = chamberTemp)))
+            toolTemp = toolTemp, bedTemp = bedTemp, chamberTemp = chamberTemp,
+            telemetryValid = flags and (1 shl 10) != 0, telemetryRevision = telemetryRevision,
+            eventSequence = eventSequence,
+            eventFrom = states.getOrElse(eventFromValue) { "unknown" },
+            eventTo = states.getOrElse(eventToValue) { "unknown" })))
     }
 
     private fun parseJson(bytes: ByteArray) = runCatching {

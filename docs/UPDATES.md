@@ -1,5 +1,16 @@
 # Development Updates
 
+## 2026-09-02
+
+### Printer Telemetry Contract
+
+- Added explicit telemetry validity plus independent telemetry, connection, and printer-event revisions.
+- Validated Moonraker object-query structure before accepting data; incomplete JSON can no longer silently become an Idle printer state.
+- Made reconnect establish a clean baseline instead of synthesizing Start, Finish, Error, or Idle events.
+- Moved audio, Error screen wake, Panda post-print tempering, BLE delivery, WiFi state, and Android notifications onto one shared printer-transition sequence.
+- Extended companion protocol V2 and the WiFi API with telemetry freshness and transition metadata, preventing duplicate phone notifications after reconnect or transport switching.
+- Revalidated firmware and Android builds, then verified hardware startup with zero dropped LED frames and stable DMA/PSRAM recovery.
+
 ## 2026-09-01
 
 ### Product UI

@@ -641,38 +641,32 @@ bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) co
 
 void AudioService::processPrinterSoundEvents() {
     const uint32_t now = millis();
-    const PrinterState current = state().printerState;
+    const SystemState& system = state();
     if (now - state().bootMs < BootVisualDurationMs || bootAudioActive_) {
-        previousPrinterState_ = current;
-        printerBaselineReady_ = false;
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
         return;
     }
-    if (!printerBaselineReady_) {
-        previousPrinterState_ = current;
-        printerBaselineReady_ = true;
-        return;
-    }
-    if (current == previousPrinterState_) return;
+    if (system.printerStateEventSequence == observedPrinterEventSequence_) return;
+    observedPrinterEventSequence_ = system.printerStateEventSequence;
 
     SoundScenario scenario = SoundScenario::Idle;
     bool shouldPlay = false;
-    if (current == PrinterState::Error) {
+    if (system.printerEventTo == PrinterState::Error) {
         scenario = SoundScenario::Error;
         shouldPlay = true;
-    } else if (current == PrinterState::Printing) {
+    } else if (system.printerEventTo == PrinterState::Printing) {
         scenario = SoundScenario::Start;
         shouldPlay = true;
-    } else if (current == PrinterState::Paused) {
+    } else if (system.printerEventTo == PrinterState::Paused) {
         scenario = SoundScenario::Pause;
         shouldPlay = true;
-    } else if (current == PrinterState::Complete) {
+    } else if (system.printerEventTo == PrinterState::Complete) {
         scenario = SoundScenario::Finish;
         shouldPlay = true;
-    } else if (current == PrinterState::Idle && previousPrinterState_ != PrinterState::Unknown) {
+    } else if (system.printerEventTo == PrinterState::Idle) {
         scenario = SoundScenario::Idle;
         shouldPlay = true;
     }
-    previousPrinterState_ = current;
     if (shouldPlay) playScenario(scenario);
 }
 
