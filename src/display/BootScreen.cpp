@@ -92,9 +92,10 @@ void BootScreen::begin() {
 
     netLabel_ = lv_label_create(root_);
     lv_label_set_text(netLabel_, "NET");
-    lv_obj_set_pos(netLabel_, 318, 105);
     lv_obj_set_style_text_font(netLabel_, &lv_font_montserrat_38, LV_PART_MAIN);
     lv_obj_set_style_text_color(netLabel_, lv_color_hex(0x27D3C2), LV_PART_MAIN);
+    lv_obj_update_layout(coroLabel_);
+    lv_obj_align_to(netLabel_, coroLabel_, LV_ALIGN_OUT_RIGHT_MID, -1, 0);
 
     descriptorLabel_ = lv_label_create(root_);
     lv_label_set_text(descriptorLabel_, "CONNECTED PRINT ENVIRONMENT");
