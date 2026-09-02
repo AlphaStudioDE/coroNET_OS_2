@@ -291,6 +291,16 @@ enum class OtherAnimation : uint8_t {
     Sunset,
     Volcano,
     Techno,
+    DragonBlood,
+    Aurora,
+    Cyberpunk,
+    Nebula,
+    Submarine,
+    Pride,
+    Plasma,
+    BouncingBalls,
+    CopCar,
+    StrobeParty,
     Count,
 };
 

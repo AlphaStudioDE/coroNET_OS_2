@@ -5652,6 +5652,200 @@ void LedService::renderOther(uint8_t animation, uint32_t now) {
             }
             break;
         }
+        case OtherAnimation::DragonBlood: {
+            const uint8_t heartbeat = wave8(static_cast<uint8_t>(now / 39U));
+            const uint16_t fissureA = static_cast<uint16_t>((now / 86U) % hw::OuterCount);
+            const uint16_t fissureB = static_cast<uint16_t>(
+                (hw::OuterCount - 1U - (now / 131U) % hw::OuterCount));
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distanceA = path > fissureA ? path - fissureA : fissureA - path;
+                const uint16_t distanceB = path > fissureB ? path - fissureB : fissureB - path;
+                const uint8_t vein = wave8(static_cast<uint8_t>(path * 31U + now / 57U));
+                uint8_t value = static_cast<uint8_t>(42U + heartbeat / 4U + vein / 7U);
+                if (distanceA <= 1U || distanceB <= 1U) value = distanceA == 0U || distanceB == 0U ? 3U : 18U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other,
+                        static_cast<uint8_t>(250U + vein / 18U), 255U, value));
+            }
+            break;
+        }
+        case OtherAnimation::Aurora: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t curtain = wave8(static_cast<uint8_t>(now / 83U + path * 9U));
+                const uint8_t edge = wave8(static_cast<uint8_t>(now / 127U - path * 6U + 103U));
+                const uint8_t hue = static_cast<uint8_t>(86U + curtain * 62U / 255U);
+                const uint8_t value = static_cast<uint8_t>(20U +
+                    static_cast<uint16_t>(curtain) * (100U + edge / 4U) / 255U);
+                RgbwColor color = decorativeHsv(LedCategory::Other, hue, 220U, value);
+                if (edge > 224U) {
+                    color = blend(color,
+                        decorativeHsv(LedCategory::Other, 190U, 175U, 155U),
+                        static_cast<uint8_t>((edge - 224U) * 5U));
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::Cyberpunk: {
+            const uint32_t cycle = now % 1800U;
+            const uint8_t leftGate = cycle < 480U
+                ? static_cast<uint8_t>(255U - cycle * 190U / 480U) : 45U;
+            const uint8_t rightGate = cycle >= 900U && cycle < 1380U
+                ? static_cast<uint8_t>(255U - (cycle - 900U) * 190U / 480U) : 45U;
+            fillSection(LedSection::Left,
+                decorativeHsv(LedCategory::Other, 132U, 250U, leftGate));
+            fillSection(LedSection::Right,
+                decorativeHsv(LedCategory::Other, 224U, 250U, rightGate));
+            const uint16_t data = static_cast<uint16_t>((now / 52U) % hw::CenterCount);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint8_t grid = ((i + now / 133U) % 4U == 0U) ? 74U : 13U;
+                const uint16_t distance = i > data ? i - data : data - i;
+                RgbwColor color = decorativeHsv(LedCategory::Other,
+                    (i & 1U) ? 132U : 224U, 245U, grid);
+                if (distance <= 2U) color = decorativeHsv(LedCategory::Other,
+                    distance == 0U ? 31U : 177U, 225U,
+                    static_cast<uint8_t>(225U - distance * 67U));
+                setSection(LedSection::Center, i, color);
+            }
+            break;
+        }
+        case OtherAnimation::Nebula: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t cloudA = wave8(static_cast<uint8_t>(now / 68U + path * 12U));
+                const uint8_t cloudB = wave8(static_cast<uint8_t>(now / 117U - path * 7U + 43U));
+                const uint8_t cloudC = wave8(static_cast<uint8_t>(now / 181U + path * 4U + 139U));
+                const uint8_t density = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(cloudA) + cloudB + cloudC) / 3U);
+                const RgbwColor violet = decorativeHsv(LedCategory::Other, 196U, 235U, density);
+                const RgbwColor magenta = decorativeHsv(LedCategory::Other, 229U, 235U, density);
+                RgbwColor color = blend(violet, magenta, cloudB);
+                const uint8_t star = hash8(path * 151U + (now / 780U) * 37U);
+                if (star > 248U) color = blend(color, RgbwColor(175U, 180U, 225U), 145U);
+                setOuterVisualPathPixel(path,
+                    scaled(color, static_cast<uint8_t>(40U + density * 135U / 255U)));
+            }
+            break;
+        }
+        case OtherAnimation::Submarine: {
+            const uint16_t sonar = static_cast<uint16_t>((now / 92U) % hw::CenterCount);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > sonar ? i - sonar : sonar - i;
+                const uint8_t value = distance <= 4U
+                    ? static_cast<uint8_t>(190U - distance * 38U) : 13U;
+                setSection(LedSection::Center, i,
+                    decorativeHsv(LedCategory::Other, 103U, 230U, value));
+            }
+            constexpr LedSection sides[2] = {LedSection::Left, LedSection::Right};
+            for (uint8_t sideIndex = 0; sideIndex < 2U; ++sideIndex) {
+                const LedSection section = sides[sideIndex];
+                const uint16_t count = sectionCount(section);
+                fillSection(section,
+                    decorativeHsv(LedCategory::Other, 153U, 235U, 12U));
+                for (uint8_t bubble = 0; bubble < 4U; ++bubble) {
+                    const uint16_t route = count + 5U;
+                    const uint16_t raw = static_cast<uint16_t>((now /
+                        (145U + bubble * 23U) + bubble * 4U + sideIndex * 7U) % route);
+                    if (raw >= count) continue;
+                    const uint16_t position = sideIndex == 0U ? count - 1U - raw : raw;
+                    setSection(section, position,
+                        decorativeHsv(LedCategory::Other, 149U, 85U,
+                            static_cast<uint8_t>(120U + bubble * 21U)));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::Pride: {
+            constexpr uint8_t PrideHues[6] = {0U, 14U, 31U, 91U, 151U, 211U};
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t wave = wave8(static_cast<uint8_t>(now / 96U + path * 8U));
+                const uint8_t stripe = static_cast<uint8_t>(
+                    ((path * 6U / hw::OuterCount) + (wave > 215U ? 1U : 0U)) % 6U);
+                const uint8_t value = static_cast<uint8_t>(145U + wave / 7U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, PrideHues[stripe], 245U, value));
+            }
+            break;
+        }
+        case OtherAnimation::Plasma: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t fieldA = wave8(static_cast<uint8_t>(now / 23U + path * 17U));
+                const uint8_t fieldB = wave8(static_cast<uint8_t>(now / 37U - path * 11U + 79U));
+                const uint8_t difference = static_cast<uint8_t>(
+                    abs(static_cast<int16_t>(fieldA) - static_cast<int16_t>(fieldB)));
+                const uint8_t hue = static_cast<uint8_t>(183U + difference * 78U / 255U);
+                const uint8_t value = static_cast<uint8_t>(18U + difference * 210U / 255U);
+                RgbwColor color = decorativeHsv(LedCategory::Other, hue, 255U, value);
+                if (difference > 238U) color = blend(color, RgbwColor(155U, 175U, 255U), 95U);
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::BouncingBalls: {
+            constexpr uint8_t BallCount = 5U;
+            constexpr uint16_t Periods[BallCount] = {3600U, 4100U, 4700U, 5300U, 6100U};
+            constexpr uint16_t Offsets[BallCount] = {0U, 700U, 1400U, 2300U, 3200U};
+            constexpr uint8_t Hues[BallCount] = {0U, 48U, 96U, 151U, 207U};
+            const uint16_t span = hw::OuterCount - 1U;
+            for (uint8_t ball = 0; ball < BallCount; ++ball) {
+                const uint16_t phase = static_cast<uint16_t>((now + Offsets[ball]) % Periods[ball]);
+                const uint16_t half = Periods[ball] / 2U;
+                const bool forward = phase < half;
+                const uint16_t local = forward ? phase : phase - half;
+                const uint16_t u = static_cast<uint16_t>(
+                    static_cast<uint32_t>(local) * 255U / half);
+                const uint16_t eased = static_cast<uint16_t>(
+                    static_cast<uint32_t>(u) * u * (765U - 2U * u) / 65025U);
+                const uint16_t position = forward
+                    ? static_cast<uint16_t>(static_cast<uint32_t>(eased) * span / 255U)
+                    : static_cast<uint16_t>(span - static_cast<uint32_t>(eased) * span / 255U);
+                for (uint8_t trail = 0; trail < 5U; ++trail) {
+                    const int16_t trailPosition = forward
+                        ? static_cast<int16_t>(position) - trail
+                        : static_cast<int16_t>(position) + trail;
+                    if (trailPosition < 0 || trailPosition >= static_cast<int16_t>(hw::OuterCount)) continue;
+                    setOuterVisualPathPixel(static_cast<uint16_t>(trailPosition),
+                        decorativeHsv(LedCategory::Other, Hues[ball], 245U,
+                            static_cast<uint8_t>(220U - trail * 39U)));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::CopCar: {
+            const uint32_t phase = now % 1200U;
+            const bool firstBurst = phase < 260U && (phase % 130U) < 72U;
+            const bool secondBurst = phase >= 600U && phase < 860U && (phase % 130U) < 72U;
+            fillSection(LedSection::Left,
+                RgbwColor(firstBurst ? 0U : 0U, firstBurst ? 18U : 0U, firstBurst ? 235U : 10U));
+            fillSection(LedSection::Right,
+                RgbwColor(secondBurst ? 235U : 10U, 0U, 0U));
+            const uint16_t sweep = static_cast<uint16_t>((now / 47U) % hw::CenterCount);
+            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
+                const uint16_t distance = i > sweep ? i - sweep : sweep - i;
+                const bool blueHalf = i < hw::CenterCount / 2U;
+                const uint8_t value = distance <= 2U
+                    ? static_cast<uint8_t>(180U - distance * 55U) : 6U;
+                setSection(LedSection::Center, i,
+                    blueHalf ? RgbwColor(0U, 12U, value) : RgbwColor(value, 0U, 0U));
+            }
+            break;
+        }
+        case OtherAnimation::StrobeParty: {
+            const uint32_t cycle = now % 760U;
+            const uint8_t pulse = cycle < 85U
+                ? static_cast<uint8_t>(220U - cycle * 150U / 85U)
+                : cycle >= 180U && cycle < 245U
+                    ? static_cast<uint8_t>(175U - (cycle - 180U) * 115U / 65U)
+                    : 8U;
+            const uint8_t baseHue = static_cast<uint8_t>((now / 760U) * 37U);
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                fillSection(section,
+                    decorativeHsv(LedCategory::Other,
+                        static_cast<uint8_t>(baseHue + sectionIndex * 73U), 250U,
+                        sectionIndex == (now / 760U) % 3U ? pulse : static_cast<uint8_t>(pulse / 3U)));
+            }
+            break;
+        }
         case OtherAnimation::Count:
         default:
             break;

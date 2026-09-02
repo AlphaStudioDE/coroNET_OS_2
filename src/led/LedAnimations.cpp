@@ -74,6 +74,8 @@ constexpr const char* FinishNames[] = {
 constexpr const char* OtherNames[] = {
     "Matrix", "Candle", "Static Rainbow", "Neon Club", "Synthwave",
     "Jellyfish", "Snow", "Sunset", "Volcano", "Techno",
+    "Dragon Blood", "Aurora", "Cyberpunk", "Nebula", "Submarine",
+    "Pride", "Plasma", "Bouncing Balls", "Cop Car", "Strobe Party",
 };
 
 template <size_t N>

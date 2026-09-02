@@ -33,7 +33,7 @@ The following behavior is shared by the entire catalog:
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
-| Other | 10 | Rebuild in progress; first reviewed set implemented on the OS 2 engine |
+| Other | 20 | Rebuild in progress; first two reviewed sets implemented on the OS 2 engine |
 
 ## Print
 
@@ -340,6 +340,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 8 | Sunset | A warm sun moves through a red-to-violet sky independently inside all three physical sections. |
 | 9 | Volcano | Center forms a breathing molten crater while timed eruptions throw orange sparks symmetrically through both side sections. |
 | 10 | Techno | A deterministic 16-step cyan and magenta sequencer moves gated pixels across all sections and emphasizes only its downbeats. |
+| 11 | Dragon Blood | A living crimson field pulses around two moving black fissures, replacing random whole-strip blackouts with controlled tension. |
+| 12 | Aurora | One seamless green-to-blue curtain crosses the full OUTER route, with violet edge light appearing only at its strongest folds. |
+| 13 | Cyberpunk | Cyan and magenta side gates answer one another while a two-color data packet runs along the Center spine. |
+| 14 | Nebula | Three differently paced violet and magenta clouds form dense moving gas with rare, softly blended stellar cores. |
+| 15 | Submarine | A green sonar sweep crosses Center while pale bubbles rise in opposite physical directions through Left and Right. |
+| 16 | Pride | Six ordered rainbow stripes remain recognizable while a restrained spatial wave flexes their boundaries and brightness. |
+| 17 | Plasma | Two opposing fields produce dark nodes and bright violet-blue electrical arcs according to their instantaneous difference. |
+| 18 | Bouncing Balls | Five differently timed colored balls use smooth acceleration, reach both ends of the complete OUTER path, and retain directional tails. |
+| 19 | Cop Car | Timed blue and red side bursts frame a split-color Center sweep without introducing white flashes. |
+| 20 | Strobe Party | Two bounded saturated-color hits form each beat while the active section rotates; long dark intervals keep it distinct from a constant strobe. |
 
 ## Boot LED Experience
 
