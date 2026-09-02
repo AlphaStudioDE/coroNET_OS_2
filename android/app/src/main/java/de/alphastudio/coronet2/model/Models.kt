@@ -36,6 +36,16 @@ data class PrinterSnapshot(
     val eventTo: String = "unknown",
 )
 
+data class OtaSnapshot(
+    val state: Int = 0,
+    val progress: Int = 0,
+    val updateAvailable: Boolean = false,
+    val availableVersion: String = "",
+    val status: String = "Ready",
+) {
+    val busy: Boolean get() = state == 1 || state in 4..6
+}
+
 data class DeviceSnapshot(
     val device: CoronetDevice? = null,
     val connection: ConnectionKind = ConnectionKind.Offline,
@@ -45,6 +55,7 @@ data class DeviceSnapshot(
     val flapPercent: Int = 0,
     val audioPlaying: Boolean = false,
     val quietActive: Boolean = false,
+    val ota: OtaSnapshot = OtaSnapshot(),
     val error: String? = null,
 )
 

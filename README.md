@@ -71,7 +71,7 @@ The repository is public early so that the architecture, documentation, hardware
 | Layered RGBW LED engine | Working on hardware, including ambient, dimming, mirror, and previews |
 | PWM fan and servo flap | Working on hardware with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented; physical Panda validation pending |
-| GitHub OTA, same-version reinstall, SD recovery, and rollback marker | Implemented; release-install validation pending |
+| Verified GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Implemented; first public release validation pending |
 
 Development builds are not yet end-user releases. The public flashing package will appear under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases) after the release path is validated.
 

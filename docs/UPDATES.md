@@ -2,6 +2,15 @@
 
 ## 2026-09-02
 
+### Verified OTA Delivery
+
+- Replaced insecure OTA transport with certificate-bundle-verified HTTPS and a trusted-clock prerequisite.
+- Added semantic version comparison, downgrade rejection, explicit same-version reinstall, release asset size validation, ESP32 image-header validation, and mandatory MD5 verification.
+- Added an OTA maintenance phase that flushes settings, stops nonessential web/BLE/Panda work, releases audio DMA, and preserves a clear full-screen update state.
+- Added ESP32 bootloader rollback validation: a new image is marked valid only after 30 seconds of stable display, touch, and LED startup.
+- Added complete firmware-update controls and confirmation dialogs to the Wi-Fi-connected Android companion.
+- Added tag-derived firmware versions and automatic GitHub Release assets, checksums, and release publication.
+
 ### Boot Experience
 
 - Added a full first-run coroNET Boot Experience synchronized to `boot.wav`, followed by a smooth handoff into setup.

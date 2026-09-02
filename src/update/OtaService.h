@@ -26,6 +26,10 @@ private:
     bool checkLatestRelease();
     bool installFromUrl(const char* url);
     bool installFromSd();
+    bool ensureSecureClock();
+    bool fetchExpectedMd5(const char* url, char output[33]);
+    void enterMaintenance();
+    void leaveMaintenance();
     bool validateImageHeader(Stream& stream, size_t expectedSize);
     void setState(OtaState stateValue, const char* message, uint8_t progress = 0);
 
@@ -33,8 +37,14 @@ private:
     portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
     Request pendingRequest_ = Request::None;
     char downloadUrl_[320] = "";
+    char checksumUrl_[320] = "";
+    size_t expectedImageSize_ = 0;
+    int8_t releaseComparison_ = 0;
     uint32_t stableSinceMs_ = 0;
+    uint32_t lastValidationAttemptMs_ = 0;
     bool appMarkedValid_ = false;
+    bool appPendingValidation_ = false;
+    bool audioWasReady_ = false;
 };
 
 OtaService& otaService();

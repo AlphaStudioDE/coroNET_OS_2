@@ -9,6 +9,9 @@
 #include "SettingsScreen.h"
 #include "SetupWizard.h"
 
+struct _lv_obj_t;
+typedef struct _lv_obj_t lv_obj_t;
+
 namespace coronet {
 
 class DisplayService {
@@ -23,6 +26,7 @@ private:
     void updateTimeService(uint32_t now);
     void updateTheme();
     void updateScreenSaver(uint32_t now);
+    void updateOtaOverlay();
     void enterScreenSaver();
     void leaveScreenSaver(bool rebuildPage);
     void applyBrightness(uint8_t percent);
@@ -51,6 +55,12 @@ private:
     uint32_t lastTimeSyncRequestMs_ = 0;
     char configuredTimeZone_[41] = "";
     uint32_t appliedThemeSignature_ = UINT32_MAX;
+    lv_obj_t* otaOverlay_ = nullptr;
+    lv_obj_t* otaOverlayStatus_ = nullptr;
+    lv_obj_t* otaOverlayProgress_ = nullptr;
+    lv_obj_t* otaOverlayPercent_ = nullptr;
+    OtaState otaOverlayStateSeen_ = OtaState::Idle;
+    uint8_t otaOverlayProgressSeen_ = 0;
 };
 
 }

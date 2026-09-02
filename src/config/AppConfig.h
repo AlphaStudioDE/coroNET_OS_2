@@ -2,11 +2,15 @@
 
 #include <Arduino.h>
 
+#ifndef CORONET_FIRMWARE_VERSION
+#define CORONET_FIRMWARE_VERSION "0.0.1-dev"
+#endif
+
 namespace coronet::config {
 
 static constexpr const char* AppName = "coroNET";
 static constexpr const char* FirmwareName = "coroNET OS 2";
-static constexpr const char* FirmwareVersion = "0.0.1-dev";
+static constexpr const char* FirmwareVersion = CORONET_FIRMWARE_VERSION;
 static constexpr const char* GitHubLatestReleaseApi =
     "https://api.github.com/repos/AlphaStudioDE/coroNET_OS_2/releases/latest";
 

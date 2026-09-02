@@ -16,6 +16,7 @@ class CoronetWifiClient {
             if (connection.responseCode != 200) throw IllegalStateException("HTTP ${connection.responseCode}")
             val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
             val printer = json.optJSONObject("printer") ?: JSONObject()
+            val ota = json.optJSONObject("ota") ?: JSONObject()
             DeviceSnapshot(
                 device = device.copy(name = json.optString("name", device.name)),
                 connection = ConnectionKind.Wifi,
@@ -35,6 +36,13 @@ class CoronetWifiClient {
                 ),
                 fanPercent = json.optInt("fanPercent"), flapPercent = json.optInt("flapPercent"),
                 audioPlaying = json.optBoolean("audioPlaying"), quietActive = json.optBoolean("quietActive"),
+                ota = OtaSnapshot(
+                    state = ota.optInt("state"),
+                    progress = ota.optInt("progress").coerceIn(0, 100),
+                    updateAvailable = ota.optBoolean("available"),
+                    availableVersion = ota.optString("version", ""),
+                    status = ota.optString("status", "Ready"),
+                ),
             )
         } catch (error: Exception) {
             DeviceSnapshot(device = device, error = error.message)

@@ -1,6 +1,6 @@
 # Flashing coroNET OS 2
 
-coroNET OS 2 currently uses PlatformIO for building and flashing development firmware. Tested factory images and a simplified end-user flashing package will be attached to versioned [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases) when the release process is ready.
+coroNET OS 2 uses PlatformIO for development builds. Versioned firmware and checksums are published through [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases).
 
 ## Recommended Development Flash
 
@@ -57,12 +57,48 @@ The `.pio` directory is intentionally excluded from Git. Build products are repr
 
 The current 16 MB flash layout reserves two 6 MB OTA application slots, 3 MB for the local filesystem, and dedicated NVS, OTA metadata, and coredump partitions. Changing from an older development partition table requires a complete USB flash that includes `partitions.bin`; an application-only OTA cannot safely redefine its own slot layout.
 
+## Over-The-Air Updates
+
+Once a full development or factory image is installed, later application updates can be installed from **Settings > Firmware update** on coroNET or from the Android companion while it is connected over local Wi-Fi.
+
+The updater:
+
+- checks the latest published GitHub Release over certificate-verified HTTPS;
+- compares semantic firmware versions and rejects downgrades;
+- requires `coronet_os2.bin` and its `coronet_os2.bin.md5` checksum;
+- verifies the release asset size, ESP32 image header, and complete MD5 before accepting the image;
+- stops nonessential services and releases audio DMA before writing the inactive OTA slot;
+- restarts into the new slot and marks it valid only after a 30-second hardware startup validation window;
+- lets the ESP32 bootloader roll back when the updated application cannot complete validation.
+
+`INSTALL` accepts a newer release. `REINSTALL` intentionally permits the same published version. OTA cannot change the partition table, bootloader, or flash layout.
+
+For offline recovery, place the release application image on the SD card as `/firmware.bin` and use **SD RECOVERY**. After a successful installation it is renamed to `/firmware.applied` so the device cannot reinstall it repeatedly.
+
+## Creating A Release
+
+The GitHub Actions workflow builds every commit. Pushing a semantic version tag creates or updates the matching GitHub Release and uploads the exact assets expected by the updater:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag determines the version embedded in the firmware. A tagged release contains:
+
+- `coronet_os2.bin` and `coronet_os2.bin.md5` for OTA and SD recovery;
+- `coronet_bootloader.bin`;
+- `coronet_partitions.bin`;
+- `SHA256SUMS.txt` for independent download verification.
+
+Create a release tag only from a tested commit. Publishing a tag makes that firmware visible to installed devices.
+
 ## Release Distribution Policy
 
 - Source code and documentation live in the Git repository.
 - Every commit and pull request is compiled by GitHub Actions.
 - CI artifacts are for development verification.
-- Tested user-installable binaries belong in a signed/versioned GitHub Release.
+- Tested user-installable binaries belong in a versioned GitHub Release with generated checksums.
 - A future factory package will include all images and exact addresses required by Espressif Flash Download Tool.
 - Do not download random firmware binaries from issue attachments or unofficial mirrors.
 

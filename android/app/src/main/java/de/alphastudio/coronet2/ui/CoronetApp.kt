@@ -65,7 +65,7 @@ fun CoronetApp(model: CoronetViewModel) {
                     Page.Led -> LedPage(settings, model::sendSettings)
                     Page.Vent -> VentPage(settings, snapshot, model::sendSettings)
                     Page.Sound -> SoundPage(settings, snapshot, model::sendSettings)
-                    Page.Settings -> SettingsPage(settings, snapshot, model::sendSettings)
+                    Page.Settings -> SettingsPage(settings, snapshot, model::sendSettings, model::sendOtaAction)
                 }
             }
         }
@@ -261,36 +261,98 @@ private fun SoundPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: 
 }
 
 @Composable
-private fun SettingsPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) = PageColumn {
-    PageTitle("Settings", "Appearance and behavior")
-    SectionCard {
-        ChoiceRow("Interface", listOf("CORONET", "GRAPHITE", "AURORA", "MINIMAL").getOrElse(settings.uiSkin) { "CORONET" }) {
-            send(json("uiSkin", (settings.uiSkin + 1) % 4))
+private fun SettingsPage(
+    settings: DeviceSettings,
+    snapshot: DeviceSnapshot,
+    send: (String) -> Unit,
+    sendOta: (String) -> Unit,
+) {
+    var pendingOtaAction by remember { mutableStateOf<String?>(null) }
+    PageColumn {
+        PageTitle("Settings", "Appearance and behavior")
+        SectionCard {
+            ChoiceRow("Interface", listOf("CORONET", "GRAPHITE", "AURORA", "MINIMAL").getOrElse(settings.uiSkin) { "CORONET" }) {
+                send(json("uiSkin", (settings.uiSkin + 1) % 4))
+            }
+            ChoiceRow("Color mode", listOf("DARK", "LIGHT", "AUTO").getOrElse(settings.uiColorMode) { "DARK" }) {
+                send(json("uiColorMode", (settings.uiColorMode + 1) % 3))
+            }
+            ValueSlider("Accent hue", settings.accentHueDegrees, 0..359, " deg") { send(json("accentHueDegrees", it)) }
+            ValueSlider("Display", settings.displayBrightness, 10..100, "%") { send(json("displayBrightness", it)) }
         }
-        ChoiceRow("Color mode", listOf("DARK", "LIGHT", "AUTO").getOrElse(settings.uiColorMode) { "DARK" }) {
-            send(json("uiColorMode", (settings.uiColorMode + 1) % 3))
+        SectionCard {
+            Text("Screen saver", fontWeight = FontWeight.SemiBold)
+            ChoiceRow("Mode", listOf("DISABLED", "DISPLAY OFF", "CLOCK").getOrElse(settings.screenSaverMode) { "CLOCK" }) {
+                send(json("screenSaverMode", (settings.screenSaverMode + 1) % 3))
+            }
+            ChoiceRow("Clock", listOf("DIGITAL", "RETRO", "ANALOG", "LINHO", "BAUHAUS", "MATRIX", "ARC").getOrElse(settings.clockStyle) { "DIGITAL" }) {
+                send(json("clockStyle", (settings.clockStyle + 1) % 7))
+            }
+            ValueSlider("After", settings.screenSaverDelayMinutes, 1..60, " min") { send(json("screenSaverDelayMinutes", it)) }
+            ValueSlider("Clock brightness", settings.clockBrightness, 5..100, "%") { send(json("clockBrightness", it)) }
         }
-        ValueSlider("Accent hue", settings.accentHueDegrees, 0..359, " deg") { send(json("accentHueDegrees", it)) }
-        ValueSlider("Display", settings.displayBrightness, 10..100, "%") { send(json("displayBrightness", it)) }
+        SectionCard {
+            ChoiceRow("Quiet mode", listOf("OFF", "SOUND", "LEDS", "BOTH").getOrElse(settings.quietTarget) { "OFF" }) {
+                send(json("quietTarget", (settings.quietTarget + 1) % 4))
+            }
+            ValueSlider("Duration", settings.quietDurationMinutes.coerceAtMost(240), 1..240, " min") { send(json("quietDurationMinutes", it)) }
+        }
+        SectionCard {
+            Text("Firmware update", fontWeight = FontWeight.SemiBold)
+            Text("Installed ${snapshot.firmware}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (snapshot.ota.availableVersion.isNotBlank()) {
+                Text("Latest ${snapshot.ota.availableVersion}", color = MaterialTheme.colorScheme.primary)
+            }
+            Text(snapshot.ota.status, fontSize = 13.sp, color = otaStatusColor(snapshot.ota.state))
+            if (snapshot.ota.busy || snapshot.ota.progress > 0) {
+                LinearProgressIndicator(
+                    progress = { snapshot.ota.progress / 100f },
+                    modifier = Modifier.fillMaxWidth().height(7.dp),
+                )
+                Text("${snapshot.ota.progress}%", modifier = Modifier.align(Alignment.End), fontSize = 12.sp)
+            }
+            if (snapshot.connection != ConnectionKind.Wifi) {
+                Text("Firmware updates require a local Wi-Fi connection.", fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { sendOta("check") },
+                    enabled = snapshot.connection == ConnectionKind.Wifi && !snapshot.ota.busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (snapshot.ota.state == 1) "CHECKING" else "CHECK") }
+                Button(
+                    onClick = { pendingOtaAction = "install" },
+                    enabled = snapshot.connection == ConnectionKind.Wifi && snapshot.ota.updateAvailable && !snapshot.ota.busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("INSTALL") }
+            }
+            TextButton(
+                onClick = { pendingOtaAction = "reinstall" },
+                enabled = snapshot.connection == ConnectionKind.Wifi && !snapshot.ota.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("REINSTALL CURRENT RELEASE") }
+        }
     }
-    SectionCard {
-        Text("Screen saver", fontWeight = FontWeight.SemiBold)
-        ChoiceRow("Mode", listOf("DISABLED", "DISPLAY OFF", "CLOCK").getOrElse(settings.screenSaverMode) { "CLOCK" }) {
-            send(json("screenSaverMode", (settings.screenSaverMode + 1) % 3))
-        }
-        ChoiceRow("Clock", listOf("DIGITAL", "RETRO", "ANALOG", "LINHO", "BAUHAUS", "MATRIX", "ARC").getOrElse(settings.clockStyle) { "DIGITAL" }) {
-            send(json("clockStyle", (settings.clockStyle + 1) % 7))
-        }
-        ValueSlider("After", settings.screenSaverDelayMinutes, 1..60, " min") { send(json("screenSaverDelayMinutes", it)) }
-        ValueSlider("Clock brightness", settings.clockBrightness, 5..100, "%") { send(json("clockBrightness", it)) }
+
+    pendingOtaAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingOtaAction = null },
+            title = { Text(if (action == "reinstall") "Reinstall firmware?" else "Install update?") },
+            text = { Text("coroNET will stop background services, install the verified firmware, and restart. Do not disconnect power.") },
+            confirmButton = {
+                Button(onClick = { pendingOtaAction = null; sendOta(action) }) { Text("CONTINUE") }
+            },
+            dismissButton = { TextButton(onClick = { pendingOtaAction = null }) { Text("CANCEL") } },
+        )
     }
-    SectionCard {
-        ChoiceRow("Quiet mode", listOf("OFF", "SOUND", "LEDS", "BOTH").getOrElse(settings.quietTarget) { "OFF" }) {
-            send(json("quietTarget", (settings.quietTarget + 1) % 4))
-        }
-        ValueSlider("Duration", settings.quietDurationMinutes.coerceAtMost(240), 1..240, " min") { send(json("quietDurationMinutes", it)) }
-        Text("Firmware ${snapshot.firmware}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+}
+
+@Composable
+private fun otaStatusColor(state: Int): Color = when (state) {
+    2, 7 -> MaterialTheme.colorScheme.tertiary
+    8 -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable

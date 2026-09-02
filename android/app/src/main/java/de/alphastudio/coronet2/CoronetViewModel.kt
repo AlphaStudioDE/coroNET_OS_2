@@ -205,6 +205,36 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun sendOtaAction(action: String) {
+        val device = _snapshot.value.device ?: return
+        val path = when (action) {
+            "check" -> "/api/ota/check"
+            "install" -> "/api/ota/install"
+            "reinstall" -> "/api/ota/reinstall"
+            else -> return
+        }
+        if (!wifiReachable.get() || device.host.isBlank() || device.token.isBlank()) {
+            _snapshot.update {
+                it.copy(ota = it.ota.copy(state = 8, status = "Connect to coroNET over Wi-Fi to update"))
+            }
+            return
+        }
+        if (_snapshot.value.ota.busy) return
+
+        val initialState = if (action == "check") 1 else 4
+        val initialStatus = if (action == "check") "Checking GitHub releases" else "Preparing update"
+        _snapshot.update {
+            it.copy(ota = it.ota.copy(state = initialState, progress = 0, status = initialStatus))
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!wifi.post(device, path)) {
+                _snapshot.update {
+                    it.copy(ota = it.ota.copy(state = 8, progress = 0, status = "Update request failed"))
+                }
+            }
+        }
+    }
+
     fun requestBleSettings() { ble.send("{\"cmd\":\"getSettings\"}") }
 
     fun confirmPairingCodesMatch() {
@@ -230,16 +260,20 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private fun onSnapshot(value: DeviceSnapshot) {
         if (value.device?.id != _selectedId.value && value.device?.address != _snapshot.value.device?.address) return
         if (value.connection == ConnectionKind.Ble && wifiReachable.get()) return
-        val stateKey = value.device?.id?.takeIf { it.isNotBlank() }
-            ?: value.device?.address?.takeIf { it.isNotBlank() }
+        val current = _snapshot.value
+        val effective = if (current.ota.busy && value.connection != ConnectionKind.Wifi) {
+            value.copy(ota = current.ota)
+        } else value
+        val stateKey = effective.device?.id?.takeIf { it.isNotBlank() }
+            ?: effective.device?.address?.takeIf { it.isNotBlank() }
             ?: return
-        val sequence = value.printer.eventSequence
+        val sequence = effective.printer.eventSequence
         val previousSequence = previousPrinterEventSequences.put(stateKey, sequence)
-        if (value.printer.telemetryValid && previousSequence != null && sequence != previousSequence &&
-            (value.printer.eventTo == "error" || value.printer.eventTo == "complete")) {
-            notifyPrinter(value.printer.eventTo, value.printer.filename)
+        if (effective.printer.telemetryValid && previousSequence != null && sequence != previousSequence &&
+            (effective.printer.eventTo == "error" || effective.printer.eventTo == "complete")) {
+            notifyPrinter(effective.printer.eventTo, effective.printer.filename)
         }
-        _snapshot.value = value
+        _snapshot.value = effective
     }
 
     private fun onBleSettings(json: JSONObject) {

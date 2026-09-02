@@ -201,7 +201,7 @@ void SettingsScreen::buildContent() {
 
     lv_obj_t* endSpacer = lv_obj_create(content);
     lv_obj_set_size(endSpacer, 1, 1);
-    lv_obj_set_pos(endSpacer, 0, 1104);
+    lv_obj_set_pos(endSpacer, 0, 1130);
     lv_obj_set_style_bg_opa(endSpacer, LV_OPA_0, LV_PART_MAIN);
     lv_obj_set_style_border_width(endSpacer, 0, LV_PART_MAIN);
 }
@@ -399,7 +399,7 @@ void SettingsScreen::buildQuietCard(lv_obj_t* parent, int y) {
 
 void SettingsScreen::buildSystemCard(lv_obj_t* parent, int y) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 448, 204);
+    lv_obj_set_size(card, 448, 224);
     lv_obj_set_pos(card, 0, y);
     stylePanel(card);
     makeLabel(card, "FIRMWARE & RECOVERY", ui::ColorCyan, &lv_font_montserrat_10, 14, 12);
@@ -407,21 +407,25 @@ void SettingsScreen::buildSystemCard(lv_obj_t* parent, int y) {
     lv_label_set_long_mode(otaStatusLabel_, LV_LABEL_LONG_DOT);
     otaVersionLabel_ = makeLabel(card, "", ui::ColorMuted, &lv_font_montserrat_10, 14, 54, 416);
 
-    lv_obj_t* button = makeActionButton(card, 14, 76, 128, nullptr);
-    lv_label_set_text(lv_obj_get_child(button, 0), "CHECK");
+    lv_obj_t* button = makeActionButton(card, 14, 76, 128, &otaButtonLabels_[0]);
+    otaButtons_[0] = button;
+    lv_label_set_text(otaButtonLabels_[0], "CHECK");
     actionBindings_[15] = {this, Action::OtaCheck};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[15]);
-    otaInstallButton_ = makeActionButton(card, 160, 76, 128, nullptr);
-    lv_label_set_text(lv_obj_get_child(otaInstallButton_, 0), "INSTALL");
+    otaInstallButton_ = makeActionButton(card, 160, 76, 128, &otaButtonLabels_[1]);
+    otaButtons_[1] = otaInstallButton_;
+    lv_label_set_text(otaButtonLabels_[1], "INSTALL");
     actionBindings_[16] = {this, Action::OtaInstall};
     lv_obj_add_event_cb(otaInstallButton_, actionEvent, LV_EVENT_CLICKED, &actionBindings_[16]);
-    button = makeActionButton(card, 306, 76, 124, nullptr);
-    lv_label_set_text(lv_obj_get_child(button, 0), "REINSTALL");
+    button = makeActionButton(card, 306, 76, 124, &otaButtonLabels_[2]);
+    otaButtons_[2] = button;
+    lv_label_set_text(otaButtonLabels_[2], "REINSTALL");
     actionBindings_[17] = {this, Action::OtaReinstall};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[17]);
 
-    button = makeActionButton(card, 14, 116, 202, nullptr);
-    lv_label_set_text(lv_obj_get_child(button, 0), "SD RECOVERY");
+    button = makeActionButton(card, 14, 116, 202, &otaButtonLabels_[3]);
+    otaButtons_[3] = button;
+    lv_label_set_text(otaButtonLabels_[3], "SD RECOVERY");
     actionBindings_[18] = {this, Action::OtaSdRecovery};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[18]);
     button = makeActionButton(card, 228, 116, 202, &factoryResetButtonLabel_);
@@ -430,8 +434,18 @@ void SettingsScreen::buildSystemCard(lv_obj_t* parent, int y) {
     actionBindings_[19] = {this, Action::FactoryReset};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[19]);
 
-    makeLabel(card, "SD recovery expects /firmware.bin and renames it after a successful install.",
-              ui::ColorMuted, &lv_font_montserrat_10, 14, 160, 416);
+    otaProgressLabel_ = makeLabel(card, "0%", ui::ColorMuted, &lv_font_montserrat_10, 370, 151, 60);
+    lv_obj_set_style_text_align(otaProgressLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    otaProgressBar_ = lv_bar_create(card);
+    lv_obj_set_size(otaProgressBar_, 342, 8);
+    lv_obj_set_pos(otaProgressBar_, 14, 154);
+    lv_bar_set_range(otaProgressBar_, 0, 100);
+    lv_obj_set_style_radius(otaProgressBar_, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(otaProgressBar_, 2, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(otaProgressBar_, lv_color_hex(ui::ColorSurfaceRaised), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(otaProgressBar_, lv_color_hex(ui::ColorCyan), LV_PART_INDICATOR);
+    makeLabel(card, "SD recovery reads /firmware.bin and archives it after installation.",
+              ui::ColorMuted, &lv_font_montserrat_10, 14, 181, 416);
 }
 
 void SettingsScreen::update() {
@@ -527,8 +541,14 @@ void SettingsScreen::update() {
                             system.otaState == OtaState::Preparing ||
                             system.otaState == OtaState::Downloading ||
                             system.otaState == OtaState::Installing;
-    if (updateBusy) lv_obj_add_state(otaInstallButton_, LV_STATE_DISABLED);
-    else lv_obj_clear_state(otaInstallButton_, LV_STATE_DISABLED);
+    for (lv_obj_t* button : otaButtons_) {
+        if (!button) continue;
+        if (updateBusy) lv_obj_add_state(button, LV_STATE_DISABLED);
+        else lv_obj_clear_state(button, LV_STATE_DISABLED);
+    }
+    lv_bar_set_value(otaProgressBar_, system.otaProgress, LV_ANIM_OFF);
+    lv_label_set_text_fmt(otaProgressLabel_, "%u%%", static_cast<unsigned>(system.otaProgress));
+    lv_label_set_text(otaButtonLabels_[0], system.otaState == OtaState::Checking ? "CHECKING" : "CHECK");
     if (factoryConfirmUntilMs_ && millis() >= factoryConfirmUntilMs_) {
         factoryConfirmUntilMs_ = 0;
         lv_label_set_text(factoryResetButtonLabel_, "FACTORY RESET");

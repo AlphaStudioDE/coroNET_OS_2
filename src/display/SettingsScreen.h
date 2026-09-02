@@ -105,6 +105,10 @@ private:
     lv_obj_t* quietErrorsButtonLabel_ = nullptr;
     lv_obj_t* otaStatusLabel_ = nullptr;
     lv_obj_t* otaVersionLabel_ = nullptr;
+    lv_obj_t* otaProgressBar_ = nullptr;
+    lv_obj_t* otaProgressLabel_ = nullptr;
+    lv_obj_t* otaButtons_[4] = {};
+    lv_obj_t* otaButtonLabels_[4] = {};
     lv_obj_t* otaInstallButton_ = nullptr;
     lv_obj_t* factoryResetButtonLabel_ = nullptr;
     ActionBinding actionBindings_[24] = {};

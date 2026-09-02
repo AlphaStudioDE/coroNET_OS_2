@@ -258,6 +258,7 @@ void WebControlService::stop() {
 }
 
 bool WebControlService::shouldRun() const {
+    if (state().maintenanceMode) return false;
     const AppSettings& cfg = settingsService().settings();
     if (cfg.companionTransport == CompanionTransport::Ble) return false;
     return WiFi.status() == WL_CONNECTED;

@@ -86,6 +86,15 @@ void DisplayService::loop() {
         }
         return;
     }
+    const OtaState otaState = state().otaState;
+    const bool otaModal = otaState == OtaState::Preparing ||
+                          otaState == OtaState::Downloading ||
+                          otaState == OtaState::Installing ||
+                          otaState == OtaState::Success;
+    if (otaModal && screenSaverActive_) {
+        state().lastTouchMs = now;
+        leaveScreenSaver(true);
+    }
     updateScreenSaver(now);
     const uint8_t requestedBrightness = settingsService().settings().displayBrightness;
     if (!screenSaverActive_ && requestedBrightness != appliedBrightness_) {
@@ -98,7 +107,11 @@ void DisplayService::loop() {
     lastUiUpdateMs_ = now;
 
     if (bsp_display_lock(5)) {
-        if (wizardActive_) {
+        updateOtaOverlay();
+        if (otaOverlay_) {
+            bsp_display_unlock();
+            return;
+        } else if (wizardActive_) {
             setupWizard_.loop();
             if (setupWizard_.finished()) {
                 showPage(ui::Page::Home, true);
@@ -118,6 +131,88 @@ void DisplayService::loop() {
         }
         bsp_display_unlock();
     }
+}
+
+void DisplayService::updateOtaOverlay() {
+    const SystemState& system = state();
+    const bool visible = system.otaState == OtaState::Preparing ||
+                         system.otaState == OtaState::Downloading ||
+                         system.otaState == OtaState::Installing ||
+                         system.otaState == OtaState::Success;
+    if (!visible) {
+        if (otaOverlay_) lv_obj_del(otaOverlay_);
+        otaOverlay_ = nullptr;
+        otaOverlayStatus_ = nullptr;
+        otaOverlayProgress_ = nullptr;
+        otaOverlayPercent_ = nullptr;
+        otaOverlayStateSeen_ = system.otaState;
+        otaOverlayProgressSeen_ = system.otaProgress;
+        return;
+    }
+
+    if (!otaOverlay_) {
+        otaOverlay_ = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(otaOverlay_, 480, 320);
+        lv_obj_set_pos(otaOverlay_, 0, 0);
+        lv_obj_clear_flag(otaOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(otaOverlay_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_radius(otaOverlay_, 0, LV_PART_MAIN);
+        lv_obj_set_style_border_width(otaOverlay_, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(otaOverlay_, 0, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(otaOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(otaOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+
+        lv_obj_t* brand = lv_label_create(otaOverlay_);
+        lv_label_set_text(brand, "coroNET");
+        lv_obj_set_style_text_font(brand, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(brand, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+        lv_obj_set_pos(brand, 24, 22);
+
+        lv_obj_t* title = lv_label_create(otaOverlay_);
+        lv_label_set_text(title, "FIRMWARE UPDATE");
+        lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title, lv_color_hex(ui::ColorText), LV_PART_MAIN);
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 72);
+
+        otaOverlayStatus_ = lv_label_create(otaOverlay_);
+        lv_obj_set_width(otaOverlayStatus_, 420);
+        lv_obj_set_style_text_align(otaOverlayStatus_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_style_text_font(otaOverlayStatus_, &lv_font_montserrat_12, LV_PART_MAIN);
+        lv_obj_set_style_text_color(otaOverlayStatus_, lv_color_hex(ui::ColorMuted), LV_PART_MAIN);
+        lv_obj_align(otaOverlayStatus_, LV_ALIGN_TOP_MID, 0, 116);
+
+        otaOverlayProgress_ = lv_bar_create(otaOverlay_);
+        lv_obj_set_size(otaOverlayProgress_, 400, 12);
+        lv_obj_align(otaOverlayProgress_, LV_ALIGN_TOP_MID, 0, 154);
+        lv_bar_set_range(otaOverlayProgress_, 0, 100);
+        lv_obj_set_style_radius(otaOverlayProgress_, 2, LV_PART_MAIN);
+        lv_obj_set_style_radius(otaOverlayProgress_, 2, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(otaOverlayProgress_, lv_color_hex(ui::ColorSurfaceRaised), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(otaOverlayProgress_, lv_color_hex(ui::ColorCyan), LV_PART_INDICATOR);
+
+        otaOverlayPercent_ = lv_label_create(otaOverlay_);
+        lv_obj_set_style_text_font(otaOverlayPercent_, &lv_font_montserrat_18, LV_PART_MAIN);
+        lv_obj_set_style_text_color(otaOverlayPercent_, lv_color_hex(ui::ColorText), LV_PART_MAIN);
+        lv_obj_align(otaOverlayPercent_, LV_ALIGN_TOP_MID, 0, 180);
+
+        lv_obj_t* warning = lv_label_create(otaOverlay_);
+        lv_label_set_text(warning, "Keep coroNET powered on. The device will restart automatically.");
+        lv_obj_set_width(warning, 420);
+        lv_obj_set_style_text_align(warning, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_style_text_font(warning, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_obj_set_style_text_color(warning, lv_color_hex(ui::ColorMuted), LV_PART_MAIN);
+        lv_obj_align(warning, LV_ALIGN_BOTTOM_MID, 0, -48);
+    }
+
+    if (otaOverlayStateSeen_ != system.otaState ||
+        otaOverlayProgressSeen_ != system.otaProgress) {
+        lv_label_set_text(otaOverlayStatus_, system.otaStatusText);
+        lv_bar_set_value(otaOverlayProgress_, system.otaProgress, LV_ANIM_OFF);
+        lv_label_set_text_fmt(otaOverlayPercent_, "%u%%", static_cast<unsigned>(system.otaProgress));
+        otaOverlayStateSeen_ = system.otaState;
+        otaOverlayProgressSeen_ = system.otaProgress;
+    }
+    lv_obj_move_foreground(otaOverlay_);
 }
 
 void DisplayService::updateTheme() {

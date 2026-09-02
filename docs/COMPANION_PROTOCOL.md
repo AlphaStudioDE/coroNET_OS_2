@@ -171,6 +171,10 @@ The API is available in `auto` and `wifi` modes while the device has a WiFi conn
 - `POST /api/ota/reinstall`;
 - `POST /api/ota/sd`.
 
+OTA commands are deliberately Wi-Fi-only. BLE is not used to stream firmware. The `ota` object returned by `GET /api/state` contains numeric `state`, `progress`, `available`, `version`, and human-readable `status` fields. State values follow the firmware `OtaState` order: idle `0`, checking `1`, available `2`, up to date `3`, preparing `4`, downloading `5`, installing `6`, success `7`, and failed `8`.
+
+Clients should disable repeated update actions while states `1` or `4..6` are active. `install` accepts only a newer published release; `reinstall` permits the same release after explicit user confirmation. When maintenance begins, the web API intentionally stops and the app may temporarily report the device offline while the physical display continues to show installation progress.
+
 Every `/api/*` request requires one of these headers:
 
 ```text
