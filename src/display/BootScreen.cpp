@@ -46,8 +46,8 @@ void BootScreen::begin() {
 
     glowLine_ = lv_obj_create(root_);
     lv_obj_remove_style_all(glowLine_);
-    lv_obj_set_pos(glowLine_, 26, 158);
-    lv_obj_set_size(glowLine_, 428, 2);
+    lv_obj_set_pos(glowLine_, 228, 153);
+    lv_obj_set_size(glowLine_, 226, 1);
     lv_obj_set_style_bg_color(glowLine_, lv_color_hex(0x17333D), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(glowLine_, LV_OPA_30, LV_PART_MAIN);
 
@@ -70,16 +70,16 @@ void BootScreen::begin() {
 
     core_ = lv_obj_create(root_);
     lv_obj_remove_style_all(core_);
-    lv_obj_set_pos(core_, 112, 135);
-    lv_obj_set_size(core_, 16, 16);
+    lv_obj_set_pos(core_, 112, 139);
+    lv_obj_set_size(core_, 14, 14);
     lv_obj_set_style_radius(core_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(core_, lv_color_hex(0xF4F8FA), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(core_, LV_OPA_COVER, LV_PART_MAIN);
 
     endpoint_ = lv_obj_create(root_);
     lv_obj_remove_style_all(endpoint_);
-    lv_obj_set_pos(endpoint_, 195, 140);
-    lv_obj_set_size(endpoint_, 12, 12);
+    lv_obj_set_pos(endpoint_, 194, 139);
+    lv_obj_set_size(endpoint_, 14, 14);
     lv_obj_set_style_radius(endpoint_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(endpoint_, lv_color_hex(0xF1B84B), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(endpoint_, LV_OPA_TRANSP, LV_PART_MAIN);
