@@ -24,6 +24,7 @@ namespace {
 OtaService gOtaService;
 constexpr uint32_t kTaskStackBytes = 12288;
 constexpr uint32_t kMinimumImageBytes = 128U * 1024U;
+constexpr size_t kMaximumReleaseMetadataBytes = 64U * 1024U;
 constexpr uint32_t kValidationDelayMs = 30000U;
 constexpr uint32_t kValidationRetryMs = 5000U;
 constexpr time_t kMinimumTrustedEpoch = 1700000000;
@@ -291,6 +292,25 @@ bool OtaService::checkLatestRelease() {
         return false;
     }
 
+    const int contentLength = http.getSize();
+    if (contentLength > static_cast<int>(kMaximumReleaseMetadataBytes)) {
+        http.end();
+        setState(OtaState::Failed, "Release metadata is too large");
+        return false;
+    }
+
+    String payload = http.getString();
+    if (payload.isEmpty() ||
+        (contentLength >= 0 && payload.length() != static_cast<size_t>(contentLength))) {
+        Serial.printf(
+            "[ota] incomplete metadata received=%u expected=%d\n",
+            static_cast<unsigned>(payload.length()),
+            contentLength);
+        http.end();
+        setState(OtaState::Failed, "Incomplete release metadata");
+        return false;
+    }
+
     JsonDocument filter;
     filter["tag_name"] = true;
     filter["assets"][0]["name"] = true;
@@ -300,11 +320,14 @@ bool OtaService::checkLatestRelease() {
     JsonDocument doc;
     const DeserializationError error = deserializeJson(
         doc,
-        http.getStream(),
+        payload,
         DeserializationOption::Filter(filter));
     if (error) {
+        char message[80];
+        snprintf(message, sizeof(message), "Invalid release metadata: %s", error.c_str());
+        Serial.printf("[ota] metadata JSON error=%s contentLength=%d\n", error.c_str(), contentLength);
         http.end();
-        setState(OtaState::Failed, "Invalid release metadata");
+        setState(OtaState::Failed, message);
         return false;
     }
 
