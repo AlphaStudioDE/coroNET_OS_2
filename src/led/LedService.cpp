@@ -6218,6 +6218,187 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             }
             break;
         }
+        case OtherAnimation::ArcadeChase: {
+            constexpr uint8_t Hues[4] = {0U, 42U, 96U, 165U};
+            const uint16_t shift = static_cast<uint16_t>(now / 71U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t cell = static_cast<uint8_t>((path + shift) % 12U);
+                if (cell >= 8U) continue;
+                const uint8_t pellet = cell / 2U;
+                const uint8_t value = (cell & 1U) ? 105U : 220U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, Hues[pellet], 245U, value));
+            }
+            break;
+        }
+        case OtherAnimation::Stardust: {
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            const uint32_t epoch = now / 1900U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t background = hash8(path * 97U) > 225U ? 18U : 3U;
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, 189U, 75U, background));
+            }
+            for (uint8_t dust = 0; dust < 7U; ++dust) {
+                const uint16_t travel = static_cast<uint16_t>(
+                    (now / (73U + dust * 11U) + hash8(epoch * 43U + dust * 83U)) % (center + 7U));
+                if (travel > center) continue;
+                const int16_t direction = (dust & 1U) ? 1 : -1;
+                for (uint8_t tail = 0; tail < 4U; ++tail) {
+                    const int16_t position = static_cast<int16_t>(center) +
+                        direction * static_cast<int16_t>(travel - min<uint16_t>(travel, tail));
+                    if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
+                    setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                        decorativeHsv(LedCategory::Other,
+                            static_cast<uint8_t>(28U + dust * 21U), 95U,
+                            static_cast<uint8_t>(190U - tail * 43U)));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::IceCave: {
+            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
+                const LedSection section = VisualOuterSections[sectionIndex];
+                const uint16_t count = sectionCount(section);
+                const uint16_t middle = (count - 1U) / 2U;
+                for (uint16_t i = 0; i < count; ++i) {
+                    const uint16_t edge = min<uint16_t>(i, count - 1U - i);
+                    const uint8_t crystal = hash8(i * 131U + sectionIndex * 67U);
+                    const uint8_t glint = wave8(static_cast<uint8_t>(
+                        now / (143U + crystal % 37U) + crystal));
+                    const uint8_t value = static_cast<uint8_t>(max<int>(20,
+                        135 - static_cast<int>(edge) * 18 + (glint > 228U ? 70 : 0)));
+                    const uint8_t hue = static_cast<uint8_t>(151U +
+                        (i > middle ? 12U : 0U) + crystal / 32U);
+                    setSection(section, i,
+                        decorativeHsv(LedCategory::Other, hue, 115U, value));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::FireworkTrail: {
+            constexpr uint32_t CycleMs = 5200U;
+            const uint32_t phase = now % CycleMs;
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            if (phase < 2300U) {
+                const uint16_t head = static_cast<uint16_t>(phase * center / 2300U);
+                for (uint8_t tail = 0; tail < 8U; ++tail) {
+                    if (head < tail) continue;
+                    setOuterVisualPathPixel(head - tail,
+                        decorativeHsv(LedCategory::Other, 24U, 225U,
+                            static_cast<uint8_t>(225U - tail * 27U)));
+                }
+            } else if (phase < 4000U) {
+                const uint16_t radius = static_cast<uint16_t>((phase - 2300U) * center / 1700U);
+                const uint8_t hue = static_cast<uint8_t>((now / CycleMs) * 47U);
+                for (int8_t direction = -1; direction <= 1; direction += 2) {
+                    const int16_t head = static_cast<int16_t>(center) + direction * radius;
+                    for (uint8_t tail = 0; tail < 5U; ++tail) {
+                        const int16_t position = head - direction * tail;
+                        if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
+                        setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                            decorativeHsv(LedCategory::Other,
+                                static_cast<uint8_t>(hue + tail * 13U), 245U,
+                                static_cast<uint8_t>(220U - tail * 41U)));
+                    }
+                }
+            }
+            break;
+        }
+        case OtherAnimation::ChromaRing: {
+            const uint16_t head = static_cast<uint16_t>((now / 58U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t trail = static_cast<uint16_t>(
+                    (head + hw::OuterCount - path) % hw::OuterCount);
+                if (trail > 17U) continue;
+                const uint8_t hue = static_cast<uint8_t>(now / 79U + trail * 15U);
+                const uint8_t value = static_cast<uint8_t>(225U - trail * 12U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, 245U, value));
+            }
+            break;
+        }
+        case OtherAnimation::GhostLight: {
+            constexpr uint32_t CycleMs = 9000U;
+            const uint32_t phase = now % CycleMs;
+            if (phase < 6500U) {
+                const uint16_t head = static_cast<uint16_t>(
+                    phase * (hw::OuterCount - 1U) / 6500U);
+                const uint8_t envelope = phase < 1200U
+                    ? static_cast<uint8_t>(phase * 170U / 1200U)
+                    : phase > 5000U
+                        ? static_cast<uint8_t>((6500U - phase) * 170U / 1500U) : 170U;
+                for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                    const uint16_t distance = path > head ? path - head : head - path;
+                    if (distance > 7U) continue;
+                    const uint8_t value = static_cast<uint8_t>(
+                        static_cast<uint16_t>(envelope) * (8U - distance) / 8U);
+                    setOuterVisualPathPixel(path,
+                        decorativeHsv(LedCategory::Other, 161U, 45U, value));
+                }
+            }
+            break;
+        }
+        case OtherAnimation::ToxicWave: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t ooze = wave8(static_cast<uint8_t>(now / 49U + path * 14U));
+                const uint8_t bubbles = wave8(static_cast<uint8_t>(now / 113U - path * 23U));
+                const RgbwColor acid = decorativeHsv(LedCategory::Other, 71U, 255U,
+                    static_cast<uint8_t>(38U + ooze * 145U / 255U));
+                const RgbwColor poison = decorativeHsv(LedCategory::Other, 207U, 245U,
+                    static_cast<uint8_t>(22U + bubbles * 105U / 255U));
+                setOuterVisualPathPixel(path, blend(acid, poison,
+                    static_cast<uint8_t>(bubbles * bubbles / 255U)));
+            }
+            break;
+        }
+        case OtherAnimation::CopperSpark: {
+            const uint32_t epoch = now / 1700U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t ember = wave8(static_cast<uint8_t>(now / 137U + path * 7U));
+                RgbwColor color = decorativeHsv(LedCategory::Other, 20U, 225U,
+                    static_cast<uint8_t>(27U + ember / 10U));
+                const uint16_t sparkPhase = static_cast<uint16_t>((now +
+                    static_cast<uint32_t>(hash8(path * 109U + epoch * 31U)) * 5U) % 1700U);
+                if (hash8(path * 73U + epoch * 149U) > 231U && sparkPhase < 360U) {
+                    const uint8_t peak = sparkPhase < 120U
+                        ? static_cast<uint8_t>(sparkPhase * 255U / 120U)
+                        : static_cast<uint8_t>((360U - sparkPhase) * 255U / 240U);
+                    color = blend(color,
+                        decorativeHsv(LedCategory::Other, 31U, 145U, 225U), peak);
+                }
+                setOuterVisualPathPixel(path, color);
+            }
+            break;
+        }
+        case OtherAnimation::Blueprint: {
+            const uint16_t pen = static_cast<uint16_t>((now / 67U) % hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const bool major = path % 10U == 0U;
+                const bool minor = path % 5U == 0U;
+                const uint16_t distance = path > pen ? path - pen : pen - path;
+                uint8_t value = major ? 72U : minor ? 38U : 10U;
+                if (distance <= 2U) value = static_cast<uint8_t>(205U - distance * 62U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, 148U, 210U, value));
+            }
+            break;
+        }
+        case OtherAnimation::MagmaFlow: {
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t flowA = wave8(static_cast<uint8_t>(now / 61U + path * 19U));
+                const uint8_t flowB = wave8(static_cast<uint8_t>(now / 101U - path * 13U + 91U));
+                const uint8_t heat = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(flowA) * 2U + flowB) / 3U);
+                const uint8_t crack = hash8(path * 97U + (now / 340U) * 17U);
+                const uint8_t value = crack > 242U ? 5U
+                    : static_cast<uint8_t>(35U + heat * 175U / 255U);
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other,
+                        static_cast<uint8_t>(250U + heat * 35U / 255U), 255U, value));
+            }
+            break;
+        }
         case OtherAnimation::Count:
         default:
             break;

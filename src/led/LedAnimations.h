@@ -321,6 +321,16 @@ enum class OtherAnimation : uint8_t {
     PixelCircus,
     MintBreeze,
     RubyScan,
+    ArcadeChase,
+    Stardust,
+    IceCave,
+    FireworkTrail,
+    ChromaRing,
+    GhostLight,
+    ToxicWave,
+    CopperSpark,
+    Blueprint,
+    MagmaFlow,
     Count,
 };
 

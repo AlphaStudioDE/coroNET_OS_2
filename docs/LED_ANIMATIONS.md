@@ -33,7 +33,7 @@ The following behavior is shared by the entire catalog:
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
 | Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
-| Other | 40 | Rebuild in progress; first four reviewed sets implemented on the OS 2 engine |
+| Other | 50 | Rebuild in progress; first five reviewed sets implemented on the OS 2 engine |
 
 ## Print
 
@@ -370,6 +370,16 @@ Other is independent of printer status and is intended for manually selected amb
 | 38 | Pixel Circus | Each section takes a turn as the main ring while the other two run different supporting pixel acts and colors. |
 | 39 | Mint Breeze | Three offset, low-saturation mint waves drift gently through the physical sections as a quiet decorative scene. |
 | 40 | Ruby Scan | A deep-red faceted background carries a saturated ruby scanner that bounces over the entire OUTER route. |
+| 41 | Arcade Chase | Four primary arcade pellets run in bright and dim pairs around OUTER, separated by a repeatable dark gap. |
+| 42 | Stardust | Seven warm stellar fragments stream outward from the middle over a sparse cool star field and retain short directional trails. |
+| 43 | Ice Cave | Mirrored cave walls grow inward from every section edge; fixed facets glint at independent, deterministic intervals. |
+| 44 | Firework Trail | A gold launch trail reaches Center, bursts into two multicolor fronts, decays toward both ends, and rests before repeating. |
+| 45 | Chroma Ring | A compact 18-pixel ring circles OUTER while its long tail walks continuously through the color spectrum. |
+| 46 | Ghost Light | One broad, almost-white blue apparition fades in, glides once across the path, fades away, and leaves a long dark pause. |
+| 47 | Toxic Wave | High-saturation acid green ooze and violet poison bubbles move at separate rates and mix into a viscous two-layer field. |
+| 48 | Copper Spark | A breathing copper ember bed carries sparse sparks with explicit rise and decay envelopes instead of one-frame flashes. |
+| 49 | Blueprint | A dark blue measured grid marks major and minor divisions while a bright cyan drawing pen scans the full route. |
+| 50 | Magma Flow | Two molten flow layers move beneath deterministic black crust cracks, shifting continuously through red, orange, and hot yellow. |
 
 ## Boot LED Experience
 
