@@ -72,6 +72,21 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] validated factory Flash Download Tool package
 - [x] versioned release metadata, checksums, and changelog
 
+## Future Integration Spotlight: AirGuard 300
+
+**AirGuard 300** is a separate open-source DIY chamber-heating project being developed in parallel by Damian Borkowski. It is intended for broad Klipper compatibility and is being engineered around an uncompromising safety-first architecture, with the ambition of becoming the safest DIY chamber-heating platform in its class.
+
+coroNET OS 2 is planned to become its native visual and control companion. The integration direction includes:
+
+- [ ] automatic AirGuard 300 discovery on the local network
+- [ ] authenticated status, telemetry, and command exchange
+- [ ] clear presentation of heater state, chamber targets, safety interlocks, and faults
+- [ ] coordinated ventilation and chamber-heating behavior without bypassing AirGuard's independent safety layers
+- [ ] matching controls on the coroNET touchscreen and Android companion app
+- [ ] public protocol documentation so both projects remain open and independently buildable
+
+The protocol, hardware details, and release schedule will be published only after the relevant safety mechanisms have been validated. Until then, AirGuard 300 remains a deliberate glimpse of the wider open-source ecosystem planned around coroNET.
+
 ## Public Release
 
 - [ ] long-duration memory, WiFi, BLE, display, audio, and LED soak tests

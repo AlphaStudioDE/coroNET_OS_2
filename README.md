@@ -33,6 +33,14 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 - support multiple coroNET devices in one companion app;
 - keep large buffers in PSRAM and reserve internal/DMA memory for hardware-critical work.
 
+## On The Horizon: AirGuard 300
+
+Another open-source project is taking shape alongside coroNET. **AirGuard 300** is a DIY chamber-heating platform being designed for Klipper printers with one deliberately ambitious goal: to set a new benchmark for safety in self-built chamber heating.
+
+Future coroNET OS 2 releases are planned to recognize and work directly with AirGuard 300, bringing its guarded heating system, telemetry, and safety state into the same touchscreen and companion experience. Universal Klipper compatibility and open construction are part of the plan. The rest stays behind the workshop door for now.
+
+> Two open projects. One connected ecosystem. More about AirGuard 300 will be revealed as its hardware and safety architecture reach public validation milestones.
+
 ## Community Showcase: coroNET in the Wild
 
 coroNET is already living beyond the original prototype. Community builders are integrating it into highly customized machines with multi-tool material handling, active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.
