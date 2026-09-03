@@ -20,6 +20,7 @@ The following behavior is shared by the entire catalog:
 - **Inside White** keeps the Inside section white, independent of the selected animation.
 - **Inside Ambient** derives a spatially matched aura from nearby outer LEDs.
 - **Color Remix** rotates decorative hues while preserving semantic data colors such as filament and temperature colors.
+- **Color Calibration** lets each device correct hue, saturation, and brightness at eight color anchors. Corrections are interpolated around the color wheel and applied only to physical LEDs, so the LCD remains a stable visual reference.
 - **Brightness and DIMM** are applied after rendering, independently for each section.
 - **Preview** uses representative printer data so telemetry-aware animations remain visible before a print starts.
 - Smooth frame blending prevents abrupt transitions between status animations and previews.
@@ -220,7 +221,7 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 | 2 | Fireplace | Independent layered flames move through both sides while Center holds a lower amber ember bed. |
 | 3 | Ocean | Two differently paced cyan and blue wave fields combine into broad swells and smaller surface ripples. |
 | 4 | Star Pulse | A softly shaped star-like field breathes from Center while its color advances only once per long cycle. |
-| 5 | Meteor | A saturated meteor with a long fading tail crosses the complete OUTER path, rests in darkness, and returns in a new hue. |
+| 5 | Meteor | A saturated meteor with a long fading tail crosses the complete OUTER path, rests in darkness, and returns on a controlled seven-color spectrum with an unambiguous pure-red pass. |
 | 6 | Twinkle | Sparse warm-white stars appear and decay deterministically over darkness without a retained particle buffer. |
 | 7 | Larson | A classic saturated red scanner bounces end to end across all 42 OUTER LEDs with a long directional tail. |
 | 8 | Lava | Two slow opposing flow fields form moving deep-crimson, red, and hot-orange molten regions without crossing into magenta. |

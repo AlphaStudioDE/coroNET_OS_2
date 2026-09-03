@@ -25,6 +25,16 @@ const char* kCategoryNames[] = {"IDLE", "PRINT", "PAUSE", "ERROR", "FINISH", "OT
 const char* kSectionNames[] = {"RIGHT", "CENTER", "LEFT", "INSIDE"};
 const char* kScenarioNames[] = {"START", "FINISH", "ERROR", "PAUSE", "IDLE"};
 const char* kPandaModeNames[] = {"OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRYING"};
+const char* kCalibrationColorNames[] = {
+    "RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "VIOLET", "MAGENTA",
+};
+
+uint32_t calibrationReferenceHex(uint8_t index) {
+    const RgbwColor color = ledCalibrationReferenceColor(
+        static_cast<LedCalibrationColor>(min<uint8_t>(index, 7U)));
+    return (static_cast<uint32_t>(color.r) << 16U) |
+           (static_cast<uint32_t>(color.g) << 8U) | color.b;
+}
 
 void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
     lv_obj_set_style_text_color(object, lv_color_hex(color), LV_PART_MAIN);
@@ -88,6 +98,8 @@ uint32_t rgbwHex(const RgbwColor& color, bool linearWhite = false) {
 
 void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCallback,
                           void* callbackContext, bool animate) {
+    ledService().stopColorCalibration();
+    calibrationOpen_ = false;
     page_ = page;
     bindingCount_ = 0;
     settingsRevisionSeen_ = 0;
@@ -102,6 +114,7 @@ void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCall
     else if (page == ui::Page::Vent) buildVentPage();
     else buildSoundPage();
     navigation_.build(root_, page, navigationCallback, callbackContext);
+    if (page == ui::Page::Led) buildLedCalibrationOverlay();
     lv_scr_load_anim(root_, animate ? LV_SCR_LOAD_ANIM_FADE_ON : LV_SCR_LOAD_ANIM_NONE,
                      animate ? 180 : 0, 0, true);
     update();
@@ -222,7 +235,79 @@ void ControlScreen::buildLedPage() {
     remixSlider_ = makeSlider(control, 286, 168, 148, 0, 359, 0, Action::Remix);
     makeLabel(control, "Remix changes decorative hues only; data colors keep their meaning.",
               ui::ColorMuted, &lv_font_montserrat_10, 14, 216, 420);
-    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 420);
+
+    lv_obj_t* calibration = makeCard(content, 420, 96, "COLOR CALIBRATION");
+    makeButton(calibration, 14, 34, 160, 38, "OPEN CALIBRATION", Action::CalibrationOpen);
+    makeLabel(calibration, "Match the physical LED spectrum to the on-screen reference.",
+              ui::ColorMuted, &lv_font_montserrat_10, 188, 40, 246);
+    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 524);
+}
+
+void ControlScreen::buildLedCalibrationOverlay() {
+    calibrationOverlay_ = lv_obj_create(root_);
+    lv_obj_set_size(calibrationOverlay_, ui::ScreenWidth, ui::ScreenHeight);
+    lv_obj_set_pos(calibrationOverlay_, 0, 0);
+    lv_obj_clear_flag(calibrationOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(calibrationOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(calibrationOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(calibrationOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(calibrationOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(calibrationOverlay_, 0, LV_PART_MAIN);
+
+    makeLabel(calibrationOverlay_, "LED COLOR CALIBRATION", ui::ColorText,
+              &lv_font_montserrat_18, 18, 13);
+    makeLabel(calibrationOverlay_, "REFERENCE", ui::ColorMuted,
+              &lv_font_montserrat_10, 18, 45);
+    calibrationReference_ = lv_obj_create(calibrationOverlay_);
+    lv_obj_set_size(calibrationReference_, 116, 66);
+    lv_obj_set_pos(calibrationReference_, 18, 60);
+    lv_obj_clear_flag(calibrationReference_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(calibrationReference_, ui::CornerRadius, LV_PART_MAIN);
+    lv_obj_set_style_border_width(calibrationReference_, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(calibrationReference_, lv_color_hex(ui::ColorText), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(calibrationReference_, 0, LV_PART_MAIN);
+    calibrationReferenceLabel_ = makeLabel(calibrationReference_, "RED", 0xFFFFFFUL,
+                                           &lv_font_montserrat_12, 0, 25, 116);
+    lv_obj_set_style_text_align(calibrationReferenceLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    static constexpr Action ColorActions[8] = {
+        Action::CalibrationRed, Action::CalibrationOrange, Action::CalibrationYellow,
+        Action::CalibrationGreen, Action::CalibrationCyan, Action::CalibrationBlue,
+        Action::CalibrationViolet, Action::CalibrationMagenta,
+    };
+    for (uint8_t index = 0; index < 8U; ++index) {
+        const int x = 150 + (index % 4U) * 76;
+        const int y = 54 + (index / 4U) * 37;
+        calibrationColorLabels_[index] = makeButton(
+            calibrationOverlay_, x, y, 68, 30, kCalibrationColorNames[index], ColorActions[index]);
+        lv_obj_t* button = lv_obj_get_parent(calibrationColorLabels_[index]);
+        lv_obj_set_style_bg_color(button, lv_color_hex(calibrationReferenceHex(index)), LV_PART_MAIN);
+        lv_obj_set_style_text_color(calibrationColorLabels_[index],
+                                    lv_color_hex(index == 1U || index == 2U || index == 3U || index == 4U
+                                                     ? 0x101418UL : 0xFFFFFFUL),
+                                    LV_PART_MAIN);
+    }
+
+    calibrationHueLabel_ = makeLabel(calibrationOverlay_, "HUE  +0 DEG", ui::ColorMuted,
+                                     &lv_font_montserrat_10, 18, 145, 110);
+    calibrationHueSlider_ = makeSlider(calibrationOverlay_, 132, 141, 264,
+                                       -45, 45, 0, Action::CalibrationHue);
+    calibrationSaturationLabel_ = makeLabel(calibrationOverlay_, "SATURATION 100%", ui::ColorMuted,
+                                            &lv_font_montserrat_10, 18, 179, 110);
+    calibrationSaturationSlider_ = makeSlider(calibrationOverlay_, 132, 175, 264,
+                                              50, 150, 100, Action::CalibrationSaturation);
+    calibrationBrightnessLabel_ = makeLabel(calibrationOverlay_, "BRIGHTNESS 100%", ui::ColorMuted,
+                                            &lv_font_montserrat_10, 18, 213, 110);
+    calibrationBrightnessSlider_ = makeSlider(calibrationOverlay_, 132, 209, 264,
+                                              50, 150, 100, Action::CalibrationBrightness);
+
+    makeButton(calibrationOverlay_, 18, 247, 108, 34, "RESET COLOR", Action::CalibrationResetColor);
+    makeButton(calibrationOverlay_, 134, 247, 96, 34, "RESET ALL", Action::CalibrationResetAll);
+    makeButton(calibrationOverlay_, 270, 247, 88, 34, "CANCEL", Action::CalibrationCancel);
+    makeButton(calibrationOverlay_, 366, 247, 96, 34, "SAVE", Action::CalibrationSave);
+    makeLabel(calibrationOverlay_, "Tune the physical LEDs to the fixed LCD swatch. Intermediate hues are blended automatically.",
+              ui::ColorMuted, &lv_font_montserrat_10, 18, 294, 444);
+    lv_obj_add_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ControlScreen::buildVentPage() {
@@ -318,6 +403,88 @@ void ControlScreen::refreshLed() {
     lv_label_set_text_fmt(remixLabel_, "COLOR REMIX %d", settings.ledColorRemixDegrees[selectedCategory_]);
     if (!lv_obj_has_state(remixSlider_, LV_STATE_PRESSED)) lv_slider_set_value(remixSlider_, settings.ledColorRemixDegrees[selectedCategory_], LV_ANIM_OFF);
     refreshLedCanvas();
+    if (calibrationOpen_) refreshLedCalibration();
+}
+
+void ControlScreen::openLedCalibration() {
+    if (!calibrationOverlay_ || calibrationOpen_) return;
+    settingsService().flush();
+    AppSettings& settings = settingsService().mutableSettings();
+    memcpy(calibrationHueBackup_, settings.ledCalibrationHue,
+           sizeof(calibrationHueBackup_));
+    memcpy(calibrationSaturationBackup_, settings.ledCalibrationSaturation,
+           sizeof(calibrationSaturationBackup_));
+    memcpy(calibrationBrightnessBackup_, settings.ledCalibrationBrightness,
+           sizeof(calibrationBrightnessBackup_));
+    calibrationOpen_ = true;
+    selectedCalibrationColor_ = 0U;
+    lv_obj_clear_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(calibrationOverlay_);
+    ledService().startColorCalibration(LedCalibrationColor::Red);
+    refreshLedCalibration();
+}
+
+void ControlScreen::closeLedCalibration(bool save) {
+    if (!calibrationOpen_) return;
+    AppSettings& settings = settingsService().mutableSettings();
+    if (save) {
+        settingsService().save();
+        settingsService().flush();
+    } else {
+        memcpy(settings.ledCalibrationHue, calibrationHueBackup_,
+               sizeof(calibrationHueBackup_));
+        memcpy(settings.ledCalibrationSaturation, calibrationSaturationBackup_,
+               sizeof(calibrationSaturationBackup_));
+        memcpy(settings.ledCalibrationBrightness, calibrationBrightnessBackup_,
+               sizeof(calibrationBrightnessBackup_));
+    }
+    ledService().stopColorCalibration();
+    calibrationOpen_ = false;
+    lv_obj_add_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ControlScreen::selectLedCalibrationColor(uint8_t index) {
+    if (index >= 8U) return;
+    selectedCalibrationColor_ = index;
+    ledService().setColorCalibrationColor(static_cast<LedCalibrationColor>(index));
+    refreshLedCalibration();
+}
+
+void ControlScreen::refreshLedCalibration() {
+    if (!calibrationOpen_ || !calibrationOverlay_) return;
+    const AppSettings& settings = settingsService().settings();
+    const uint8_t index = min<uint8_t>(selectedCalibrationColor_, 7U);
+    lv_obj_set_style_bg_color(calibrationReference_,
+                              lv_color_hex(calibrationReferenceHex(index)), LV_PART_MAIN);
+    lv_label_set_text(calibrationReferenceLabel_, kCalibrationColorNames[index]);
+    lv_obj_set_style_text_color(calibrationReferenceLabel_,
+                                lv_color_hex(index == 1U || index == 2U || index == 3U || index == 4U
+                                                 ? 0x101418UL : 0xFFFFFFUL),
+                                LV_PART_MAIN);
+    for (uint8_t color = 0; color < 8U; ++color) {
+        lv_obj_t* button = lv_obj_get_parent(calibrationColorLabels_[color]);
+        lv_obj_set_style_border_width(button, color == index ? 3 : 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(button,
+                                      lv_color_hex(color == index ? ui::ColorText : ui::ColorBorder),
+                                      LV_PART_MAIN);
+    }
+    lv_label_set_text_fmt(calibrationHueLabel_, "HUE  %+d DEG",
+                          static_cast<int>(settings.ledCalibrationHue[index]));
+    lv_label_set_text_fmt(calibrationSaturationLabel_, "SATURATION %u%%",
+                          settings.ledCalibrationSaturation[index]);
+    lv_label_set_text_fmt(calibrationBrightnessLabel_, "BRIGHTNESS %u%%",
+                          settings.ledCalibrationBrightness[index]);
+    if (!lv_obj_has_state(calibrationHueSlider_, LV_STATE_PRESSED)) {
+        lv_slider_set_value(calibrationHueSlider_, settings.ledCalibrationHue[index], LV_ANIM_OFF);
+    }
+    if (!lv_obj_has_state(calibrationSaturationSlider_, LV_STATE_PRESSED)) {
+        lv_slider_set_value(calibrationSaturationSlider_,
+                            settings.ledCalibrationSaturation[index], LV_ANIM_OFF);
+    }
+    if (!lv_obj_has_state(calibrationBrightnessSlider_, LV_STATE_PRESSED)) {
+        lv_slider_set_value(calibrationBrightnessSlider_,
+                            settings.ledCalibrationBrightness[index], LV_ANIM_OFF);
+    }
 }
 
 void ControlScreen::refreshLedCanvas() {
@@ -444,6 +611,41 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::DimmPercent: settings.ledDimmPercent[selectedSection_] = lv_slider_get_value(dimmSlider_); if (commit) settingsService().save(); break;
         case Action::RemixDefault: settings.ledColorRemixDegrees[selectedCategory_] = 0; settingsService().save(); break;
         case Action::Remix: settings.ledColorRemixDegrees[selectedCategory_] = lv_slider_get_value(remixSlider_); if (commit) settingsService().save(); break;
+        case Action::CalibrationOpen: openLedCalibration(); break;
+        case Action::CalibrationRed: selectLedCalibrationColor(0U); break;
+        case Action::CalibrationOrange: selectLedCalibrationColor(1U); break;
+        case Action::CalibrationYellow: selectLedCalibrationColor(2U); break;
+        case Action::CalibrationGreen: selectLedCalibrationColor(3U); break;
+        case Action::CalibrationCyan: selectLedCalibrationColor(4U); break;
+        case Action::CalibrationBlue: selectLedCalibrationColor(5U); break;
+        case Action::CalibrationViolet: selectLedCalibrationColor(6U); break;
+        case Action::CalibrationMagenta: selectLedCalibrationColor(7U); break;
+        case Action::CalibrationHue:
+            settings.ledCalibrationHue[selectedCalibrationColor_] =
+                static_cast<int8_t>(lv_slider_get_value(calibrationHueSlider_));
+            break;
+        case Action::CalibrationSaturation:
+            settings.ledCalibrationSaturation[selectedCalibrationColor_] =
+                static_cast<uint8_t>(lv_slider_get_value(calibrationSaturationSlider_));
+            break;
+        case Action::CalibrationBrightness:
+            settings.ledCalibrationBrightness[selectedCalibrationColor_] =
+                static_cast<uint8_t>(lv_slider_get_value(calibrationBrightnessSlider_));
+            break;
+        case Action::CalibrationResetColor:
+            settings.ledCalibrationHue[selectedCalibrationColor_] = 0;
+            settings.ledCalibrationSaturation[selectedCalibrationColor_] = 100U;
+            settings.ledCalibrationBrightness[selectedCalibrationColor_] = 100U;
+            break;
+        case Action::CalibrationResetAll:
+            for (uint8_t index = 0; index < 8U; ++index) {
+                settings.ledCalibrationHue[index] = 0;
+                settings.ledCalibrationSaturation[index] = 100U;
+                settings.ledCalibrationBrightness[index] = 100U;
+            }
+            break;
+        case Action::CalibrationCancel: closeLedCalibration(false); break;
+        case Action::CalibrationSave: closeLedCalibration(true); break;
         case Action::VentAuto: settings.ventMode = VentMode::Automatic; settingsService().save(); ventService().applyNow(); break;
         case Action::VentTarget: settings.ventMode = VentMode::CavityTarget; settingsService().save(); ventService().applyNow(); break;
         case Action::VentManual: settings.ventMode = VentMode::Manual; settingsService().save(); ventService().applyNow(); break;

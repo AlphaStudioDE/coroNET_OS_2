@@ -228,6 +228,12 @@ void executeSerialCommand() {
         logTaskDiagnostics();
     } else if (strcmp(serialCommand, "led status") == 0) {
         coronet::ledService().logStatus();
+    } else if (strcmp(serialCommand, "led calibration") == 0) {
+        Serial.printf("[console] LED color calibration %s\n",
+                      coronet::ledService().startColorCalibration() ? "started" : "unavailable");
+    } else if (strcmp(serialCommand, "led calibration stop") == 0) {
+        coronet::ledService().stopColorCalibration();
+        Serial.println("[console] LED color calibration stopped");
     } else if (strcmp(serialCommand, "led preview stop") == 0) {
         coronet::ledService().cancelPreview();
         Serial.println("[console] LED preview stopped");

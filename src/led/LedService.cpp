@@ -29,6 +29,11 @@ constexpr uint8_t NibbleLutLo[16] = {
 };
 constexpr uint32_t FullLedHandoffStartMs = 31800U;
 constexpr uint32_t QuickLedHandoffStartMs = 2700U;
+constexpr uint8_t CalibrationPointCount = 8U;
+constexpr uint8_t CalibrationReferenceHues[CalibrationPointCount] = {
+    0U, 21U, 43U, 85U, 128U, 170U, 191U, 213U,
+};
+constexpr uint8_t CalibrationReferenceSaturation = 220U;
 
 LedService gLedService;
 
@@ -164,6 +169,70 @@ bool rgbHue(const RgbwColor& color, uint8_t& hue) {
     if (value < 0) value += 256;
     hue = static_cast<uint8_t>(value);
     return true;
+}
+
+int16_t interpolateSigned(int16_t first, int16_t second,
+                          uint16_t position, uint16_t span) {
+    if (!span) return first;
+    return static_cast<int16_t>((static_cast<int32_t>(first) * (span - position) +
+                                 static_cast<int32_t>(second) * position) /
+                                span);
+}
+
+uint16_t interpolateUnsigned(uint16_t first, uint16_t second,
+                             uint16_t position, uint16_t span) {
+    if (!span) return first;
+    return static_cast<uint16_t>((static_cast<uint32_t>(first) * (span - position) +
+                                  static_cast<uint32_t>(second) * position + span / 2U) /
+                                 span);
+}
+
+RgbwColor applyUserColorCalibration(const RgbwColor& color,
+                                    const AppSettings& settings) {
+    const uint8_t peak = max(color.r, max(color.g, color.b));
+    const uint8_t low = min(color.r, min(color.g, color.b));
+    const uint8_t delta = static_cast<uint8_t>(peak - low);
+    uint8_t hue = 0U;
+    if (peak < 8U || delta < 8U || !rgbHue(color, hue)) return color;
+
+    uint8_t left = CalibrationPointCount - 1U;
+    for (uint8_t index = 0; index + 1U < CalibrationPointCount; ++index) {
+        if (hue >= CalibrationReferenceHues[index] &&
+            hue < CalibrationReferenceHues[index + 1U]) {
+            left = index;
+            break;
+        }
+    }
+    const uint8_t right = static_cast<uint8_t>((left + 1U) % CalibrationPointCount);
+    const uint16_t start = CalibrationReferenceHues[left];
+    const uint16_t end = right == 0U ? 256U : CalibrationReferenceHues[right];
+    const uint16_t position = static_cast<uint16_t>(hue) - start;
+    const uint16_t span = end - start;
+
+    const int16_t hueDegrees = interpolateSigned(
+        settings.ledCalibrationHue[left], settings.ledCalibrationHue[right],
+        position, span);
+    const uint16_t saturationScale = interpolateUnsigned(
+        settings.ledCalibrationSaturation[left], settings.ledCalibrationSaturation[right],
+        position, span);
+    const uint16_t brightnessScale = interpolateUnsigned(
+        settings.ledCalibrationBrightness[left], settings.ledCalibrationBrightness[right],
+        position, span);
+
+    const uint8_t saturation = static_cast<uint8_t>(
+        static_cast<uint16_t>(delta) * 255U / peak);
+    const uint8_t calibratedSaturation = static_cast<uint8_t>(min<uint16_t>(
+        255U, static_cast<uint16_t>(saturation) * saturationScale / 100U));
+    const uint8_t calibratedValue = static_cast<uint8_t>(min<uint16_t>(
+        255U, static_cast<uint16_t>(peak) * brightnessScale / 100U));
+    int16_t calibratedHue = static_cast<int16_t>(hue) +
+        static_cast<int16_t>(hueDegrees * 256L / 360L);
+    while (calibratedHue < 0) calibratedHue += 256;
+    while (calibratedHue > 255) calibratedHue -= 256;
+    RgbwColor result = hsv(static_cast<uint8_t>(calibratedHue),
+                           calibratedSaturation, calibratedValue);
+    result.w = color.w;
+    return result;
 }
 
 uint8_t progressCoverage(uint8_t progress, uint16_t count, uint16_t index) {
@@ -327,6 +396,12 @@ LedService& ledService() {
     return gLedService;
 }
 
+RgbwColor ledCalibrationReferenceColor(LedCalibrationColor color) {
+    const uint8_t index = min<uint8_t>(static_cast<uint8_t>(color),
+                                       CalibrationPointCount - 1U);
+    return hsv(CalibrationReferenceHues[index], CalibrationReferenceSaturation, 255U);
+}
+
 void LedService::begin() {
     state().ledReady = false;
     if (!allocateBuffers()) {
@@ -362,7 +437,7 @@ void LedService::begin() {
     Serial.printf("[led] ready SPI=%luHz frame=%lums buffers: psram=%uB internal=%uB\n",
                   static_cast<unsigned long>(SpiClockHz),
                   static_cast<unsigned long>(FrameIntervalMs),
-                  static_cast<unsigned>(sizeof(RgbwColor) * hw::LedCount * 2U),
+                  static_cast<unsigned>(sizeof(RgbwColor) * hw::LedCount * 3U),
                   static_cast<unsigned>(hw::LedCount * 16U));
 }
 
@@ -389,18 +464,41 @@ void LedService::cancelPreview() {
     previewActive_ = false;
 }
 
-bool LedService::copyFrame(RgbwColor* output, size_t count) const {
-    if (!output || !currentFrame_ || count < hw::LedCount) return false;
+bool LedService::startColorCalibration(LedCalibrationColor color) {
+    if (!started_ || color >= LedCalibrationColor::Count) return false;
     portENTER_CRITICAL(&frameMux_);
-    memcpy(output, currentFrame_, sizeof(RgbwColor) * hw::LedCount);
+    colorCalibrationColor_ = color;
+    colorCalibrationActive_ = true;
+    portEXIT_CRITICAL(&frameMux_);
+    return true;
+}
+
+void LedService::setColorCalibrationColor(LedCalibrationColor color) {
+    if (color >= LedCalibrationColor::Count) return;
+    portENTER_CRITICAL(&frameMux_);
+    colorCalibrationColor_ = color;
+    portEXIT_CRITICAL(&frameMux_);
+}
+
+void LedService::stopColorCalibration() {
+    portENTER_CRITICAL(&frameMux_);
+    colorCalibrationActive_ = false;
+    portEXIT_CRITICAL(&frameMux_);
+}
+
+bool LedService::copyFrame(RgbwColor* output, size_t count) const {
+    if (!output || !previewFrame_ || count < hw::LedCount) return false;
+    portENTER_CRITICAL(&frameMux_);
+    memcpy(output, previewFrame_, sizeof(RgbwColor) * hw::LedCount);
     portEXIT_CRITICAL(&frameMux_);
     return true;
 }
 
 void LedService::logStatus() const {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
-    Serial.printf("[led] ready=%u boot=%u preview=%u mirror=%u shows=%lu skipped=%lu frames=%lu dropped=%lu stackHeadroom=%uB\n",
+    Serial.printf("[led] ready=%u boot=%u preview=%u calibration=%u mirror=%u shows=%lu skipped=%lu frames=%lu dropped=%lu stackHeadroom=%uB\n",
                   started_ ? 1U : 0U, bootActive_ ? 1U : 0U, previewActive_ ? 1U : 0U,
+                  colorCalibrationActive_ ? 1U : 0U,
                   settingsService().settings().mirrorLedLayout ? 1U : 0U,
                   static_cast<unsigned long>(shows_), static_cast<unsigned long>(skippedShows_),
                   static_cast<unsigned long>(state().ledFrameCount),
@@ -435,9 +533,11 @@ bool LedService::allocateBuffers() {
         hw::LedCount, sizeof(RgbwColor), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     currentFrame_ = static_cast<RgbwColor*>(heap_caps_calloc(
         hw::LedCount, sizeof(RgbwColor), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    previewFrame_ = static_cast<RgbwColor*>(heap_caps_calloc(
+        hw::LedCount, sizeof(RgbwColor), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     txBuffer_ = static_cast<uint8_t*>(heap_caps_malloc(
         hw::LedCount * 16U, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-    return targetFrame_ && currentFrame_ && txBuffer_;
+    return targetFrame_ && currentFrame_ && previewFrame_ && txBuffer_;
 }
 
 void LedService::render(uint32_t now) {
@@ -445,6 +545,12 @@ void LedService::render(uint32_t now) {
     const AppSettings& settings = settingsService().settings();
     const SystemState& system = state();
     frameMirror_ = settings.mirrorLedLayout;
+
+    if (renderColorCalibration(now)) {
+        bootActive_ = false;
+        smoothAndShow(true);
+        return;
+    }
 
     if (system.printerStateEventSequence != lastPrinterEventSequence_) {
         lastPrinterEventSequence_ = system.printerStateEventSequence;
@@ -552,6 +658,27 @@ void LedService::render(uint32_t now) {
 
     applyOutputPolicies();
     smoothAndShow(bootActive_ && bootElapsed < 300U);
+}
+
+bool LedService::renderColorCalibration(uint32_t now) {
+    (void)now;
+    bool active = false;
+    LedCalibrationColor selected = LedCalibrationColor::Red;
+    portENTER_CRITICAL(&frameMux_);
+    active = colorCalibrationActive_;
+    selected = colorCalibrationColor_;
+    portEXIT_CRITICAL(&frameMux_);
+    if (!active) return false;
+
+    const uint8_t index = static_cast<uint8_t>(selected);
+    RgbwColor color = ledCalibrationReferenceColor(selected);
+    // Match the 80% RGB headroom used by ordinary animations at full section
+    // brightness, while keeping the diagnostic independent of user dimming.
+    color = scaled(color, 204U);
+    fillSection(LedSection::Right, color);
+    fillSection(LedSection::Center, color);
+    fillSection(LedSection::Left, color);
+    return true;
 }
 
 void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted) {
@@ -932,7 +1059,21 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             const uint16_t route = hw::OuterCount + 12U;
             const uint16_t rawHead = static_cast<uint16_t>((now / 46U) % route);
             if (rawHead < hw::OuterCount) {
-                const uint8_t hue = static_cast<uint8_t>((now / (route * 46U)) * 43U);
+                // Step through deliberate spectral anchors. Incrementing an
+                // 8-bit hue by 43 drifted around the wheel and eventually made
+                // the nominal red pass land in pink/magenta territory.
+                constexpr uint8_t MeteorHues[] = {
+                    0U,    // red
+                    21U,   // orange
+                    43U,   // yellow
+                    85U,   // green
+                    128U,  // cyan
+                    170U,  // blue
+                    191U,  // violet
+                };
+                const uint32_t pass = now / (route * 46U);
+                const uint8_t hue = MeteorHues[pass %
+                    (sizeof(MeteorHues) / sizeof(MeteorHues[0]))];
                 for (uint8_t tail = 0; tail < 11U; ++tail) {
                     if (rawHead < tail) continue;
                     const uint16_t path = rawHead - tail;
@@ -7345,7 +7486,12 @@ bool LedService::smoothAndShow(bool immediate) {
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
         // Match the proven coroNET 1 boundary: convert every target to its
         // physical RGBW/gamma representation before channel smoothing.
-        const RgbwColor target = perceptualOutput(targetFrame_[i]);
+        // Keep the LCD preview as the uncalibrated visual target. Physical
+        // calibration may deliberately send another RGB mix so that the strip
+        // and diffuser reproduce that target to the viewer.
+        previewFrame_[i] = perceptualOutput(targetFrame_[i]);
+        const RgbwColor target = perceptualOutput(applyUserColorCalibration(
+            targetFrame_[i], settingsService().settings()));
         const uint8_t targetPeak = max(target.r, max(target.g, target.b));
         const uint8_t targetLow = min(target.r, min(target.g, target.b));
         const uint8_t targetSaturation = targetPeak

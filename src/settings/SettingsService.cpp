@@ -10,7 +10,7 @@ namespace coronet {
 
 namespace {
 constexpr const char* Namespace = "coronet2";
-constexpr uint16_t CurrentSchema = 5;
+constexpr uint16_t CurrentSchema = 6;
 
 uint16_t sanePort(uint16_t port) {
     return port == 0 ? 7125 : port;
@@ -84,6 +84,12 @@ void SettingsService::load() {
     readExactBytes(prefs, "ledAnim", settings_.ledAnimation, sizeof(settings_.ledAnimation));
     readExactBytes(prefs, "ledRemix", settings_.ledColorRemixDegrees,
                    sizeof(settings_.ledColorRemixDegrees));
+    readExactBytes(prefs, "ledCalHue", settings_.ledCalibrationHue,
+                   sizeof(settings_.ledCalibrationHue));
+    readExactBytes(prefs, "ledCalSat", settings_.ledCalibrationSaturation,
+                   sizeof(settings_.ledCalibrationSaturation));
+    readExactBytes(prefs, "ledCalVal", settings_.ledCalibrationBrightness,
+                   sizeof(settings_.ledCalibrationBrightness));
 
     readExactBytes(prefs, "sndVol", settings_.soundVolume, sizeof(settings_.soundVolume));
     readExactBytes(prefs, "sndRepeat", settings_.soundRepeat, sizeof(settings_.soundRepeat));
@@ -178,6 +184,14 @@ void SettingsService::load() {
         settings_.ledAnimation[index] = normalizeLedAnimation(category, settings_.ledAnimation[index]);
         settings_.ledColorRemixDegrees[index] = clampValue<int16_t>(
             settings_.ledColorRemixDegrees[index], -359, 359);
+    }
+    for (uint8_t index = 0; index < 8U; ++index) {
+        settings_.ledCalibrationHue[index] = clampValue<int8_t>(
+            settings_.ledCalibrationHue[index], -45, 45);
+        settings_.ledCalibrationSaturation[index] = clampValue<uint8_t>(
+            settings_.ledCalibrationSaturation[index], 50, 150);
+        settings_.ledCalibrationBrightness[index] = clampValue<uint8_t>(
+            settings_.ledCalibrationBrightness[index], 50, 150);
     }
     for (uint8_t index = 0; index < enumCount(SoundScenario{}); ++index) {
         settings_.soundVolume[index] = clampValue<uint8_t>(settings_.soundVolume[index], 0, 100);
@@ -275,6 +289,11 @@ void SettingsService::saveNow() {
     prefs.putBool("ledMirror", settings_.mirrorLedLayout);
     prefs.putBytes("ledAnim", settings_.ledAnimation, sizeof(settings_.ledAnimation));
     prefs.putBytes("ledRemix", settings_.ledColorRemixDegrees, sizeof(settings_.ledColorRemixDegrees));
+    prefs.putBytes("ledCalHue", settings_.ledCalibrationHue, sizeof(settings_.ledCalibrationHue));
+    prefs.putBytes("ledCalSat", settings_.ledCalibrationSaturation,
+                   sizeof(settings_.ledCalibrationSaturation));
+    prefs.putBytes("ledCalVal", settings_.ledCalibrationBrightness,
+                   sizeof(settings_.ledCalibrationBrightness));
 
     prefs.putBytes("sndVol", settings_.soundVolume, sizeof(settings_.soundVolume));
     prefs.putBytes("sndRepeat", settings_.soundRepeat, sizeof(settings_.soundRepeat));

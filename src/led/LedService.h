@@ -10,12 +10,29 @@
 
 namespace coronet {
 
+enum class LedCalibrationColor : uint8_t {
+    Red = 0,
+    Orange,
+    Yellow,
+    Green,
+    Cyan,
+    Blue,
+    Violet,
+    Magenta,
+    Count,
+};
+
+RgbwColor ledCalibrationReferenceColor(LedCalibrationColor color);
+
 class LedService {
 public:
     void begin();
     void loop();
     bool requestPreview(LedCategory category, uint8_t animation, uint32_t durationMs = 10000);
     void cancelPreview();
+    bool startColorCalibration(LedCalibrationColor color = LedCalibrationColor::Red);
+    void setColorCalibrationColor(LedCalibrationColor color);
+    void stopColorCalibration();
     bool copyFrame(RgbwColor* output, size_t count) const;
     void logStatus() const;
 
@@ -31,6 +48,7 @@ private:
     void taskLoop();
     bool allocateBuffers();
     void render(uint32_t now);
+    bool renderColorCalibration(uint32_t now);
     void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted);
     void renderCategory(LedCategory category, uint8_t animation,
                         const LedAnimationContext& context);
@@ -60,18 +78,21 @@ private:
     TaskHandle_t task_ = nullptr;
     RgbwColor* targetFrame_ = nullptr;
     RgbwColor* currentFrame_ = nullptr;
+    RgbwColor* previewFrame_ = nullptr;
     uint8_t* txBuffer_ = nullptr;
     mutable portMUX_TYPE frameMux_ = portMUX_INITIALIZER_UNLOCKED;
     portMUX_TYPE outputMux_ = portMUX_INITIALIZER_UNLOCKED;
     bool started_ = false;
     bool bootActive_ = false;
     bool previewActive_ = false;
+    bool colorCalibrationActive_ = false;
     bool frameMirror_ = false;
     LedCategory previewCategory_ = LedCategory::Idle;
     uint8_t previewAnimation_ = 0;
     uint32_t previewStartedMs_ = 0;
     uint32_t previewDurationMs_ = 10000;
     uint32_t previewUntilMs_ = 0;
+    LedCalibrationColor colorCalibrationColor_ = LedCalibrationColor::Red;
     uint32_t lastFrameMs_ = 0;
     uint32_t shows_ = 0;
     uint32_t skippedShows_ = 0;

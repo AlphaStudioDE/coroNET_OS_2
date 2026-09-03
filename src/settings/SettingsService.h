@@ -26,7 +26,7 @@ enum class CompanionTransport : uint8_t {
 };
 
 struct AppSettings {
-    uint16_t schemaVersion = 5;
+    uint16_t schemaVersion = 6;
     bool setupDone = false;
     bool bleEnabled = true;
     uint8_t displayBrightness = 80;
@@ -51,6 +51,9 @@ struct AppSettings {
     bool mirrorLedLayout = false;
     uint8_t ledAnimation[enumCount(LedCategory{})] = {0, 0, 0, 0, 0, 0};
     int16_t ledColorRemixDegrees[enumCount(LedCategory{})] = {0, 0, 0, 0, 0, 0};
+    int8_t ledCalibrationHue[8] = {};
+    uint8_t ledCalibrationSaturation[8] = {100, 100, 100, 100, 100, 100, 100, 100};
+    uint8_t ledCalibrationBrightness[8] = {100, 100, 100, 100, 100, 100, 100, 100};
 
     uint8_t soundVolume[enumCount(SoundScenario{})] = {75, 75, 85, 70, 60};
     bool soundRepeat[enumCount(SoundScenario{})] = {false, false, true, false, false};

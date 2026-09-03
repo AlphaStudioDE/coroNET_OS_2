@@ -1,5 +1,31 @@
 # Development Updates
 
+## 2026-09-03
+
+### Rebuilt LED Animation Library
+
+- Recreated the complete coroNET animation library for the OS 2 engine instead of copying legacy rendering code directly.
+- Added 336 documented animations across Print, Pause, Error, Idle, Finish, and Other, including telemetry-aware effects driven by progress, filament, temperature, timing, connectivity, and ventilation state.
+- Standardized all effects on logical Right, Center, Left, Inside, full-OUTER, and mirrored visual-path helpers.
+- Added a public LED animation catalog describing every selectable effect and the live printer data it represents.
+
+### Physical LED Color Calibration
+
+- Added an on-device calibration workspace with fixed LCD references for red, orange, yellow, green, cyan, blue, violet, and magenta.
+- Added independent hue, saturation, and brightness correction for every reference color, with smooth interpolation for all intermediate animation hues.
+- Persisted calibration in device settings while supporting per-color reset, full reset, cancel, and explicit save actions.
+- Decoupled the LCD preview from physical correction, allowing the screen to remain the visual target while the SK6812 strip is compensated for its spectrum and diffuser.
+- Restored the proven coroNET 1 gamma-2 brightness curve, RGB hue-preserving luminance scaling, saturation-aware RGBW extraction, and animation headroom.
+- Removed low-level brightness flooring, reduced pastel contamination during fades, corrected preview direction, and stabilized saturated colors during frame smoothing.
+- Replaced Meteor's drifting hue increment with controlled spectrum anchors and a true pure-red pass.
+
+### Discovery, Memory, And Distribution
+
+- Made printer discovery fast and deterministic by trying saved endpoints and mDNS before a bounded network scan.
+- Improved DMA headroom through PSRAM-backed LVGL allocation, reduced audio pressure, startup reservations, and expanded heap diagnostics.
+- Added validated, versioned Espressif Flash Download Tool packages with a merged factory image, individual binaries, manifests, instructions, and checksums.
+- Prepared firmware `0.2.0` for GitHub OTA delivery, same-version reinstall, SD recovery, and clean factory flashing.
+
 ## 2026-09-02
 
 ### Verified OTA Delivery

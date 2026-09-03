@@ -23,6 +23,11 @@ private:
         CategoryPrev, CategoryNext, AnimationPrev, AnimationNext, Preview,
         InsideStyle, Mirror, SectionNext, Brightness, DimmToggle, DimmPercent,
         RemixDefault, Remix,
+        CalibrationOpen,
+        CalibrationRed, CalibrationOrange, CalibrationYellow, CalibrationGreen,
+        CalibrationCyan, CalibrationBlue, CalibrationViolet, CalibrationMagenta,
+        CalibrationHue, CalibrationSaturation, CalibrationBrightness,
+        CalibrationResetColor, CalibrationResetAll, CalibrationCancel, CalibrationSave,
         VentAuto, VentTarget, VentManual, VentTargetTemp, ManualFan, ManualFlap,
         ServoClosed, ServoOpen, ServoReverse, FanMinimum, FanMaximum,
         PandaEnabled, PandaMode, PandaTarget, PandaPreset, PandaHours,
@@ -33,6 +38,7 @@ private:
 
     void buildHeader();
     void buildLedPage();
+    void buildLedCalibrationOverlay();
     void buildVentPage();
     void buildSoundPage();
     lv_obj_t* makeContent();
@@ -46,6 +52,10 @@ private:
     void refreshVent();
     void refreshSound();
     void refreshLedCanvas();
+    void refreshLedCalibration();
+    void openLedCalibration();
+    void closeLedCalibration(bool save);
+    void selectLedCalibrationColor(uint8_t index);
     static void eventHandler(lv_event_t* event);
 
     ui::Page page_ = ui::Page::Home;
@@ -65,6 +75,16 @@ private:
     lv_obj_t* dimmSlider_ = nullptr;
     lv_obj_t* remixLabel_ = nullptr;
     lv_obj_t* remixSlider_ = nullptr;
+    lv_obj_t* calibrationOverlay_ = nullptr;
+    lv_obj_t* calibrationReference_ = nullptr;
+    lv_obj_t* calibrationReferenceLabel_ = nullptr;
+    lv_obj_t* calibrationColorLabels_[8] = {};
+    lv_obj_t* calibrationHueLabel_ = nullptr;
+    lv_obj_t* calibrationHueSlider_ = nullptr;
+    lv_obj_t* calibrationSaturationLabel_ = nullptr;
+    lv_obj_t* calibrationSaturationSlider_ = nullptr;
+    lv_obj_t* calibrationBrightnessLabel_ = nullptr;
+    lv_obj_t* calibrationBrightnessSlider_ = nullptr;
     lv_obj_t* ventStatusLabel_ = nullptr;
     lv_obj_t* ventModeLabels_[3] = {};
     lv_obj_t* ventTargetLabel_ = nullptr;
@@ -102,6 +122,11 @@ private:
     uint8_t selectedCategory_ = 0;
     uint8_t selectedSection_ = 0;
     uint8_t selectedSound_ = 0;
+    uint8_t selectedCalibrationColor_ = 0;
+    bool calibrationOpen_ = false;
+    int8_t calibrationHueBackup_[8] = {};
+    uint8_t calibrationSaturationBackup_[8] = {};
+    uint8_t calibrationBrightnessBackup_[8] = {};
     uint32_t settingsRevisionSeen_ = 0;
     uint32_t lastCanvasUpdateMs_ = 0;
     ui::Navigation navigation_;
