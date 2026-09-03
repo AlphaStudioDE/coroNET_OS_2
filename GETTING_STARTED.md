@@ -1,12 +1,12 @@
 # Getting Started With coroNET OS 2
 
-This guide is the shortest path from the repository to a running development build. coroNET OS 2 is currently under active development; a tested end-user factory image will be published through GitHub Releases when the release path is ready.
+This guide is the shortest path to a running coroNET OS 2 installation. New devices can use a tested factory package from [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases), while contributors can build the same source with PlatformIO.
 
-## 1. Understand The Current Stage
+## 1. Choose An Installation Path
 
-The same physical coroNET hardware used by OS 1 is supported. Display, touch, PSRAM allocation, BLE, WiFi service boundaries, local HTTP control, and initial printer polling are present. The final UI, LED engine, complete audio, ventilation, OTA, and Android app are still being built.
+The same physical coroNET hardware used by OS 1 is supported. Display, touch, setup, Moonraker telemetry, RGBW lighting, SD audio, local ventilation, Panda Breath workflows, OTA, BLE, local WiFi control, and the Android companion are integrated in OS 2.
 
-Do not use a development build for unattended control.
+For a new installation or recovery, download the latest `coroNET_OS_2_<version>_Flash_Tool.zip` release asset and follow its included instructions. Use the PlatformIO steps below for development builds. Read [FLASHING.md](FLASHING.md) before changing an existing installation.
 
 ## 2. Prepare The Hardware
 
@@ -15,7 +15,7 @@ Read [BOM.md](BOM.md) before purchasing. The core development setup requires:
 - JC3248W535 ESP32-S3 touchscreen controller;
 - USB data cable;
 - 5 V power appropriate for the connected loads;
-- optional LEDs, speaker, fan, and servo as each subsystem is implemented.
+- SK6812 RGBNW LEDs, speaker, fan, and servo when building the complete device.
 
 For a complete physical build, print [hardware/print/coroNET.3mf](hardware/print/coroNET.3mf) and follow [ASSEMBLY.md](ASSEMBLY.md).
 
@@ -54,17 +54,19 @@ pio device monitor --port COM3 --baud 115200
 
 Replace `COM3` with the port shown on your computer. See [FLASHING.md](FLASHING.md) for recovery mode and build artifacts.
 
-## 5. Verify The Bring-Up Screen
+## 5. Complete Setup And Verify Operation
 
 After a successful flash:
 
-- the display should show the coroNET OS 2 bring-up screen;
-- touch input should update the touch counter;
-- PSRAM should report ready;
+- a factory-reset device should play the full Boot Experience and open Setup Wizard;
+- a configured device should use the short daily boot and open Home;
+- touch, display, LEDs, SD audio, and ventilation controls should respond from their matching screens;
 - BLE should advertise a unique name such as `coroNET_0F3C`;
-- the serial monitor should print periodic memory and service health information.
+- WiFi setup should confirm the network before printer discovery;
+- Home should show live printer state after Moonraker connects;
+- the serial monitor should print periodic memory and service health information without repeated resets.
 
-The normal Android Bluetooth settings screen is not a reliable BLE GATT test tool. Use a BLE scanner such as nRF Connect until the OS 2 companion app is available.
+Pair the Android companion from the physical **Settings > Companion connection > Pair phone** flow. Android's Bluetooth settings screen alone does not complete coroNET's authenticated GATT pairing.
 
 ## 6. Report A Problem
 

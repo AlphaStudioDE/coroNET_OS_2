@@ -56,7 +56,7 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - The setup wizard and operational Home screen share the same `UiTheme` tokens, geometry language, and restrained cyan/amber visual hierarchy.
 - Live screens cache their last rendered values and only invalidate LVGL objects when state changes.
 - The UI router keeps only the active operational screen alive; inactive tabs are destroyed after the transition instead of permanently consuming LVGL/internal memory.
-- Planned skins start as `Coronet` (the original simple cyan/amber dashboard direction), `Graphite`, `Aurora`, and `Minimal`; names can still change before public OS 2 release.
+- Available skins are `Coronet` (the original simple cyan/amber dashboard direction), `Graphite`, `Aurora`, and `Minimal`.
 
 OS 1 features are reviewed before migration in [OS1_FEATURE_SCOPE.md](OS1_FEATURE_SCOPE.md). The on-device LED animation creator, external lighting-provider integrations, disabled MIDI engine, and product activation are intentionally excluded from OS 2. The optional DIY chamber-heater interface is a guarded 3.3 V logic output for an external driver; Panda Breath remains supported through a testable workflow state machine.
 

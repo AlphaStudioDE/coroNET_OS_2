@@ -123,7 +123,7 @@ Status meanings:
 
 | ID | OS 1 capability | Status | OS 2 direction |
 | --- | --- | --- | --- |
-| SYS-01 | GitHub OTA check, install, and same-version reinstall | OS2 | Required before public release with a new implementation. |
+| SYS-01 | GitHub OTA check, install, and same-version reinstall | OS2 | Implemented with verified release metadata, checksums, maintenance mode, and rollback validation. |
 | SYS-02 | OTA resource preparation and suspension of unnecessary services | OS2 | Retain as part of the OTA state machine. |
 | SYS-03 | SD-card recovery update | OS2 | Retain as the recovery path. |
 | SYS-04 | What's New popup | OMIT | Release notes remain on GitHub; the on-device popup is excluded to reduce UI, firmware, and maintenance cost. |

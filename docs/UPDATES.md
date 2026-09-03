@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 ### Companion Resilience
 - Added bounded BLE recovery for failed service discovery, notification subscription, and command writes.
 - Added WiFi recovery through the stable coroNET mDNS hostname when the previously saved IP address changes.
@@ -36,6 +38,13 @@
 - Added the coroNET 1 non-blocking TCP probe pattern so an unavailable printer cannot stall the UI during WebSocket connection attempts.
 - Decoupled printer configuration generations from unrelated settings changes, preventing LED or UI edits from invalidating valid printer telemetry.
 - Released Moonraker and Panda WebSocket connections during OTA TLS windows to preserve contiguous internal memory for secure updates.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.3.0_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Verify downloaded binaries with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.2.2...v0.3.0
 
 ## 0.2.2
 

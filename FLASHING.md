@@ -75,7 +75,7 @@ Use the included `FLASH_TOOL_INSTRUCTIONS.txt`. Do not select the merged image a
 To create a package from a tested local build:
 
 ```powershell
-$env:CORONET_FIRMWARE_VERSION = "0.1.4-test.1"
+$env:CORONET_FIRMWARE_VERSION = "0.3.0"
 pio run
 python scripts/validate_release_artifacts.py .pio/build/coronet_os2 $env:CORONET_FIRMWARE_VERSION
 python scripts/prepare_flash_tool_package.py .pio/build/coronet_os2 $env:CORONET_FIRMWARE_VERSION
@@ -115,6 +115,7 @@ The tag determines the version embedded in the firmware. A tagged release contai
 - `coronet_os2.bin` and `coronet_os2.bin.md5` for OTA and SD recovery;
 - `coronet_bootloader.bin`;
 - `coronet_partitions.bin`;
+- `coroNET_OS_2_<version>_Flash_Tool.zip` with a merged factory image and individual binaries;
 - `SHA256SUMS.txt` for independent download verification.
 
 Create a release tag only from a tested commit. Publishing a tag makes that firmware visible to installed devices.

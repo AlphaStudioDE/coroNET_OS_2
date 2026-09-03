@@ -42,7 +42,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] preferred local WiFi control
 - [x] bidirectional state and settings synchronization
 - [x] printer error and finish notifications
-- [ ] reconnect, conflict resolution, and offline cached state
+- [x] automatic reconnect, revisioned conflict resolution, and per-device offline cached state
 
 ## Hardware Services
 
@@ -53,7 +53,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] logical right, center, left, and inside mapping
 - [x] ambient, dimming, mirroring, and previews
 - [x] full first-run and short daily boot experiences with synchronized screen, LED, audio, and live-state handoff
-- [ ] printer-aware LED layers and selected OS 1 animation concepts
+- [x] printer-aware LED layers and rebuilt OS 1 animation concepts
 - [x] PWM fan control
 - [x] servo flap control and calibration
 - [x] ventilation logic driven exclusively by printer telemetry, with failsafe states
@@ -66,17 +66,17 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] non-blocking mDNS and local-subnet printer discovery
 - [x] resilient printer connection lifecycle and reconnect telemetry
 - [x] shared revisioned printer telemetry and transition contract
-- [ ] event-driven printer updates where supported
+- [x] event-driven Moonraker WebSocket updates with HTTP integrity fallback
 - [x] OTA update service with rollback validity marker
 - [x] SD recovery update path
-- [ ] factory flashing package
-- [ ] versioned release metadata and changelog
+- [x] validated factory Flash Download Tool package
+- [x] versioned release metadata, checksums, and changelog
 
 ## Public Release
 
 - [ ] long-duration memory, WiFi, BLE, display, audio, and LED soak tests
 - [ ] disconnect and power-failure tests
-- [ ] complete build photography and wiring diagrams
-- [ ] validated BOM and tested alternatives
-- [ ] release binaries and reproducible build notes
+- [x] complete build photography and wiring diagrams
+- [x] documented BOM and tested reference hardware
+- [x] release binaries and reproducible build notes
 - [ ] Snapmaker contest submission material

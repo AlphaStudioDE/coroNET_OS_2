@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-coroNET OS 2 is currently pre-release software. Security fixes are applied to the latest development branch until the first stable release line is published.
+Security fixes are applied to the latest published firmware and the active `main` development branch. Older development builds may not receive backported fixes.
 
 ## Reporting A Vulnerability
 
@@ -19,8 +19,8 @@ Use GitHub's private vulnerability reporting feature for this repository. Includ
 
 ## Current Development Warning
 
-The local WiFi API requires a random per-device bearer token obtained during BLE pairing. API requests are size-limited and wildcard CORS is disabled. This is still a local control protocol: do not forward its port, expose the device directly to the public internet, or treat the current pre-release pairing flow as a substitute for network isolation.
+The local WiFi API requires a random per-device bearer token obtained during physically confirmed BLE pairing. API requests are size-limited and wildcard CORS is disabled. This is a local control protocol: do not forward its port, expose the device directly to the public internet, or treat application pairing as a substitute for network isolation.
 
-The first-pairing window currently opens automatically until a companion confirms token storage. Physical confirmation, token revocation, and pairing reset controls must be completed in the touchscreen UI before a stable product release.
+Pairing starts only from **Settings > Companion connection > Pair phone**. Starting it revokes the previous relationship and rotates the token. Both the coroNET touchscreen and phone must confirm the same six-digit code before the new token is released; factory reset and a new pairing session can revoke stored access.
 
 Never commit real WiFi passwords, printer API keys, private certificates, access tokens, or activation material. Generated firmware artifacts must be published only through the controlled release workflow.

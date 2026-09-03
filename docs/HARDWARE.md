@@ -51,7 +51,7 @@ largest blocks independently for internal RAM, DMA-capable RAM, and PSRAM.
 - `LED_COUNT = 60`
 - Outer LEDs: `0..41`
 - Inside LEDs: `42..59`
-- Physical section directions are inherited from coroNET 1 and will be expressed through logical mapping helpers in the OS 2 LED engine.
+- Physical section directions are inherited from coroNET 1 and normalized through the OS 2 engine's logical mapping helpers.
 
 ## Panda Breath Network Setup
 

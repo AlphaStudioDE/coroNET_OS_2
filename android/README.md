@@ -8,6 +8,9 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 - automatic first-pairing token transfer and encrypted per-device storage;
 - multiple saved coroNET devices with fast selection;
 - preferred authenticated local WiFi polling and settings control;
+- automatic BLE reconnect and WiFi recovery through the stable mDNS hostname;
+- encrypted per-device offline state and settings cache;
+- firmware-revision conflict handling for simultaneous touchscreen and phone edits;
 - Home, LED, Vent, Sound, and Settings screens;
 - revisioned printer Error and Finish notifications without reconnect duplicates;
 - Android 8.0 (API 26) and newer.

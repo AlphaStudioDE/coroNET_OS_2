@@ -112,7 +112,7 @@ src/          modular firmware services and local BSP
 .github/      automated builds and project templates
 ```
 
-Generated firmware binaries are intentionally excluded from Git history. Tested binaries and factory flashing packages will be attached to versioned GitHub Releases.
+Generated firmware binaries are intentionally excluded from Git history. Tested binaries, checksums, and factory flashing packages are attached to versioned GitHub Releases.
 
 ## Open Source
 
