@@ -2,6 +2,15 @@
 
 ## 2026-09-03
 
+### Status Sound Library
+
+- Added an intuitive per-event sound selector for Print Start, Print Finish, Error, Pause, and Idle.
+- Replaced single-step filename cycling with a lightweight paged picker that displays only five WAV entries at a time.
+- Added explicit default-sound selection, alphabetical file ordering, missing-file feedback, playback testing, stopping, per-event volume, and repeat controls.
+- Added bounded recursive indexing for `/sounds` subfolders while retaining direct root-level WAV support and reserving `/boot.wav` exclusively for the boot experience.
+- Moved manual SD rescanning onto the audio worker task so card access does not block LVGL or make the touchscreen appear frozen.
+- Added card-removal detection and a public status-sound setup guide.
+
 ### Rebuilt LED Animation Library
 
 - Recreated the complete coroNET animation library for the OS 2 engine instead of copying legacy rendering code directly.

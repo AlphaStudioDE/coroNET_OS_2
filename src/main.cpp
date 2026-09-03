@@ -158,6 +158,9 @@ void executeSerialCommand() {
         coronet::audioService().logStatus();
     } else if (strcmp(serialCommand, "sd status") == 0) {
         Serial.printf("[console] SD %s\n", coronet::audioService().mountStorage() ? "ready" : "unavailable");
+    } else if (strcmp(serialCommand, "audio rescan") == 0) {
+        Serial.printf("[console] audio SD rescan %s\n",
+                      coronet::audioService().requestStorageRefresh() ? "queued" : "unavailable");
     } else if (strncmp(serialCommand, "audio play ", 11) == 0) {
         coronet::audioService().playFile(serialCommand + 11);
     } else if (strncmp(serialCommand, "audio scenario ", 15) == 0) {

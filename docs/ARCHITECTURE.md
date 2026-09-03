@@ -100,7 +100,7 @@ The OS 2 audio producer runs in a dedicated Core 0 task. Its 128-frame mono PCM 
 
 The balanced profile played continuously at both 22.05 kHz and 48 kHz while WiFi, the local web service, BLE, display refresh, and printer discovery were active. No I2S write failures were observed. Sample rate does not change the allocated DMA byte count; it changes how much time the fixed ring can absorb and affects source/decode bandwidth. Mono remains the correct hardware output because coroNET has one physical speaker, while future stereo WAV input can be downmixed before entering the DMA ring.
 
-Development builds expose `audio test`, `audio stop`, `audio status`, `audio release`, `audio profile balanced`, `audio profile coronet1`, and `audio rate 22050|44100|48000` on the serial console. Profile switching is intended for controlled measurements; normal startup always selects the balanced profile.
+Development builds expose `audio test`, `audio stop`, `audio status`, `audio rescan`, `audio release`, `audio profile balanced`, `audio profile coronet1`, and `audio rate 22050|44100|48000` on the serial console. Profile switching is intended for controlled measurements; normal startup always selects the balanced profile.
 
 ## Runtime Concurrency
 

@@ -27,6 +27,7 @@ struct SystemState {
     bool audioPlaying = false;
     SoundScenario activeSoundScenario = SoundScenario::Start;
     char activeSoundPath[65] = "";
+    char audioStatusText[72] = "Ready";
     uint8_t audioFileCount = 0;
     bool audioAssetsValid = false;
     char audioAssetStatus[72] = "SD not checked";

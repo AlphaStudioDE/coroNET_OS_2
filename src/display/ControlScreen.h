@@ -31,7 +31,10 @@ private:
         VentAuto, VentTarget, VentManual, VentTargetTemp, ManualFan, ManualFlap,
         ServoClosed, ServoOpen, ServoReverse, FanMinimum, FanMaximum,
         PandaEnabled, PandaMode, PandaTarget, PandaPreset, PandaHours,
-        SoundPrev, SoundNext, SoundFilePrev, SoundFileNext, SoundVolume, SoundRepeat, SoundPlay, SoundStop,
+        SoundPrev, SoundNext, SoundBrowse, SoundVolume, SoundRepeat, SoundPlay, SoundStop,
+        SoundRescan, SoundBrowserDefault, SoundBrowserPrev, SoundBrowserNext,
+        SoundBrowserClose, SoundBrowserRow0, SoundBrowserRow1, SoundBrowserRow2,
+        SoundBrowserRow3, SoundBrowserRow4,
     };
 
     struct Binding { ControlScreen* owner = nullptr; Action action = Action::Preview; };
@@ -51,6 +54,11 @@ private:
     void refreshLed();
     void refreshVent();
     void refreshSound();
+    void buildSoundBrowserOverlay();
+    void openSoundBrowser();
+    void closeSoundBrowser();
+    void refreshSoundBrowser();
+    void selectSoundBrowserRow(uint8_t row);
     void refreshLedCanvas();
     void refreshLedCalibration();
     void openLedCalibration();
@@ -111,17 +119,25 @@ private:
     lv_obj_t* pandaHoursLabel_ = nullptr;
     lv_obj_t* pandaHoursSlider_ = nullptr;
     lv_obj_t* soundScenarioLabel_ = nullptr;
+    lv_obj_t* soundScenarioDescriptionLabel_ = nullptr;
     lv_obj_t* soundPathLabel_ = nullptr;
     lv_obj_t* soundVolumeLabel_ = nullptr;
     lv_obj_t* soundVolumeSlider_ = nullptr;
     lv_obj_t* soundRepeatLabel_ = nullptr;
     lv_obj_t* soundRuntimeLabel_ = nullptr;
     lv_obj_t* soundStorageLabel_ = nullptr;
+    lv_obj_t* soundBrowserOverlay_ = nullptr;
+    lv_obj_t* soundBrowserScenarioLabel_ = nullptr;
+    lv_obj_t* soundBrowserDefaultLabel_ = nullptr;
+    lv_obj_t* soundBrowserPageLabel_ = nullptr;
+    lv_obj_t* soundBrowserRowLabels_[5] = {};
     Binding bindings_[48] = {};
     uint8_t bindingCount_ = 0;
     uint8_t selectedCategory_ = 0;
     uint8_t selectedSection_ = 0;
     uint8_t selectedSound_ = 0;
+    uint8_t soundBrowserPage_ = 0;
+    bool soundBrowserOpen_ = false;
     uint8_t selectedCalibrationColor_ = 0;
     bool calibrationOpen_ = false;
     int8_t calibrationHueBackup_[8] = {};

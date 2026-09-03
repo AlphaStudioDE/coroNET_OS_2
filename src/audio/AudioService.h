@@ -26,14 +26,17 @@ public:
     bool setSampleRate(uint32_t sampleRate);
     bool mountStorage();
     bool refreshFileIndex();
-    uint8_t fileCount() const { return fileCount_; }
+    bool requestStorageRefresh();
+    uint8_t fileCount() const { return indexingFiles_ ? 0 : fileCount_; }
     const char* filePath(uint8_t index) const;
+    bool pathAvailable(const char* path) const;
+    bool resolveScenarioPath(SoundScenario scenario, char path[65]) const;
     bool bootAudioActive() const { return bootAudioActive_; }
     uint32_t playbackStartedMs() const { return playbackStartedMs_; }
     void logStatus() const;
 
 private:
-    enum class RequestType : uint8_t { Stop, Tone, Wav };
+    enum class RequestType : uint8_t { Stop, Tone, Wav, RescanStorage };
 
     struct WavInfo {
         uint32_t dataOffset = 0;
@@ -45,16 +48,22 @@ private:
         uint16_t bitsPerSample = 0;
     };
 
+    struct FolderScanEntry {
+        char path[65] = "";
+        uint8_t depth = 0;
+    };
+
     static constexpr uint32_t DefaultSampleRate = 22050;
     static constexpr size_t BufferFrames = 128;
     static constexpr size_t RawBufferBytes = BufferFrames * 4;
     static constexpr uint16_t BalancedDmaBufferCount = 16;
     static constexpr uint16_t Coronet1DmaBufferCount = 48;
-    static constexpr uint32_t TaskStackBytes = 4096;
+    static constexpr uint32_t TaskStackBytes = 5120;
     static constexpr UBaseType_t TaskPriority = 7;
     static constexpr UBaseType_t BootTaskPriority = 20;
     static constexpr BaseType_t TaskCore = 0;
     static constexpr uint8_t MaxIndexedFiles = 64;
+    static constexpr uint8_t MaxScanFolders = 24;
 
     static void taskEntry(void* context);
     void taskLoop();
@@ -76,10 +85,11 @@ private:
                          uint8_t& volumePercent, bool& repeat, SoundScenario& scenario,
                          bool& bootAudio, uint32_t& durationMs);
     void processPrinterSoundEvents();
-    bool resolveScenarioPath(SoundScenario scenario, char path[65]) const;
     void logMemory(const char* tag) const;
-    void indexDirectory(const char* path);
+    void indexDirectory(const char* path, uint8_t depth, bool enqueueSubdirectories);
+    bool enqueueDirectory(const char* path, uint8_t depth);
     bool addIndexedFile(const char* path);
+    void sortFileIndex();
     void validateAssets();
 
     TaskHandle_t task_ = nullptr;
@@ -87,7 +97,11 @@ private:
     int16_t* pcmBuffer_ = nullptr;
     uint8_t* rawBuffer_ = nullptr;
     char (*fileIndex_)[65] = nullptr;
+    FolderScanEntry* folderQueue_ = nullptr;
     uint8_t fileCount_ = 0;
+    uint8_t folderQueueCount_ = 0;
+    uint8_t folderQueueRead_ = 0;
+    volatile bool indexingFiles_ = false;
     File wavFile_;
     WavInfo wav_;
     portMUX_TYPE requestMux_ = portMUX_INITIALIZER_UNLOCKED;

@@ -20,10 +20,21 @@ namespace {
 
 constexpr int kCanvasWidth = 420;
 constexpr int kCanvasHeight = 52;
+constexpr uint8_t kSoundBrowserRows = 5;
 
 const char* kCategoryNames[] = {"IDLE", "PRINT", "PAUSE", "ERROR", "FINISH", "OTHER"};
 const char* kSectionNames[] = {"RIGHT", "CENTER", "LEFT", "INSIDE"};
-const char* kScenarioNames[] = {"START", "FINISH", "ERROR", "PAUSE", "IDLE"};
+const char* kScenarioNames[] = {"PRINT START", "PRINT FINISH", "ERROR", "PAUSE", "IDLE"};
+const char* kScenarioDescriptions[] = {
+    "Plays when a print begins",
+    "Plays when a print completes",
+    "Plays when the printer reports an error",
+    "Plays when a print is paused",
+    "Plays when the printer returns to idle",
+};
+const char* kScenarioDefaultFiles[] = {
+    "start.wav", "finish.wav", "error.wav", "pause.wav", "idle.wav",
+};
 const char* kPandaModeNames[] = {"OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRYING"};
 const char* kCalibrationColorNames[] = {
     "RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "VIOLET", "MAGENTA",
@@ -34,6 +45,12 @@ uint32_t calibrationReferenceHex(uint8_t index) {
         static_cast<LedCalibrationColor>(min<uint8_t>(index, 7U)));
     return (static_cast<uint32_t>(color.r) << 16U) |
            (static_cast<uint32_t>(color.g) << 8U) | color.b;
+}
+
+const char* pathLeaf(const char* path) {
+    if (!path || !path[0]) return "";
+    const char* slash = strrchr(path, '/');
+    return slash && slash[1] ? slash + 1 : path;
 }
 
 void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
@@ -100,6 +117,7 @@ void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCall
                           void* callbackContext, bool animate) {
     ledService().stopColorCalibration();
     calibrationOpen_ = false;
+    soundBrowserOpen_ = false;
     page_ = page;
     bindingCount_ = 0;
     settingsRevisionSeen_ = 0;
@@ -352,29 +370,77 @@ void ControlScreen::buildVentPage() {
 
 void ControlScreen::buildSoundPage() {
     lv_obj_t* content = makeContent();
-    lv_obj_t* sound = makeCard(content, 0, 238, "SOUND SCENARIOS");
+    lv_obj_t* sound = makeCard(content, 0, 250, "STATUS SOUND");
     makeButton(sound, 14, 32, 42, 36, LV_SYMBOL_LEFT, Action::SoundPrev);
     soundScenarioLabel_ = makeLabel(sound, "START", ui::ColorText, &lv_font_montserrat_16, 64, 42, 316);
     lv_obj_set_style_text_align(soundScenarioLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     makeButton(sound, 392, 32, 42, 36, LV_SYMBOL_RIGHT, Action::SoundNext);
-    makeButton(sound, 14, 76, 42, 30, LV_SYMBOL_LEFT, Action::SoundFilePrev);
-    soundPathLabel_ = makeButton(sound, 64, 76, 316, 30, "DEFAULT FILE", Action::SoundFileNext);
-    makeButton(sound, 392, 76, 42, 30, LV_SYMBOL_RIGHT, Action::SoundFileNext);
+    soundScenarioDescriptionLabel_ = makeLabel(
+        sound, "Plays when a print begins", ui::ColorMuted, &lv_font_montserrat_10, 14, 74, 420);
+    makeLabel(sound, "SELECTED SOUND", ui::ColorMuted, &lv_font_montserrat_10, 14, 96);
+    soundPathLabel_ = makeButton(sound, 14, 110, 420, 34, "DEFAULT: start.wav", Action::SoundBrowse);
+    lv_obj_set_width(soundPathLabel_, 396);
+    lv_label_set_long_mode(soundPathLabel_, LV_LABEL_LONG_DOT);
     soundVolumeLabel_ = makeLabel(sound, "VOLUME 75%", ui::ColorMuted,
-                                  &lv_font_montserrat_10, 14, 120, 120);
-    soundVolumeSlider_ = makeSlider(sound, 150, 118, 284, 0, 100, 75, Action::SoundVolume);
-    soundRepeatLabel_ = makeButton(sound, 14, 156, 126, 36, "REPEAT: OFF", Action::SoundRepeat);
-    makeButton(sound, 150, 156, 136, 36, LV_SYMBOL_PLAY " TEST", Action::SoundPlay);
-    makeButton(sound, 296, 156, 138, 36, LV_SYMBOL_STOP " STOP", Action::SoundStop);
-    soundRuntimeLabel_ = makeLabel(sound, "", ui::ColorMuted, &lv_font_montserrat_10, 14, 207, 420);
+                                  &lv_font_montserrat_10, 14, 160, 120);
+    soundVolumeSlider_ = makeSlider(sound, 150, 156, 284, 0, 100, 75, Action::SoundVolume);
+    soundRepeatLabel_ = makeButton(sound, 14, 188, 126, 34, "REPEAT: OFF", Action::SoundRepeat);
+    makeButton(sound, 150, 188, 136, 34, LV_SYMBOL_PLAY " TEST", Action::SoundPlay);
+    makeButton(sound, 296, 188, 138, 34, LV_SYMBOL_STOP " STOP", Action::SoundStop);
+    soundRuntimeLabel_ = makeLabel(sound, "", ui::ColorMuted, &lv_font_montserrat_10, 14, 230, 420);
 
-    lv_obj_t* storage = makeCard(content, 246, 126, "AUDIO STORAGE");
+    lv_obj_t* storage = makeCard(content, 258, 116, "AUDIO STORAGE");
     makeLabel(storage, "SD CARD", ui::ColorMuted, &lv_font_montserrat_10, 14, 38);
     soundStorageLabel_ = makeLabel(storage, "", state().sdReady ? ui::ColorGreen : ui::ColorRed,
-                                   &lv_font_montserrat_12, 100, 35, 330);
-    makeLabel(storage, "PCM WAV: mono/stereo, 8/16-bit, 8-48 kHz. Files are streamed from SD through PSRAM.",
-              ui::ColorMuted, &lv_font_montserrat_10, 14, 69, 420);
-    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 378);
+                                   &lv_font_montserrat_12, 84, 35, 240);
+    makeButton(storage, 334, 27, 100, 34, LV_SYMBOL_REFRESH " RESCAN", Action::SoundRescan);
+    makeLabel(storage, "Use PCM WAV files in the SD root or /sounds. Audio is streamed through PSRAM.",
+              ui::ColorMuted, &lv_font_montserrat_10, 14, 75, 420);
+    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 380);
+    buildSoundBrowserOverlay();
+}
+
+void ControlScreen::buildSoundBrowserOverlay() {
+    soundBrowserOverlay_ = lv_obj_create(root_);
+    lv_obj_set_size(soundBrowserOverlay_, ui::ScreenWidth, ui::ScreenHeight);
+    lv_obj_set_pos(soundBrowserOverlay_, 0, 0);
+    lv_obj_clear_flag(soundBrowserOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(soundBrowserOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(soundBrowserOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(soundBrowserOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(soundBrowserOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(soundBrowserOverlay_, 0, LV_PART_MAIN);
+
+    makeLabel(soundBrowserOverlay_, "SELECT STATUS SOUND", ui::ColorText,
+              &lv_font_montserrat_18, 18, 14);
+    makeButton(soundBrowserOverlay_, 420, 10, 42, 34, LV_SYMBOL_CLOSE,
+               Action::SoundBrowserClose);
+    soundBrowserScenarioLabel_ = makeLabel(soundBrowserOverlay_, "PRINT START", ui::ColorCyan,
+                                           &lv_font_montserrat_10, 18, 45, 380);
+    soundBrowserDefaultLabel_ = makeButton(soundBrowserOverlay_, 18, 62, 444, 34,
+                                           "USE DEFAULT", Action::SoundBrowserDefault);
+    lv_obj_set_width(soundBrowserDefaultLabel_, 420);
+    lv_label_set_long_mode(soundBrowserDefaultLabel_, LV_LABEL_LONG_DOT);
+
+    static constexpr Action RowActions[kSoundBrowserRows] = {
+        Action::SoundBrowserRow0, Action::SoundBrowserRow1, Action::SoundBrowserRow2,
+        Action::SoundBrowserRow3, Action::SoundBrowserRow4,
+    };
+    for (uint8_t row = 0; row < kSoundBrowserRows; ++row) {
+        soundBrowserRowLabels_[row] = makeButton(
+            soundBrowserOverlay_, 18, 102 + row * 32, 444, 28, "", RowActions[row]);
+        lv_obj_set_width(soundBrowserRowLabels_[row], 420);
+        lv_label_set_long_mode(soundBrowserRowLabels_[row], LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(soundBrowserRowLabels_[row], LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    }
+    makeButton(soundBrowserOverlay_, 18, 270, 42, 34, LV_SYMBOL_LEFT,
+               Action::SoundBrowserPrev);
+    soundBrowserPageLabel_ = makeLabel(soundBrowserOverlay_, "NO WAV FILES", ui::ColorMuted,
+                                       &lv_font_montserrat_10, 72, 281, 336);
+    lv_obj_set_style_text_align(soundBrowserPageLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    makeButton(soundBrowserOverlay_, 420, 270, 42, 34, LV_SYMBOL_RIGHT,
+               Action::SoundBrowserNext);
+    lv_obj_add_flag(soundBrowserOverlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ControlScreen::update() {
@@ -560,21 +626,123 @@ void ControlScreen::refreshVent() {
 void ControlScreen::refreshSound() {
     const AppSettings& settings = settingsService().settings();
     lv_label_set_text(soundScenarioLabel_, kScenarioNames[selectedSound_]);
+    lv_label_set_text(soundScenarioDescriptionLabel_, kScenarioDescriptions[selectedSound_]);
     const char* custom = settings.soundPath[selectedSound_];
-    if (custom[0]) lv_label_set_text(soundPathLabel_, custom);
-    else lv_label_set_text(soundPathLabel_, "DEFAULT FILE");
+    if (custom[0]) {
+        lv_label_set_text_fmt(soundPathLabel_, "%s%s",
+                              audioService().pathAvailable(custom) ? "" : "MISSING: ",
+                              pathLeaf(custom));
+    } else {
+        lv_label_set_text_fmt(soundPathLabel_, "DEFAULT: %s",
+                              kScenarioDefaultFiles[selectedSound_]);
+    }
     lv_label_set_text_fmt(soundVolumeLabel_, "VOLUME %u%%", settings.soundVolume[selectedSound_]);
     if (!lv_obj_has_state(soundVolumeSlider_, LV_STATE_PRESSED)) lv_slider_set_value(soundVolumeSlider_, settings.soundVolume[selectedSound_], LV_ANIM_OFF);
     lv_label_set_text(soundRepeatLabel_, settings.soundRepeat[selectedSound_] ? "REPEAT: ON" : "REPEAT: OFF");
-    lv_label_set_text_fmt(soundRuntimeLabel_, "%s%s",
-                          state().audioPlaying ? "PLAYING  " : "READY  ",
-                          state().activeSoundPath[0] ? state().activeSoundPath : "No active file");
+    lv_label_set_text(soundRuntimeLabel_, state().audioStatusText);
     lv_label_set_text_fmt(soundStorageLabel_, "%s  |  %u WAV  |  %s",
                           state().sdReady ? "READY" : "UNAVAILABLE",
                           static_cast<unsigned>(state().audioFileCount), state().audioAssetStatus);
     lv_obj_set_style_text_color(soundStorageLabel_,
-                                lv_color_hex(state().audioAssetsValid ? ui::ColorGreen : ui::ColorAmber),
+                                lv_color_hex(!state().sdReady ? ui::ColorRed
+                                                             : state().audioAssetsValid
+                                                                   ? ui::ColorGreen
+                                                                   : ui::ColorAmber),
                                 LV_PART_MAIN);
+    if (soundBrowserOpen_) refreshSoundBrowser();
+}
+
+void ControlScreen::openSoundBrowser() {
+    if (!soundBrowserOverlay_ || soundBrowserOpen_) return;
+    const char* selected = settingsService().settings().soundPath[selectedSound_];
+    soundBrowserPage_ = 0U;
+    for (uint8_t index = 0; index < audioService().fileCount(); ++index) {
+        const char* path = audioService().filePath(index);
+        if (path && selected[0] && strcmp(path, selected) == 0) {
+            soundBrowserPage_ = index / kSoundBrowserRows;
+            break;
+        }
+    }
+    soundBrowserOpen_ = true;
+    lv_obj_clear_flag(soundBrowserOverlay_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(soundBrowserOverlay_);
+    refreshSoundBrowser();
+}
+
+void ControlScreen::closeSoundBrowser() {
+    if (!soundBrowserOpen_) return;
+    soundBrowserOpen_ = false;
+    lv_obj_add_flag(soundBrowserOverlay_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ControlScreen::refreshSoundBrowser() {
+    if (!soundBrowserOpen_ || !soundBrowserOverlay_) return;
+    const AppSettings& settings = settingsService().settings();
+    const char* selected = settings.soundPath[selectedSound_];
+    const uint8_t count = audioService().fileCount();
+    const uint8_t pageCount = max<uint8_t>(1U, static_cast<uint8_t>(
+        (count + kSoundBrowserRows - 1U) / kSoundBrowserRows));
+    if (soundBrowserPage_ >= pageCount) soundBrowserPage_ = pageCount - 1U;
+    const uint8_t first = static_cast<uint8_t>(soundBrowserPage_ * kSoundBrowserRows);
+
+    lv_label_set_text_fmt(soundBrowserScenarioLabel_, "%s  |  %s",
+                          kScenarioNames[selectedSound_], kScenarioDescriptions[selectedSound_]);
+    char defaultPath[65] = "";
+    snprintf(defaultPath, sizeof(defaultPath), "/sounds/%s",
+             kScenarioDefaultFiles[selectedSound_]);
+    bool defaultReady = audioService().pathAvailable(defaultPath);
+    if (!defaultReady) {
+        snprintf(defaultPath, sizeof(defaultPath), "/%s",
+                 kScenarioDefaultFiles[selectedSound_]);
+        defaultReady = audioService().pathAvailable(defaultPath);
+    }
+    lv_label_set_text_fmt(soundBrowserDefaultLabel_, "%s%sDEFAULT: %s",
+                          selected[0] ? "" : LV_SYMBOL_OK "  ",
+                          defaultReady ? "" : "MISSING  ",
+                          kScenarioDefaultFiles[selectedSound_]);
+    lv_obj_t* defaultButton = lv_obj_get_parent(soundBrowserDefaultLabel_);
+    lv_obj_set_style_border_color(defaultButton,
+                                  lv_color_hex(selected[0] ? ui::ColorBorder : ui::ColorCyan),
+                                  LV_PART_MAIN);
+
+    for (uint8_t row = 0; row < kSoundBrowserRows; ++row) {
+        lv_obj_t* label = soundBrowserRowLabels_[row];
+        lv_obj_t* button = lv_obj_get_parent(label);
+        const uint8_t index = static_cast<uint8_t>(first + row);
+        if (index >= count) {
+            lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        const char* path = audioService().filePath(index);
+        lv_obj_clear_flag(button, LV_OBJ_FLAG_HIDDEN);
+        const bool active = path && selected[0] && strcmp(path, selected) == 0;
+        lv_label_set_text_fmt(label, "%s  %s", active ? LV_SYMBOL_OK : "", path ? path : "");
+        lv_obj_set_style_border_color(button,
+                                      lv_color_hex(active ? ui::ColorCyan : ui::ColorBorder),
+                                      LV_PART_MAIN);
+    }
+
+    if (count == 0U) {
+        lv_label_set_text(soundBrowserPageLabel_, state().sdReady
+                                                      ? "NO STATUS WAV FILES - USE RESCAN"
+                                                      : "SD CARD UNAVAILABLE");
+    } else {
+        const uint8_t last = min<uint8_t>(count, static_cast<uint8_t>(first + kSoundBrowserRows));
+        lv_label_set_text_fmt(soundBrowserPageLabel_, "FILES %u-%u OF %u  |  PAGE %u/%u",
+                              static_cast<unsigned>(first + 1U), static_cast<unsigned>(last),
+                              static_cast<unsigned>(count), static_cast<unsigned>(soundBrowserPage_ + 1U),
+                              static_cast<unsigned>(pageCount));
+    }
+}
+
+void ControlScreen::selectSoundBrowserRow(uint8_t row) {
+    const uint8_t index = static_cast<uint8_t>(soundBrowserPage_ * kSoundBrowserRows + row);
+    const char* path = audioService().filePath(index);
+    if (!path) return;
+    AppSettings& settings = settingsService().mutableSettings();
+    strlcpy(settings.soundPath[selectedSound_], path, sizeof(settings.soundPath[selectedSound_]));
+    settingsService().save();
+    closeSoundBrowser();
 }
 
 void ControlScreen::handleAction(Action action, lv_event_t* event) {
@@ -664,27 +832,37 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::PandaHours: settings.pandaDryHours = lv_slider_get_value(pandaHoursSlider_); pandaBreathService().applyNow(); if (commit) settingsService().save(); break;
         case Action::SoundPrev: selectedSound_ = (selectedSound_ + 4U) % 5U; break;
         case Action::SoundNext: selectedSound_ = (selectedSound_ + 1U) % 5U; break;
-        case Action::SoundFilePrev:
-        case Action::SoundFileNext: {
-            if (audioService().fileCount() == 0) audioService().refreshFileIndex();
-            const uint8_t count = audioService().fileCount();
-            int current = 0;
-            for (uint8_t i = 0; i < count; ++i) {
-                if (strcmp(settings.soundPath[selectedSound_], audioService().filePath(i)) == 0) current = i + 1;
-            }
-            const int choices = count + 1;
-            current = action == Action::SoundFileNext ? (current + 1) % choices
-                                                      : (current + choices - 1) % choices;
-            if (current == 0) settings.soundPath[selectedSound_][0] = '\0';
-            else strlcpy(settings.soundPath[selectedSound_], audioService().filePath(current - 1),
-                         sizeof(settings.soundPath[selectedSound_]));
-            settingsService().save();
-            break;
-        }
+        case Action::SoundBrowse: openSoundBrowser(); break;
         case Action::SoundVolume: settings.soundVolume[selectedSound_] = lv_slider_get_value(soundVolumeSlider_); if (commit) settingsService().save(); break;
         case Action::SoundRepeat: settings.soundRepeat[selectedSound_] = !settings.soundRepeat[selectedSound_]; settingsService().save(); break;
         case Action::SoundPlay: audioService().playScenario(static_cast<SoundScenario>(selectedSound_)); break;
         case Action::SoundStop: audioService().stop(); break;
+        case Action::SoundRescan: audioService().requestStorageRefresh(); break;
+        case Action::SoundBrowserDefault:
+            settings.soundPath[selectedSound_][0] = '\0';
+            settingsService().save();
+            closeSoundBrowser();
+            break;
+        case Action::SoundBrowserPrev: {
+            const uint8_t count = audioService().fileCount();
+            const uint8_t pages = max<uint8_t>(1U, static_cast<uint8_t>(
+                (count + kSoundBrowserRows - 1U) / kSoundBrowserRows));
+            soundBrowserPage_ = static_cast<uint8_t>((soundBrowserPage_ + pages - 1U) % pages);
+            break;
+        }
+        case Action::SoundBrowserNext: {
+            const uint8_t count = audioService().fileCount();
+            const uint8_t pages = max<uint8_t>(1U, static_cast<uint8_t>(
+                (count + kSoundBrowserRows - 1U) / kSoundBrowserRows));
+            soundBrowserPage_ = static_cast<uint8_t>((soundBrowserPage_ + 1U) % pages);
+            break;
+        }
+        case Action::SoundBrowserClose: closeSoundBrowser(); break;
+        case Action::SoundBrowserRow0: selectSoundBrowserRow(0U); break;
+        case Action::SoundBrowserRow1: selectSoundBrowserRow(1U); break;
+        case Action::SoundBrowserRow2: selectSoundBrowserRow(2U); break;
+        case Action::SoundBrowserRow3: selectSoundBrowserRow(3U); break;
+        case Action::SoundBrowserRow4: selectSoundBrowserRow(4U); break;
     }
     update();
 }

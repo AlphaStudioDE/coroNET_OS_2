@@ -63,6 +63,12 @@ const char* scenarioStem(SoundScenario scenario) {
     }
 }
 
+const char* pathLeaf(const char* path) {
+    if (!path || !path[0]) return "";
+    const char* slash = strrchr(path, '/');
+    return slash && slash[1] ? slash + 1 : path;
+}
+
 }
 
 AudioService& audioService() {
@@ -73,6 +79,7 @@ void AudioService::begin() {
     state().audioReady = false;
     state().audioPlaying = false;
     state().sdReady = false;
+    strlcpy(state().audioStatusText, "Initializing audio...", sizeof(state().audioStatusText));
 
     pcmBuffer_ = static_cast<int16_t*>(heap_caps_calloc(
         BufferFrames, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -80,8 +87,11 @@ void AudioService::begin() {
         RawBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     fileIndex_ = static_cast<char (*)[65]>(heap_caps_calloc(
         MaxIndexedFiles, 65, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!pcmBuffer_ || !rawBuffer_ || !fileIndex_) {
+    folderQueue_ = static_cast<FolderScanEntry*>(heap_caps_calloc(
+        MaxScanFolders, sizeof(FolderScanEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pcmBuffer_ || !rawBuffer_ || !fileIndex_ || !folderQueue_) {
         Serial.println("[audio] PSRAM buffer allocation failed");
+        strlcpy(state().audioStatusText, "Audio memory allocation failed", sizeof(state().audioStatusText));
         return;
     }
 
@@ -91,6 +101,7 @@ void AudioService::begin() {
         taskEntry, "coronet-audio", TaskStackBytes, this, TaskPriority, &task_, TaskCore);
     if (created != pdPASS) {
         Serial.println("[audio] task creation failed");
+        strlcpy(state().audioStatusText, "Audio task could not start", sizeof(state().audioStatusText));
         task_ = nullptr;
         return;
     }
@@ -99,10 +110,12 @@ void AudioService::begin() {
     while (!taskInitDone_ && millis() - initStarted < 2000U) vTaskDelay(pdMS_TO_TICKS(1));
     if (!taskInitDone_ || !taskInitOk_) {
         Serial.println("[audio] Core 0 I2S initialization failed or timed out");
+        strlcpy(state().audioStatusText, "I2S initialization failed", sizeof(state().audioStatusText));
         return;
     }
 
     state().audioReady = true;
+    strlcpy(state().audioStatusText, "Ready", sizeof(state().audioStatusText));
     Serial.println("[audio] ready; I2S interrupt and WAV playback run on Core 0");
     logStatus();
 
@@ -117,7 +130,9 @@ void AudioService::loop() {
 }
 
 bool AudioService::mountStorage() {
-    if (storageReady_) return true;
+    if (storageReady_ && SD_MMC.cardType() != CARD_NONE) return true;
+    storageReady_ = false;
+    state().sdReady = false;
     SD_MMC.end();
     delay(250);
     for (uint8_t attempt = 0; attempt < 3; ++attempt) {
@@ -139,27 +154,67 @@ bool AudioService::mountStorage() {
     }
     SD_MMC.end();
     state().sdReady = false;
+    strlcpy(state().audioStatusText, "SD card unavailable", sizeof(state().audioStatusText));
     return false;
 }
 
 const char* AudioService::filePath(uint8_t index) const {
-    return fileIndex_ && index < fileCount_ ? fileIndex_[index] : nullptr;
+    return fileIndex_ && !indexingFiles_ && index < fileCount_ ? fileIndex_[index] : nullptr;
+}
+
+bool AudioService::pathAvailable(const char* path) const {
+    if (!storageReady_ || indexingFiles_ || !fileIndex_ || !path || path[0] != '/') return false;
+    for (uint8_t index = 0; index < fileCount_; ++index) {
+        if (strcasecmp(fileIndex_[index], path) == 0) return true;
+    }
+    return false;
 }
 
 bool AudioService::refreshFileIndex() {
     if (!storageReady_ || !fileIndex_ || playing_) return false;
+    if (SD_MMC.cardType() == CARD_NONE) {
+        storageReady_ = false;
+        state().sdReady = false;
+        state().audioFileCount = 0;
+        state().audioAssetsValid = false;
+        strlcpy(state().audioAssetStatus, "SD card removed", sizeof(state().audioAssetStatus));
+        return false;
+    }
+    indexingFiles_ = true;
     fileCount_ = 0;
+    folderQueueCount_ = 0;
+    folderQueueRead_ = 0;
     memset(fileIndex_, 0, MaxIndexedFiles * 65U);
-    indexDirectory("/");
-    indexDirectory("/sounds");
+    memset(folderQueue_, 0, MaxScanFolders * sizeof(FolderScanEntry));
+    // Root WAV files stay convenient for small cards. Subfolders are scanned
+    // only below /sounds so unrelated SD content cannot make startup unbounded.
+    indexDirectory("/", 0U, false);
+    enqueueDirectory("/sounds", 0U);
+    while (folderQueueRead_ < folderQueueCount_ && fileCount_ < MaxIndexedFiles) {
+        const FolderScanEntry folder = folderQueue_[folderQueueRead_++];
+        indexDirectory(folder.path, folder.depth, true);
+    }
+    sortFileIndex();
+    indexingFiles_ = false;
     state().audioFileCount = fileCount_;
     validateAssets();
+    snprintf(state().audioStatusText, sizeof(state().audioStatusText),
+             "%u status WAV file%s ready", static_cast<unsigned>(fileCount_),
+             fileCount_ == 1U ? "" : "s");
     Serial.printf("[audio] indexed %u WAV files; assets=%s\n",
                   static_cast<unsigned>(fileCount_), state().audioAssetStatus);
     return true;
 }
 
-void AudioService::indexDirectory(const char* path) {
+bool AudioService::requestStorageRefresh() {
+    if (!task_ || bootAudioActive_) return false;
+    strlcpy(state().audioAssetStatus, "Scanning SD card...", sizeof(state().audioAssetStatus));
+    strlcpy(state().audioStatusText, "Scanning SD card...", sizeof(state().audioStatusText));
+    submitRequest(RequestType::RescanStorage, "", 0, false, SoundScenario::Start, false);
+    return true;
+}
+
+void AudioService::indexDirectory(const char* path, uint8_t depth, bool enqueueSubdirectories) {
     if (fileCount_ >= MaxIndexedFiles) return;
     File directory = SD_MMC.open(path);
     if (!directory || !directory.isDirectory()) {
@@ -168,11 +223,16 @@ void AudioService::indexDirectory(const char* path) {
     }
     File entry = directory.openNextFile();
     while (entry && fileCount_ < MaxIndexedFiles) {
-        if (!entry.isDirectory()) {
-            String entryPath = entry.path();
-            String lower = entryPath;
-            lower.toLowerCase();
-            if (lower.endsWith(".wav")) addIndexedFile(entryPath.c_str());
+        if (entry.isDirectory()) {
+            const char* entryName = entry.name();
+            if (enqueueSubdirectories && depth < 3U && entryName && entryName[0] != '.' &&
+                strcasecmp(entryName, "System Volume Information") != 0) {
+                enqueueDirectory(entry.path(), static_cast<uint8_t>(depth + 1U));
+            }
+        } else {
+            const char* entryPath = entry.path();
+            const char* extension = entryPath ? strrchr(entryPath, '.') : nullptr;
+            if (extension && strcasecmp(extension, ".wav") == 0) addIndexedFile(entryPath);
         }
         entry.close();
         entry = directory.openNextFile();
@@ -180,16 +240,45 @@ void AudioService::indexDirectory(const char* path) {
     directory.close();
 }
 
+bool AudioService::enqueueDirectory(const char* path, uint8_t depth) {
+    if (!folderQueue_ || !path || !path[0] || strlen(path) >= 65U ||
+        folderQueueCount_ >= MaxScanFolders) {
+        return false;
+    }
+    for (uint8_t i = 0; i < folderQueueCount_; ++i) {
+        if (strcasecmp(folderQueue_[i].path, path) == 0) return false;
+    }
+    strlcpy(folderQueue_[folderQueueCount_].path, path, sizeof(folderQueue_[0].path));
+    folderQueue_[folderQueueCount_].depth = depth;
+    ++folderQueueCount_;
+    return true;
+}
+
 bool AudioService::addIndexedFile(const char* path) {
     if (!path || !path[0] || fileCount_ >= MaxIndexedFiles) return false;
+    if (strlen(path) >= 65U) return false;
     char normalized[65] = "/";
     if (path[0] == '/') strlcpy(normalized, path, sizeof(normalized));
     else strlcpy(normalized + 1, path, sizeof(normalized) - 1U);
     for (uint8_t i = 0; i < fileCount_; ++i) {
         if (strcasecmp(fileIndex_[i], normalized) == 0) return false;
     }
+    if (strcasecmp(normalized, "/boot.wav") == 0) return false;
     strlcpy(fileIndex_[fileCount_++], normalized, 65);
     return true;
+}
+
+void AudioService::sortFileIndex() {
+    char temporary[65] = "";
+    for (uint8_t index = 1U; index < fileCount_; ++index) {
+        strlcpy(temporary, fileIndex_[index], sizeof(temporary));
+        uint8_t position = index;
+        while (position > 0U && strcasecmp(fileIndex_[position - 1U], temporary) > 0) {
+            strlcpy(fileIndex_[position], fileIndex_[position - 1U], 65);
+            --position;
+        }
+        strlcpy(fileIndex_[position], temporary, 65);
+    }
 }
 
 void AudioService::validateAssets() {
@@ -218,6 +307,8 @@ bool AudioService::playFile(const char* path, uint8_t volumePercent, bool repeat
     if (!storageReady_ && !mountStorage()) return false;
     if (!SD_MMC.exists(path)) {
         Serial.printf("[audio] file not found: %s\n", path);
+        snprintf(state().audioStatusText, sizeof(state().audioStatusText),
+                 "WAV not found: %s", pathLeaf(path));
         return false;
     }
     submitRequest(RequestType::Wav, path, constrain(volumePercent, 0, 100), repeat,
@@ -230,13 +321,19 @@ bool AudioService::playScenario(SoundScenario scenario) {
     if (index >= enumCount(SoundScenario{})) return false;
     if (quietSuppressesSound(scenario)) return false;
     char path[65] = "";
-    if (!resolveScenarioPath(scenario, path)) return false;
+    if (!resolveScenarioPath(scenario, path)) {
+        snprintf(state().audioStatusText, sizeof(state().audioStatusText),
+                 "Missing %s.wav on SD card", scenarioStem(scenario));
+        return false;
+    }
     const AppSettings& settings = settingsService().settings();
     return playFile(path, settings.soundVolume[index], settings.soundRepeat[index], scenario, false);
 }
 
 void AudioService::stop() {
     if (!task_) return;
+    strlcpy(state().audioStatusText, playing_ ? "Stopping playback..." : "Ready",
+            sizeof(state().audioStatusText));
     submitRequest(RequestType::Stop, "", 0, false, SoundScenario::Start, false);
 }
 
@@ -278,12 +375,14 @@ bool AudioService::setSampleRate(uint32_t sampleRate) {
 void AudioService::logStatus() const {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
     Serial.printf(
-        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu files=%lu stackHeadroom=%uB path=%s\n",
+        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu indexed=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
         driverReady_ ? 1U : 0U, storageReady_ ? 1U : 0U, playing_ ? 1U : 0U,
         bootAudioActive_ ? 1U : 0U, profileName(profile_), static_cast<unsigned long>(sampleRate_),
         static_cast<unsigned>(dmaBufferCount_), static_cast<unsigned>(BufferFrames),
-        static_cast<unsigned long>(writeFailures_), static_cast<unsigned long>(completedFiles_),
+        static_cast<unsigned long>(writeFailures_), static_cast<unsigned>(fileCount_),
+        static_cast<unsigned long>(completedFiles_),
         static_cast<unsigned>(stackHeadroom),
+        state().audioStatusText,
         state().activeSoundPath[0] ? state().activeSoundPath : "-");
     logMemory("status");
 }
@@ -369,6 +468,17 @@ void AudioService::taskLoop() {
         state().activeSoundPath[0] = '\0';
         primeSilence();
         if (type == RequestType::Stop) {
+            strlcpy(state().audioStatusText, "Ready", sizeof(state().audioStatusText));
+            completedRequestSequence_ = sequence;
+            continue;
+        }
+        if (type == RequestType::RescanStorage) {
+            storageReady_ = false;
+            state().sdReady = false;
+            state().audioFileCount = 0;
+            SD_MMC.end();
+            vTaskDelay(pdMS_TO_TICKS(30));
+            mountStorage();
             completedRequestSequence_ = sequence;
             continue;
         }
@@ -396,6 +506,8 @@ void AudioService::taskLoop() {
         }
 
         strlcpy(state().activeSoundPath, path, sizeof(state().activeSoundPath));
+        snprintf(state().audioStatusText, sizeof(state().audioStatusText),
+                 "Playing %s", pathLeaf(path));
         bool naturalEnd = false;
         do {
             if (!openWav(path)) break;
@@ -621,6 +733,8 @@ void AudioService::finishPlayback(bool naturalEnd) {
     vTaskPrioritySet(nullptr, TaskPriority);
     state().audioPlaying = false;
     state().activeSoundPath[0] = '\0';
+    strlcpy(state().audioStatusText, naturalEnd ? "Playback complete" : "Playback stopped or failed",
+            sizeof(state().audioStatusText));
     if (!naturalEnd) Serial.println("[audio] playback stopped or failed");
 }
 
