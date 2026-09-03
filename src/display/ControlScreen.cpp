@@ -5,6 +5,7 @@
 #include <lvgl.h>
 
 #include "../audio/AudioService.h"
+#include "../config/HardwareConfig.h"
 #include "../core/SystemState.h"
 #include "../led/LedService.h"
 #include "../panda/PandaBreathService.h"
@@ -307,16 +308,22 @@ void ControlScreen::refreshLedCanvas() {
     lastCanvasUpdateMs_ = millis();
     lv_color_t* pixels = static_cast<lv_color_t*>(previewBuffer_);
     for (int i = 0; i < kCanvasWidth * kCanvasHeight; ++i) pixels[i] = lv_color_hex(ui::ColorBackground);
-    RgbwColor frame[60] = {};
-    if (!ledService().copyFrame(frame, 60)) return;
+    RgbwColor frame[hw::LedCount] = {};
+    if (!ledService().copyFrame(frame, hw::LedCount)) return;
     auto draw = [&](int x, int y, int width, int height, uint32_t color) {
         const lv_color_t pixel = lv_color_hex(color);
         for (int py = y; py < y + height && py < kCanvasHeight; ++py)
             for (int px = x; px < x + width && px < kCanvasWidth; ++px)
                 if (px >= 0 && py >= 0) pixels[py * kCanvasWidth + px] = pixel;
     };
-    for (uint16_t i = 0; i < 42; ++i) draw(2 + i * 10, 4, 8, 8, rgbwHex(frame[i]));
-    for (uint16_t i = 0; i < 18; ++i) draw(2 + i * 23, 25, 18, 8, rgbwHex(frame[42 + i]));
+    // Physical outer indices run from the device's right edge to its left edge.
+    // Draw them in visual left-to-right order so motion matches the real strip.
+    for (uint16_t i = 0; i < hw::OuterCount; ++i) {
+        draw(2 + i * 10, 4, 8, 8, rgbwHex(frame[hw::OuterEnd - i]));
+    }
+    for (uint16_t i = 0; i < hw::InsideCount; ++i) {
+        draw(2 + i * 23, 25, 18, 8, rgbwHex(frame[hw::InsideStart + i]));
+    }
     lv_obj_invalidate(previewCanvas_);
 }
 
