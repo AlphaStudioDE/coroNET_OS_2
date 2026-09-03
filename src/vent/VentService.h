@@ -20,6 +20,7 @@ private:
 
     bool beginServo();
     bool beginFan();
+    bool beginDiyHeater();
     void computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targetFlap,
                         bool& failsafe, const char*& status);
     void applyOutputs(uint8_t fanPercent, uint8_t flapPercent);
@@ -36,6 +37,9 @@ private:
     mcpwm_gen_handle_t fanGenerator_ = nullptr;
     bool servoReady_ = false;
     bool fanReady_ = false;
+    bool diyHeaterReady_ = false;
+    bool diyHeaterHigh_ = false;
+    bool diyHeaterArmed_ = false;
     bool coolingActive_ = false;
     bool printingSeen_ = false;
     uint8_t appliedFanPercent_ = 0;

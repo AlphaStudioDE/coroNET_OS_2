@@ -1,5 +1,12 @@
 # Development Updates
 
+## Unreleased
+
+- Kept the proven MCPWM servo-flap and 25 kHz fan-control path while completing the new VENT integration.
+- Added optional DIY chamber-heater control as a persisted GPIO46 active-HIGH 3.3 V logic output for external driver hardware.
+- Added startup and OTA safety handling that forces the optional heater-control output LOW.
+- Synchronized the heater output setting across the touchscreen, authenticated WiFi API, BLE, and Android companion app.
+
 ## 0.2.1
 
 ### Status Sound Library

@@ -672,6 +672,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["servoClosedUs"].is<int>()) cfg.servoClosedUs = constrain(doc["servoClosedUs"].as<int>(), 500, 2500);
         if (doc["servoOpenUs"].is<int>()) cfg.servoOpenUs = constrain(doc["servoOpenUs"].as<int>(), 500, 2500);
         if (doc["servoReverse"].is<bool>()) cfg.servoReverse = doc["servoReverse"].as<bool>();
+        if (doc["diyHeaterOutputHigh"].is<bool>()) cfg.diyHeaterOutputHigh = doc["diyHeaterOutputHigh"].as<bool>();
         if (doc["pandaEnabled"].is<bool>()) cfg.pandaEnabled = doc["pandaEnabled"].as<bool>();
         if (doc["pandaMode"].is<int>()) cfg.pandaMode = static_cast<PandaBreathMode>(constrain(doc["pandaMode"].as<int>(), 0, static_cast<int>(PandaBreathMode::Count) - 1));
         if (doc["pandaTargetTempC"].is<int>()) cfg.pandaTargetTempC = constrain(doc["pandaTargetTempC"].as<int>(), 30, 60);
@@ -785,10 +786,12 @@ void BleService::publishSettings() {
                        "{\"v\":%u,\"t\":\"settings\",\"group\":\"vent\",\"ventMode\":%u,"
                        "\"ventTargetTempC\":%u,\"manualFanPercent\":%u,\"manualFlapPercent\":%u,"
                        "\"servoClosedUs\":%u,\"servoOpenUs\":%u,\"servoReverse\":%s,"
+                       "\"diyHeaterOutputHigh\":%s,"
                        "\"pandaEnabled\":%s,\"pandaMode\":%u,\"pandaTargetTempC\":%u}",
                        bleprotocol::Version, static_cast<unsigned>(cfg.ventMode), cfg.ventTargetTempC,
                        cfg.manualFanPercent, cfg.manualFlapPercent, cfg.servoClosedUs, cfg.servoOpenUs,
-                       cfg.servoReverse ? "true" : "false", cfg.pandaEnabled ? "true" : "false",
+                       cfg.servoReverse ? "true" : "false", cfg.diyHeaterOutputHigh ? "true" : "false",
+                       cfg.pandaEnabled ? "true" : "false",
                        static_cast<unsigned>(cfg.pandaMode), cfg.pandaTargetTempC);
     sendPayload(written);
 }

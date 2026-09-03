@@ -7,6 +7,7 @@
 #include "boot/BootExperience.h"
 #include "companion/PairingService.h"
 #include "config/AppConfig.h"
+#include "config/HardwareConfig.h"
 #include "core/MemoryService.h"
 #include "core/QuietService.h"
 #include "core/SystemState.h"
@@ -314,6 +315,8 @@ void processSerialConsole() {
 }
 
 void setup() {
+    pinMode(coronet::hw::DiyChamberHeaterPin, OUTPUT);
+    digitalWrite(coronet::hw::DiyChamberHeaterPin, LOW);
     Serial.begin(coronet::config::SerialBaud);
     delay(150);
 

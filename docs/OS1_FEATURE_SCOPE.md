@@ -100,7 +100,7 @@ Status meanings:
 | VENT-08 | Panda Breath discovery and direct stock-firmware control | OS2 | Retain, improve, and validate against the available physical Panda Breath test unit. |
 | VENT-09 | Panda modes: Auto, preheat hold, tempering, forced on, filament drying | REDESIGN | Retain all selected modes in a cleaner, testable state machine. |
 | VENT-10 | Panda material profiles and drying presets | REDESIGN | Retain with the improved Panda integration and validate every profile on hardware. |
-| VENT-11 | DIY chamber-heater 5 V output mode | OMIT | Excluded until a separately defined and safety-reviewed hardware module exists. |
+| VENT-11 | DIY chamber-heater output mode | OS2 | GPIO46 manual active-HIGH 3.3 V logic output for an external relay, MOSFET, optocoupler, or dedicated driver. Forced LOW during startup and firmware maintenance. |
 
 ## Display, Time, And Quiet Behavior
 
@@ -141,5 +141,4 @@ The following OS 1 systems must not be implemented in coroNET OS 2 unless this d
 2. External lighting-provider integrations for Philips Hue, WLED, Home Assistant, Nanoleaf, and Shelly (`LED-15`).
 3. The disabled MIDI synthesizer/player (`SOUND-10`).
 4. Product activation, license files, and manual activation keys (`CORE-04`).
-5. The DIY chamber-heater output mode until a separate safety-reviewed hardware module exists (`VENT-11`).
 6. Any runtime printer simulator, demo state, fake progress source, or mock telemetry override. OS 2 consumes only telemetry from the configured real printer.

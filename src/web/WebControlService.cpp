@@ -141,6 +141,8 @@ void addCommonState(JsonDocument& doc) {
     doc["ledReady"] = s.ledReady;
     doc["fanPercent"] = s.fanPercent;
     doc["flapPercent"] = s.flapPercent;
+    doc["diyHeaterReady"] = s.diyHeaterReady;
+    doc["diyHeaterHigh"] = s.diyHeaterHigh;
     doc["quietActive"] = s.quietActive;
     doc["maintenanceMode"] = s.maintenanceMode;
     JsonObject ota = doc["ota"].to<JsonObject>();
@@ -387,6 +389,7 @@ void WebControlService::handleSettings() {
     doc["servoClosedUs"] = cfg.servoClosedUs;
     doc["servoOpenUs"] = cfg.servoOpenUs;
     doc["servoReverse"] = cfg.servoReverse;
+    doc["diyHeaterOutputHigh"] = cfg.diyHeaterOutputHigh;
     doc["pandaEnabled"] = cfg.pandaEnabled;
     doc["pandaMode"] = static_cast<uint8_t>(cfg.pandaMode);
     doc["pandaTargetTempC"] = cfg.pandaTargetTempC;
@@ -511,6 +514,7 @@ void WebControlService::handleUpdateSettings() {
     if (doc["servoClosedUs"].is<int>()) cfg.servoClosedUs = constrain(doc["servoClosedUs"].as<int>(), 500, 2500);
     if (doc["servoOpenUs"].is<int>()) cfg.servoOpenUs = constrain(doc["servoOpenUs"].as<int>(), 500, 2500);
     if (doc["servoReverse"].is<bool>()) cfg.servoReverse = doc["servoReverse"].as<bool>();
+    if (doc["diyHeaterOutputHigh"].is<bool>()) cfg.diyHeaterOutputHigh = doc["diyHeaterOutputHigh"].as<bool>();
     if (doc["pandaEnabled"].is<bool>()) cfg.pandaEnabled = doc["pandaEnabled"].as<bool>();
     if (doc["pandaMode"].is<int>()) cfg.pandaMode = static_cast<PandaBreathMode>(constrain(doc["pandaMode"].as<int>(), 0, static_cast<int>(PandaBreathMode::Count) - 1));
     if (doc["pandaTargetTempC"].is<int>()) cfg.pandaTargetTempC = constrain(doc["pandaTargetTempC"].as<int>(), 30, 60);

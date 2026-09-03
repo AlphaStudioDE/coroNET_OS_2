@@ -83,6 +83,7 @@ data class DeviceSettings(
     val servoClosedUs: Int = 1000,
     val servoOpenUs: Int = 2000,
     val servoReverse: Boolean = false,
+    val diyHeaterOutputHigh: Boolean = false,
     val pandaEnabled: Boolean = false,
     val pandaMode: Int = 0,
     val pandaTargetTempC: Int = 40,

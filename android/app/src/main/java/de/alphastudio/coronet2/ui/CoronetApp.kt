@@ -238,6 +238,15 @@ private fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (
         SettingSwitch("Reverse servo", settings.servoReverse) { send(json("servoReverse", it)) }
     }
     SectionCard {
+        Text("DIY chamber heater", fontWeight = FontWeight.SemiBold)
+        SettingSwitch("GPIO46 output HIGH", settings.diyHeaterOutputHigh) {
+            send(json("diyHeaterOutputHigh", it))
+        }
+        Text("3.3 V logic only. Use an external relay, MOSFET or optocoupler.",
+             style = MaterialTheme.typography.bodySmall,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    SectionCard {
         Text("Panda Breath", fontWeight = FontWeight.SemiBold)
         SettingSwitch("Integration", settings.pandaEnabled) { send(json("pandaEnabled", it)) }
         ChoiceRow("Workflow", listOf("OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRY").getOrElse(settings.pandaMode) { "OFF" }) {

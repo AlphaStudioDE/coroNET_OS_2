@@ -10,7 +10,7 @@ namespace coronet {
 
 namespace {
 constexpr const char* Namespace = "coronet2";
-constexpr uint16_t CurrentSchema = 6;
+constexpr uint16_t CurrentSchema = 7;
 
 uint16_t sanePort(uint16_t port) {
     return port == 0 ? 7125 : port;
@@ -112,6 +112,7 @@ void SettingsService::load() {
     settings_.servoClosedUs = prefs.getUShort("srvClosed", settings_.servoClosedUs);
     settings_.servoOpenUs = prefs.getUShort("srvOpen", settings_.servoOpenUs);
     settings_.servoReverse = prefs.getBool("srvRev", settings_.servoReverse);
+    settings_.diyHeaterOutputHigh = prefs.getBool("diyHeatHi", settings_.diyHeaterOutputHigh);
 
     String pandaHost = prefs.getString("pandaHost", "");
     pandaHost.toCharArray(settings_.pandaHost, sizeof(settings_.pandaHost));
@@ -314,6 +315,7 @@ void SettingsService::saveNow() {
     prefs.putUShort("srvClosed", settings_.servoClosedUs);
     prefs.putUShort("srvOpen", settings_.servoOpenUs);
     prefs.putBool("srvRev", settings_.servoReverse);
+    prefs.putBool("diyHeatHi", settings_.diyHeaterOutputHigh);
 
     prefs.putString("pandaHost", settings_.pandaHost);
     prefs.putBool("pandaEn", settings_.pandaEnabled);

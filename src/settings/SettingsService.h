@@ -26,7 +26,7 @@ enum class CompanionTransport : uint8_t {
 };
 
 struct AppSettings {
-    uint16_t schemaVersion = 6;
+    uint16_t schemaVersion = 7;
     bool setupDone = false;
     bool bleEnabled = true;
     uint8_t displayBrightness = 80;
@@ -70,6 +70,7 @@ struct AppSettings {
     uint16_t servoClosedUs = 1000;
     uint16_t servoOpenUs = 2000;
     bool servoReverse = false;
+    bool diyHeaterOutputHigh = false;
 
     char pandaHost[65] = "";
     bool pandaEnabled = false;

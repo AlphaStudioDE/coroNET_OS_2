@@ -30,6 +30,7 @@ private:
         CalibrationResetColor, CalibrationResetAll, CalibrationCancel, CalibrationSave,
         VentAuto, VentTarget, VentManual, VentTargetTemp, ManualFan, ManualFlap,
         ServoClosed, ServoOpen, ServoReverse, FanMinimum, FanMaximum,
+        DiyHeaterToggle,
         PandaEnabled, PandaMode, PandaTarget, PandaPreset, PandaHours,
         SoundPrev, SoundNext, SoundBrowse, SoundVolume, SoundRepeat, SoundPlay, SoundStop,
         SoundRescan, SoundBrowserPrev, SoundBrowserNext,
@@ -114,6 +115,8 @@ private:
     lv_obj_t* fanMinSlider_ = nullptr;
     lv_obj_t* fanMaxLabel_ = nullptr;
     lv_obj_t* fanMaxSlider_ = nullptr;
+    lv_obj_t* diyHeaterLabel_ = nullptr;
+    lv_obj_t* diyHeaterStatusLabel_ = nullptr;
     lv_obj_t* pandaTargetLabel_ = nullptr;
     lv_obj_t* pandaTargetSlider_ = nullptr;
     lv_obj_t* pandaPresetLabel_ = nullptr;

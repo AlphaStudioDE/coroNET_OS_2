@@ -71,6 +71,7 @@ The repository is public early so that the architecture, documentation, hardware
 | Layered RGBW LED engine | Working on hardware, including ambient, dimming, mirror, and previews |
 | PWM fan and servo flap | Working on hardware with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented; physical Panda validation pending |
+| DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
 | Verified GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public release install verified on hardware |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). Development on the complete end-user experience remains active.

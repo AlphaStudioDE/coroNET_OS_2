@@ -44,7 +44,7 @@ largest blocks independently for internal RAM, DMA-capable RAM, and PSRAM.
 | SDMMC D0 | 13 | 1-bit SD mode |
 | Servo flap PWM | 9 | Servo-controlled air flap |
 | Fan PWM | 14 | 5 V PWM fan |
-| DIY chamber heater | 46 | Optional heater output |
+| DIY chamber heater | 46 | Optional active-HIGH 3.3 V logic output; external driver required; strapping pin must not be driven during boot |
 
 ## LED Layout
 

@@ -29,16 +29,21 @@ VentService& ventService() {
 void VentService::begin() {
     servoReady_ = beginServo();
     fanReady_ = beginFan();
+    diyHeaterReady_ = beginDiyHeater();
     state().servoReady = servoReady_;
     state().fanReady = fanReady_;
+    state().diyHeaterReady = diyHeaterReady_;
     state().ventReady = servoReady_ && fanReady_;
     strlcpy(state().ventStatusText,
             state().ventReady ? "ready" : "hardware_init_failed",
             sizeof(state().ventStatusText));
     applyOutputs(0, 0);
-    Serial.printf("[vent] ready=%u fan=%u servo=%u GPIO fan=%u servo=%u\n",
+    diyHeaterArmed_ = true;
+    Serial.printf("[vent] ready=%u fan=%u servo=%u heater=%u GPIO fan=%u servo=%u heater=%u\n",
                   state().ventReady ? 1U : 0U, fanReady_ ? 1U : 0U, servoReady_ ? 1U : 0U,
-                  static_cast<unsigned>(hw::FanPwmPin), static_cast<unsigned>(hw::ServoPin));
+                  diyHeaterReady_ ? 1U : 0U,
+                  static_cast<unsigned>(hw::FanPwmPin), static_cast<unsigned>(hw::ServoPin),
+                  static_cast<unsigned>(hw::DiyChamberHeaterPin));
 }
 
 void VentService::loop() {
@@ -68,12 +73,13 @@ void VentService::applyNow() {
 
 void VentService::logStatus() const {
     const AppSettings& settings = settingsService().settings();
-    Serial.printf("[vent] ready=%u mode=%u target=%uC output fan=%u%% flap=%u%% failsafe=%u status=%s servo=%uus reverse=%u\n",
+    Serial.printf("[vent] ready=%u mode=%u target=%uC output fan=%u%% flap=%u%% heater=%u failsafe=%u status=%s servo=%uus reverse=%u\n",
                   state().ventReady ? 1U : 0U,
                   static_cast<unsigned>(settings.ventMode),
                   static_cast<unsigned>(settings.ventTargetTempC),
                   static_cast<unsigned>(state().fanPercent),
                   static_cast<unsigned>(state().flapPercent),
+                  state().diyHeaterHigh ? 1U : 0U,
                   state().ventFailsafe ? 1U : 0U,
                   state().ventStatusText,
                   static_cast<unsigned>(lastServoPulseUs_ == UINT16_MAX ? 0 : lastServoPulseUs_),
@@ -142,6 +148,14 @@ bool VentService::beginFan() {
     if (mcpwm_comparator_set_compare_value(fanComparator_, 0) != ESP_OK) return false;
     if (mcpwm_timer_enable(fanTimer_) != ESP_OK) return false;
     return mcpwm_timer_start_stop(fanTimer_, MCPWM_TIMER_START_NO_STOP) == ESP_OK;
+}
+
+bool VentService::beginDiyHeater() {
+    pinMode(hw::DiyChamberHeaterPin, OUTPUT);
+    digitalWrite(hw::DiyChamberHeaterPin, LOW);
+    diyHeaterHigh_ = false;
+    state().diyHeaterHigh = false;
+    return true;
 }
 
 void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targetFlap,
@@ -253,6 +267,13 @@ void VentService::applyOutputs(uint8_t fanPercent, uint8_t flapPercent) {
             lastFanTicks_ = ticks;
         }
     }
+
+    const bool heaterHigh = diyHeaterArmed_ && settings.diyHeaterOutputHigh && !state().maintenanceMode;
+    if (diyHeaterReady_ && heaterHigh != diyHeaterHigh_) {
+        digitalWrite(hw::DiyChamberHeaterPin, heaterHigh ? HIGH : LOW);
+        diyHeaterHigh_ = heaterHigh;
+    }
+    state().diyHeaterHigh = diyHeaterReady_ && diyHeaterHigh_;
 }
 
 uint16_t VentService::servoPulseForPercent(uint8_t flapPercent) const {

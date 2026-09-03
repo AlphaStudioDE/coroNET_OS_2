@@ -37,6 +37,8 @@ struct SystemState {
     bool ventReady = false;
     bool fanReady = false;
     bool servoReady = false;
+    bool diyHeaterReady = false;
+    bool diyHeaterHigh = false;
     uint8_t fanPercent = 0;
     uint8_t flapPercent = 0;
     bool ventFailsafe = false;

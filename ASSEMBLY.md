@@ -34,7 +34,7 @@ flowchart TD
 | SK6812 SPI dummy clock | `16` | Used by the SPI encoding driver; leave unconnected |
 | Servo flap signal | `9` | PWM control |
 | Fan PWM | `14` | PWM/control input, not fan power |
-| Optional chamber-heater control | `46` | Logic output only; external isolated/driver stage required |
+| Optional chamber-heater control | `46` | Active-HIGH 3.3 V logic output only; external isolated/driver stage required |
 | I2S BCK | `42` | Integrated board audio path |
 | I2S LRCK | `2` | Integrated board audio path |
 | I2S DOUT | `41` | Integrated board audio path |
@@ -124,4 +124,4 @@ Verify servo endpoints before attaching the flap. A stalled servo can overheat a
 - verify the capacitor polarity;
 - disconnect the optional heater output until its external driver is separately validated.
 
-The optional chamber-heater signal must only control a properly rated relay, transistor, optocoupler, or dedicated driver. Never connect a heater directly to the ESP32-S3.
+The optional chamber-heater signal must only control a properly rated relay, transistor, optocoupler, or dedicated driver. Never connect a heater directly to the ESP32-S3. GPIO46 is also a boot strapping pin: the external driver input must remain high-impedance and must not pull the line HIGH while the controller starts.

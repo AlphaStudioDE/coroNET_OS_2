@@ -35,6 +35,7 @@ static constexpr uint8_t SdMmcD0Pin = 13;
 
 static constexpr uint8_t ServoPin = 9;
 static constexpr uint8_t FanPwmPin = 14;
+static constexpr uint8_t DiyChamberHeaterPin = 46;
 static constexpr uint16_t ServoPulseMinUs = 500;
 static constexpr uint16_t ServoPulseMaxUs = 2500;
 static constexpr uint32_t ServoFrequencyHz = 50;

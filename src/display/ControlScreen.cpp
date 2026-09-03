@@ -381,7 +381,16 @@ void ControlScreen::buildVentPage() {
     pandaHoursSlider_ = makeSlider(panda, 272, 153, 162, 1, 24, 12, Action::PandaHours);
     makeLabel(panda, settingsService().settings().pandaHost[0] ? settingsService().settings().pandaHost : "Panda address not configured",
               ui::ColorMuted, &lv_font_montserrat_10, 14, 196, 420);
-    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 664);
+
+    lv_obj_t* diyHeater = makeCard(content, 664, 126, "DIY CHAMBER HEATER");
+    diyHeaterLabel_ = makeButton(diyHeater, 14, 34, 150, 38, "OUTPUT: OFF", Action::DiyHeaterToggle);
+    diyHeaterStatusLabel_ = makeLabel(
+        diyHeater, "GPIO46 active HIGH, 3.3 V logic only. Use an external relay, MOSFET or optocoupler.",
+        ui::ColorMuted, &lv_font_montserrat_10, 178, 34, 256);
+    lv_label_set_long_mode(diyHeaterStatusLabel_, LV_LABEL_LONG_WRAP);
+    makeLabel(diyHeater, "Output is forced LOW during startup and firmware updates.",
+              ui::ColorMuted, &lv_font_montserrat_10, 14, 91, 420);
+    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 798);
 }
 
 void ControlScreen::buildSoundPage() {
@@ -618,6 +627,14 @@ void ControlScreen::refreshVent() {
     lv_label_set_text(servoReverseLabel_, settings.servoReverse ? "SERVO: REVERSE" : "SERVO: NORMAL");
     lv_label_set_text_fmt(fanMinLabel_, "FAN MIN %u%%", settings.fanMinPercent);
     lv_label_set_text_fmt(fanMaxLabel_, "FAN MAX %u%%", settings.fanMaxPercent);
+    lv_label_set_text(diyHeaterLabel_, settings.diyHeaterOutputHigh ? "OUTPUT: ON" : "OUTPUT: OFF");
+    lv_obj_t* diyHeaterButton = lv_obj_get_parent(diyHeaterLabel_);
+    lv_obj_set_style_border_color(diyHeaterButton,
+                                  lv_color_hex(settings.diyHeaterOutputHigh ? ui::ColorRed : ui::ColorBorder),
+                                  LV_PART_MAIN);
+    lv_obj_set_style_text_color(diyHeaterStatusLabel_,
+                                lv_color_hex(state().diyHeaterHigh ? ui::ColorAmber : ui::ColorMuted),
+                                LV_PART_MAIN);
     if (!lv_obj_has_state(servoClosedSlider_, LV_STATE_PRESSED)) lv_slider_set_value(servoClosedSlider_, settings.servoClosedUs, LV_ANIM_OFF);
     if (!lv_obj_has_state(servoOpenSlider_, LV_STATE_PRESSED)) lv_slider_set_value(servoOpenSlider_, settings.servoOpenUs, LV_ANIM_OFF);
     if (!lv_obj_has_state(fanMinSlider_, LV_STATE_PRESSED)) lv_slider_set_value(fanMinSlider_, settings.fanMinPercent, LV_ANIM_OFF);
@@ -844,6 +861,7 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::ServoReverse: settings.servoReverse = !settings.servoReverse; settingsService().save(); ventService().applyNow(); break;
         case Action::FanMinimum: settings.fanMinPercent = min<int>(lv_slider_get_value(fanMinSlider_), settings.fanMaxPercent); ventService().applyNow(); if (commit) settingsService().save(); break;
         case Action::FanMaximum: settings.fanMaxPercent = max<int>(lv_slider_get_value(fanMaxSlider_), settings.fanMinPercent); ventService().applyNow(); if (commit) settingsService().save(); break;
+        case Action::DiyHeaterToggle: settings.diyHeaterOutputHigh = !settings.diyHeaterOutputHigh; settingsService().save(); ventService().applyNow(); break;
         case Action::PandaEnabled: settings.pandaEnabled = !settings.pandaEnabled; settingsService().save(); pandaBreathService().applyNow(); break;
         case Action::PandaMode: settings.pandaMode = static_cast<PandaBreathMode>((static_cast<uint8_t>(settings.pandaMode) + 1U) % static_cast<uint8_t>(PandaBreathMode::Count)); settingsService().save(); pandaBreathService().applyNow(); break;
         case Action::PandaTarget: settings.pandaTargetTempC = lv_slider_get_value(pandaTargetSlider_); pandaBreathService().applyNow(); if (commit) settingsService().save(); break;
