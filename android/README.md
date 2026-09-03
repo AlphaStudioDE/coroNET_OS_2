@@ -19,6 +19,12 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 - revisioned printer Error and Finish notifications without reconnect duplicates;
 - Android 8.0 (API 26) and newer.
 
+## Install
+
+Download the current signed [coroNET Companion APK](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest/download/coroNET_Companion.apk), allow installation from the browser or file manager when Android asks, and open the app in landscape orientation. Pair devices from the app's **Devices** screen instead of Android's generic Bluetooth settings.
+
+Development APKs used before the public signed release may need to be uninstalled once because Android will not replace an app signed with a different key. Saved pairings from that development installation will then need to be created again.
+
 ## Build
 
 Open this directory in Android Studio, or run from a terminal with JDK 17 and the Android SDK configured:
@@ -28,5 +34,7 @@ Open this directory in Android Studio, or run from a terminal with JDK 17 and th
 ```
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+
+Tagged GitHub releases are built with the project release key held in GitHub Secrets and publish `coroNET_Companion.apk` beside the matching firmware assets. No signing key or password is stored in this repository.
 
 Physical-phone BLE testing remains part of the release validation checklist. The UI and application lifecycle are also exercised on the included minimum-SDK emulator during development.

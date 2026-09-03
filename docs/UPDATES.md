@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## 0.3.1
+
+### Android Companion Release
+- Rebuilt the phone experience as an adaptive landscape console that follows the touchscreen's Home, LED, Vent, Sound, and Settings hierarchy while using the wider phone display effectively.
+- Added a signed, directly installable Android APK to the same GitHub release as the matching firmware and Flash Tool package.
+- Preserved multi-device management, confirmed pairing, printer Error and Finish notifications, encrypted per-device data, and offline state presentation.
+
+### Reliable Two-Way Control
+- Fixed controls that appeared to work only once by reconciling every command with fresh firmware state and settings revisions.
+- Added bounded BLE reconnect recovery and WiFi hostname recovery without clearing healthy pairing data.
+- Completed synchronized device naming, companion transport selection, UI styles, LED controls, ventilation controls, time settings, and other shared options across the phone and touchscreen.
+
+### Phone Sound Library
+- Added folder-based browsing of the microSD sound library without exposing unnecessary full paths.
+- Added per-status sound assignment, preview playback, stop, and library rescan over both authenticated WiFi and framed BLE commands.
+- Extended compact device snapshots with current audio, quiet-mode, fan, and flap state so the phone reflects real runtime behavior.
+
+### Companion API Completion
+- Added authenticated WiFi endpoints and BLE commands for sound-library browsing and playback control.
+- Aligned LED calibration, color-remix, ventilation, flap, and Panda control ranges between firmware and Android.
+- Updated the public companion protocol and status-sound documentation to match the implemented transports.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.3.1_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.3.0...v0.3.1
+
 ## 0.3.0
 
 ### Companion Resilience

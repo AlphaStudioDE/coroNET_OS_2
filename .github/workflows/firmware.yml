@@ -40,7 +40,7 @@ jobs:
               exit 1
             fi
           else
-            version="0.3.0-dev"
+            version="0.3.1-dev"
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -79,6 +79,49 @@ jobs:
           "${{ steps.version.outputs.version }}"
           dist/RELEASE_NOTES.md
 
+      - name: Set up Java for Android release
+        if: github.ref_type == 'tag'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            android/*.gradle.kts
+            android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Restore Android release signing key
+        if: github.ref_type == 'tag'
+        env:
+          CORONET_ANDROID_KEYSTORE_BASE64: ${{ secrets.CORONET_ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          test -n "${CORONET_ANDROID_KEYSTORE_BASE64}"
+          printf '%s' "${CORONET_ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/coronet-release.jks"
+          test -s "${RUNNER_TEMP}/coronet-release.jks"
+
+      - name: Build signed Android companion
+        if: github.ref_type == 'tag'
+        working-directory: android
+        env:
+          CORONET_ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/coronet-release.jks
+          CORONET_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CORONET_ANDROID_KEYSTORE_PASSWORD }}
+          CORONET_ANDROID_KEY_ALIAS: ${{ secrets.CORONET_ANDROID_KEY_ALIAS }}
+          CORONET_ANDROID_KEY_PASSWORD: ${{ secrets.CORONET_ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
+
+      - name: Prepare Android companion asset
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk dist/coroNET_Companion.apk
+          build_tools="$(find "${ANDROID_SDK_ROOT}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "${build_tools}/apksigner" verify --verbose --print-certs dist/coroNET_Companion.apk
+          (cd dist && sha256sum coroNET_Companion.apk >> SHA256SUMS.txt)
+
       - name: Upload development firmware
         uses: actions/upload-artifact@v7
         with:
@@ -92,6 +135,7 @@ jobs:
             dist/coronet_partitions.bin
             dist/SHA256SUMS.txt
             dist/*_Flash_Tool.zip
+            dist/coroNET_Companion.apk
 
       - name: Publish tagged GitHub release
         if: github.ref_type == 'tag'
@@ -110,4 +154,5 @@ jobs:
             dist/coronet_partitions.bin \
             dist/SHA256SUMS.txt \
             dist/coroNET_OS_2_*_Flash_Tool.zip \
+            dist/coroNET_Companion.apk \
             --clobber

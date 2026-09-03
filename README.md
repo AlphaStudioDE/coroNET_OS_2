@@ -19,6 +19,8 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 
 [Getting started](GETTING_STARTED.md) | [LED animation catalog](docs/LED_ANIMATIONS.md) | [Status sounds](docs/STATUS_SOUNDS.md) | [Community showcase](docs/COMMUNITY_SHOWCASE.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Android app](android/README.md) | [Development updates](docs/UPDATES.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
 
+**Latest downloads:** [firmware and Flash Tool](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest) | [Android companion APK](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest/download/coroNET_Companion.apk)
+
 ## What The Finished Device Is Designed To Do
 
 - display printer state, progress, temperatures, active tool, material, job time, and connectivity;
@@ -49,7 +51,7 @@ Featured installation built and photographed by **Bobby Morgan**.
 
 ## Current Development Status
 
-The current public firmware release is **coroNET OS 2 0.3.0**. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
+The current public firmware and Android companion release is **coroNET OS 2 0.3.1**. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
 
 | Area | Status |
 | --- | --- |
@@ -67,12 +69,12 @@ The current public firmware release is **coroNET OS 2 0.3.0**. The repository re
 | Settings and one-screen-at-a-time UI navigation | Working on reference hardware |
 | LED, ventilation, and sound tabs | Working on reference hardware |
 | Four UI skins, dark/light modes, clocks, and screen saver | Working on reference hardware |
-| Android companion app for OS 2 | Working over BLE and local WiFi with reconnect, offline cache, conflict handling, SD sound browsing, and shared device controls |
+| Android companion app for OS 2 | Public signed APK with adaptive landscape UI, BLE/WiFi reconnect, offline cache, conflict handling, SD sound browsing, and shared device controls |
 | Layered RGBW LED engine | Working with ambient, dimming, mirror, calibration, and previews |
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.3.0 release and Flash Tool package verified |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.3.1 release, Flash Tool package, checksums, and Android APK published together |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). Development on the complete end-user experience remains active.
 
