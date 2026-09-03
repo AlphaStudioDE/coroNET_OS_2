@@ -361,6 +361,8 @@ enum class OtherAnimation : uint8_t {
     NeonRain,
     SolarEclipse,
     CrystalPrism,
+    RoyalAurora,
+    DataStream,
     Count,
 };
 

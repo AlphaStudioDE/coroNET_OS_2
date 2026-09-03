@@ -88,6 +88,7 @@ constexpr const char* OtherNames[] = {
     "Plasma Core", "Status Mirror", "Time Breath", "Section Demo", "Cinema Idle",
     "Luxury Ambient", "Spectrum Scanner", "Calm Down", "Meditation", "Bioluminescence",
     "Liquid Glass", "Ember Room", "Neon Rain", "Solar Eclipse", "Crystal Prism",
+    "Royal Aurora", "Data Stream",
 };
 
 template <size_t N>

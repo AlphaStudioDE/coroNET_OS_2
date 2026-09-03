@@ -7070,6 +7070,53 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             }
             break;
         }
+        case OtherAnimation::RoyalAurora: {
+            const uint8_t ceremony = static_cast<uint8_t>((now / 4200U) % 3U);
+            constexpr uint8_t royalHues[3] = {27U, 205U, 116U};
+            const uint16_t center = (hw::OuterCount - 1U) / 2U;
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint16_t distance = path > center ? path - center : center - path;
+                const uint8_t curtain = wave8(static_cast<uint8_t>(
+                    now / 151U + distance * 13U));
+                const uint8_t heraldry = static_cast<uint8_t>((path / 3U + ceremony) % 3U);
+                const uint8_t hue = royalHues[heraldry];
+                uint8_t value = static_cast<uint8_t>(45U + curtain * 75U / 255U);
+                if (distance <= 2U) {
+                    value = static_cast<uint8_t>(205U - distance * 45U);
+                } else if (((path + now / 130U) % 17U) == 0U) {
+                    value = 180U;
+                }
+                setOuterVisualPathPixel(path,
+                    decorativeHsv(LedCategory::Other, hue, 215U, value));
+            }
+            break;
+        }
+        case OtherAnimation::DataStream: {
+            constexpr uint8_t PacketLength = 10U;
+            const uint16_t shift = static_cast<uint16_t>(now / 52U);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint8_t cell = static_cast<uint8_t>((path + shift) % 17U);
+                if (cell >= PacketLength) {
+                    setOuterVisualPathPixel(path, RgbwColor(0U, 2U, 4U));
+                    continue;
+                }
+                RgbwColor color;
+                uint8_t value = 0U;
+                if (cell < 2U) {
+                    color = decorativeHsv(LedCategory::Other, 142U, 245U, 220U);
+                    value = static_cast<uint8_t>(220U - cell * 35U);
+                } else if (cell < 8U) {
+                    const uint8_t bit = hash8((path / 17U) * 97U + cell * 43U + shift / 17U);
+                    color = decorativeHsv(LedCategory::Other, 164U, 235U, 165U);
+                    value = bit > 127U ? 165U : 42U;
+                } else {
+                    color = decorativeHsv(LedCategory::Other, 221U, 235U, 205U);
+                    value = static_cast<uint8_t>(205U - (cell - 8U) * 45U);
+                }
+                setOuterVisualPathPixel(path, scaled(color, value));
+            }
+            break;
+        }
         case OtherAnimation::Count:
         default:
             break;

@@ -31,9 +31,9 @@ The following behavior is shared by the entire catalog:
 | Print | 53 | Rebuilt and hardware-tested on the OS 2 engine |
 | Pause | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Error | 51 | Rebuilt and hardware-tested on the OS 2 engine |
-| Idle | 50 | Rebuilt on the OS 2 engine; final hardware pass in progress |
+| Idle | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
-| Other | 50 | Rebuild in progress; first five reviewed sets implemented on the OS 2 engine |
+| Other | 82 | Rebuilt and hardware-tested on the OS 2 engine |
 
 ## Print
 
@@ -410,6 +410,8 @@ Other is independent of printer status and is intended for manually selected amb
 | 78 | Neon Rain | Four independently paced neon drops fall through each physical section with saturated heads and five-step colored tails. |
 | 79 | Solar Eclipse | A dark occluding core crosses a fixed amber sun while a compact bright corona remains visible around its moving edge. |
 | 80 | Crystal Prism | A white Center beam separates symmetrically into a full spectrum, reaches both ends, recombines, and rests before repeating. |
+| 81 | Royal Aurora | Mirrored gold, violet, and teal heraldic curtains frame a stable bright crest while restrained ceremonial highlights cross the field. |
+| 82 | Data Stream | Structured cyan packets circulate around OUTER with distinct headers, changing payload bits, magenta checksums, and dark inter-packet gaps. |
 
 ## Boot LED Experience
 
