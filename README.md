@@ -49,30 +49,30 @@ Featured installation built and photographed by **Bobby Morgan**.
 
 ## Current Development Status
 
-The repository is public early so that the architecture, documentation, hardware assumptions, and development history are visible from the beginning.
+The current public firmware release is **coroNET OS 2 0.3.0**. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
 
 | Area | Status |
 | --- | --- |
-| PlatformIO project and MIT licensing | Working |
-| JC3248W535 display and touch | Working on hardware |
-| PSRAM canvas and small DMA transfer windows | Working on hardware |
-| Versioned NVS settings | Working, with live apply and write debounce |
-| Unique device identity and BLE peripheral | Working, framed protocol V2 |
-| Local WiFi HTTP API and mDNS | Token-authenticated implementation |
-| First-run setup wizard | Working on hardware, with WiFi validation and printer discovery |
-| Moonraker realtime telemetry, HTTP fallback, and discovery | Background WebSocket worker implementation |
-| I2S audio output | Working on hardware, with PSRAM staging and diagnostic tone |
-| SD-backed WAV playback | Working on hardware, with PSRAM staging and indexed asset validation |
-| Home dashboard | Working on hardware, with live printer and connectivity state |
-| Settings and one-screen-at-a-time UI navigation | Working on hardware |
-| LED, ventilation, and sound tabs | Working on hardware |
-| Four UI skins, dark/light modes, clocks, and screen saver | Working on hardware |
-| Android companion app for OS 2 | Working on a physical phone over BLE and local WiFi |
-| Layered RGBW LED engine | Working on hardware, including ambient, dimming, mirror, and previews |
-| PWM fan and servo flap | Working on hardware with calibration and fail-safe logic |
+| PlatformIO project and MIT licensing | Released and maintained |
+| JC3248W535 display and touch | Verified on reference hardware |
+| PSRAM canvas and small DMA transfer windows | Verified on reference hardware |
+| Versioned NVS settings | Working with live apply, revision tracking, and write debounce |
+| Unique device identity and BLE peripheral | Working with confirmed pairing and framed protocol V2 |
+| Local WiFi HTTP API and mDNS | Working with token authentication and hostname recovery |
+| First-run setup wizard | Working with WiFi validation and layered printer discovery |
+| Moonraker realtime telemetry, HTTP fallback, and discovery | Working with WebSocket subscriptions, reconnect, and HTTP integrity checks |
+| I2S audio output | Working with PSRAM staging and controlled startup/shutdown silence |
+| SD-backed WAV playback | Working with indexed folders, status assignment, and asset validation |
+| Home dashboard | Working with live printer and connectivity state |
+| Settings and one-screen-at-a-time UI navigation | Working on reference hardware |
+| LED, ventilation, and sound tabs | Working on reference hardware |
+| Four UI skins, dark/light modes, clocks, and screen saver | Working on reference hardware |
+| Android companion app for OS 2 | Working over BLE and local WiFi with reconnect, offline cache, and conflict handling |
+| Layered RGBW LED engine | Working with ambient, dimming, mirror, calibration, and previews |
+| PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| Verified GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public release install verified on hardware |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.3.0 release and Flash Tool package verified |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). Development on the complete end-user experience remains active.
 
