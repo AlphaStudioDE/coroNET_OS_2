@@ -280,33 +280,6 @@ RgbwColor perceptualOutput(const RgbwColor& color) {
         outputRed, outputGreen, outputBlue, outputWhite);
 }
 
-RgbwColor calibratePhysicalChroma(const RgbwColor& color) {
-    const uint8_t peak = max(color.r, max(color.g, color.b));
-    if (peak == 0U) return color;
-
-    const uint8_t low = min(color.r, min(color.g, color.b));
-    const uint8_t saturation = static_cast<uint8_t>(
-        static_cast<uint16_t>(peak - low) * 255U / peak);
-    if (saturation < 96U) return color;
-
-    // The physical RGBNW strip and diffuser make weaker colour dies appear
-    // stronger than their numeric RGB ratios: orange drifts toward yellow and
-    // green toward cyan. Blend each secondary channel halfway toward a squared
-    // peak-relative ratio. Unlike per-channel brightness gamma, this ratio is
-    // independent of intensity, so dimming cannot turn orange into red.
-    constexpr uint8_t ChromaCorrection = 128U;
-    auto corrected = [&](uint8_t channel) -> uint8_t {
-        if (channel == 0U || channel == peak) return channel;
-        const uint8_t squaredRatio = static_cast<uint8_t>(
-            (static_cast<uint32_t>(channel) * channel + peak / 2U) / peak);
-        return static_cast<uint8_t>(
-            (static_cast<uint16_t>(channel) * (255U - ChromaCorrection) +
-             static_cast<uint16_t>(squaredRatio) * ChromaCorrection + 127U) / 255U);
-    };
-    return RgbwColor(corrected(color.r), corrected(color.g),
-                     corrected(color.b), color.w);
-}
-
 uint8_t temperaturePercent(float temperature, float minimum, float maximum,
                            uint8_t fallback) {
     if (isnan(temperature) || maximum <= minimum) return fallback;
@@ -7324,8 +7297,8 @@ void LedService::applyOutputPolicies() {
         const LedSection section = static_cast<LedSection>(sectionIndex);
         const uint8_t percent = effectiveSectionBrightnessPercent(
             settings, system, section, now);
-        // Percentages describe perceived brightness. The shared gamma 2.3
-        // conversion is applied once, immediately before SPI encoding.
+        // Percentages describe perceived brightness. The coroNET 1 gamma-2
+        // conversion is applied once before smoothing the physical frame.
         const uint8_t scaleValue = brightnessPercentToScale(percent);
         const uint16_t count = sectionCount(section);
         for (uint16_t i = 0; i < count; ++i) {
@@ -7355,9 +7328,8 @@ bool LedService::smoothAndShow(bool immediate) {
         settingsService().settings().insideColorStyle == InsideColorStyle::White;
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
-        // coroNET 1 calibrated every target into its final physical RGBW/gamma
-        // representation before smoothing. Interpolating raw RGB first creates
-        // temporary low-saturation mixtures that look pastel on moving pixels.
+        // Match the proven coroNET 1 boundary: convert every target to its
+        // physical RGBW/gamma representation before channel smoothing.
         const RgbwColor target = perceptualOutput(targetFrame_[i]);
         const uint8_t targetPeak = max(target.r, max(target.g, target.b));
         const uint8_t targetLow = min(target.r, min(target.g, target.b));
@@ -7365,65 +7337,29 @@ bool LedService::smoothAndShow(bool immediate) {
             ? static_cast<uint8_t>(static_cast<uint16_t>(targetPeak - targetLow) * 255U /
                                    targetPeak)
             : 0U;
-        // Gamma can reduce a deliberately dim but fully saturated target to
-        // only a few PWM steps. Treat it as chromatic at every non-zero output
-        // level; the former >16 threshold sent dark tails through independent
-        // channel ramps and left visible pastel RGB residue.
-        const bool saturatedTarget = targetPeak > 0U && targetSaturation >= 120U;
+        const bool saturatedTarget = targetPeak > 16U && targetSaturation >= 120U;
+        const uint8_t lowChannelLimit = static_cast<uint8_t>(targetPeak / 3U);
+        const uint8_t fastRgbStep = static_cast<uint8_t>(min<uint16_t>(
+            255U, max<uint16_t>(48U, static_cast<uint16_t>(step) * 4U)));
         const uint8_t fastWhiteStep = static_cast<uint8_t>(min<uint16_t>(
             255U, max<uint16_t>(96U, static_cast<uint16_t>(step) * 6U)));
         const bool insideWhite = forceInsideWhite && i >= hw::InsideStart;
-        RgbwColor next;
-        if (immediate) {
-            next = RgbwColor(insideWhite ? 0U : target.r,
-                             insideWhite ? 0U : target.g,
-                             insideWhite ? 0U : target.b,
-                             target.w);
-        } else if (!insideWhite && saturatedTarget) {
-            // Smooth luminance, but take chromatic ratios from the current
-            // target immediately. Per-channel smoothing leaves stale blue or
-            // green behind a moving red and visibly turns it pink/pastel.
-            const uint8_t currentPeak = max(currentFrame_[i].r,
-                                            max(currentFrame_[i].g, currentFrame_[i].b));
-            // A moving dark detail may occupy a pixel for only one frame.
-            // Delaying a downward change made it almost as bright as its
-            // surroundings. Follow non-zero dark targets immediately, while
-            // retaining the gentle rise and the separate fade-to-black path.
-            const uint8_t nextPeak = targetPeak < currentPeak
-                ? targetPeak
-                : smoothStepChannel(currentPeak, targetPeak, step);
-            auto atPeak = [&](uint8_t channel) -> uint8_t {
-                return static_cast<uint8_t>(
-                    (static_cast<uint16_t>(channel) * nextPeak + targetPeak / 2U) /
-                    targetPeak);
-            };
-            next = RgbwColor(atPeak(target.r), atPeak(target.g), atPeak(target.b),
-                             target.w);
-        } else if (!insideWhite && targetPeak == 0U) {
-            // Fade a chromatic pixel to black by its common peak. Independent
-            // channel subtraction changes hue as weaker channels hit zero and
-            // can leave a coloured three-channel haze at the end of a trail.
-            const uint8_t currentPeak = max(currentFrame_[i].r,
-                                            max(currentFrame_[i].g, currentFrame_[i].b));
-            const uint8_t nextPeak = smoothStepChannel(currentPeak, 0U, step);
-            auto atCurrentPeak = [&](uint8_t channel) -> uint8_t {
-                if (currentPeak == 0U) return 0U;
-                return static_cast<uint8_t>(
-                    (static_cast<uint16_t>(channel) * nextPeak + currentPeak / 2U) /
-                    currentPeak);
-            };
-            next = RgbwColor(atCurrentPeak(currentFrame_[i].r),
-                             atCurrentPeak(currentFrame_[i].g),
-                             atCurrentPeak(currentFrame_[i].b),
-                             smoothStepChannel(currentFrame_[i].w, target.w, fastWhiteStep));
-        } else {
-            next = RgbwColor(
-                insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r, step),
-                insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g, step),
-                insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b, step),
-                smoothStepChannel(currentFrame_[i].w, target.w,
-                    saturatedTarget && target.w < currentFrame_[i].w ? fastWhiteStep : step));
-        }
+        auto smoothRgb = [&](uint8_t current, uint8_t wanted) -> uint8_t {
+            const uint8_t channelStep = saturatedTarget && wanted < current &&
+                wanted <= lowChannelLimit ? fastRgbStep : step;
+            return smoothStepChannel(current, wanted, channelStep);
+        };
+        const RgbwColor next = immediate
+            ? RgbwColor(insideWhite ? 0U : target.r,
+                        insideWhite ? 0U : target.g,
+                        insideWhite ? 0U : target.b,
+                        target.w)
+            : RgbwColor(insideWhite ? 0U : smoothRgb(currentFrame_[i].r, target.r),
+                        insideWhite ? 0U : smoothRgb(currentFrame_[i].g, target.g),
+                        insideWhite ? 0U : smoothRgb(currentFrame_[i].b, target.b),
+                        smoothStepChannel(currentFrame_[i].w, target.w,
+                            saturatedTarget && target.w < currentFrame_[i].w
+                                ? fastWhiteStep : step));
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;
@@ -7463,9 +7399,9 @@ void LedService::encodeFrame() {
         txBuffer_[output++] = NibbleLutLo[low];
     };
     for (uint16_t outputIndex = 0; outputIndex < hw::LedCount; ++outputIndex) {
-        // Keep currentFrame_ in calibrated logical/gamma space for an accurate
-        // LCD preview; compensate the physical strip only at the SPI boundary.
-        const RgbwColor color = calibratePhysicalChroma(currentFrame_[outputIndex]);
+        // currentFrame_ is already the calibrated physical RGBW frame and is
+        // shared with the LCD preview. Do not alter chroma at the SPI boundary.
+        const RgbwColor color = currentFrame_[outputIndex];
         append(color.g);
         append(color.r);
         append(color.b);
