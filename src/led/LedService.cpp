@@ -189,13 +189,15 @@ RgbwColor approach(const RgbwColor& current, const RgbwColor& target, uint8_t am
     const uint8_t saturation = peak
         ? static_cast<uint8_t>(static_cast<uint16_t>(peak - low) * 255U / peak)
         : 0U;
-    const bool saturatedTarget = peak > 16U && saturation >= 120U;
+    const bool saturatedTarget = peak > 0U && saturation >= 120U;
+    const bool darkTarget = peak <= 16U && target.w <= 16U;
     const uint8_t lowChannelLimit = static_cast<uint8_t>(peak / 3U);
     const uint8_t fastRgbAmount = max<uint8_t>(amount, 224U);
     const uint8_t fastWhiteAmount = max<uint8_t>(amount, 240U);
 
     auto channelAmount = [&](uint8_t now, uint8_t next) -> uint8_t {
-        return saturatedTarget && next < now && next <= lowChannelLimit
+        return (darkTarget && next < now) ||
+                   (saturatedTarget && next < now && next <= lowChannelLimit)
             ? fastRgbAmount : amount;
     };
 
@@ -226,20 +228,65 @@ uint8_t gamma2Channel(uint8_t value) {
 }
 
 RgbwColor gamma2Output(const RgbwColor& color) {
-    const uint8_t rgbPeak = max(color.r, max(color.g, color.b));
-    if (rgbPeak == 0U) {
-        return RgbwColor(0U, 0U, 0U, gamma2Channel(color.w));
+    uint8_t red = color.r;
+    uint8_t green = color.g;
+    uint8_t blue = color.b;
+    const uint8_t rgbPeak = max(red, max(green, blue));
+    const uint8_t rgbLow = min(red, min(green, blue));
+
+    // Ported from the calibrated coroNET 1 output path. Neutral RGB is moved
+    // smoothly to the dedicated SK6812 W die, while saturated colours remain
+    // RGB-only. This avoids pastel contamination and visible low-level mixing
+    // of the three coloured dies without flattening intentionally soft hues.
+    uint8_t extractedWhite = 0U;
+    if (rgbPeak > 0U && rgbLow > 0U) {
+        constexpr uint8_t FullWhiteSaturation = 24U;
+        constexpr uint8_t ZeroWhiteSaturation = 110U;
+        constexpr uint8_t MaxExtractedWhite = 160U;
+        const uint8_t saturation = static_cast<uint8_t>(
+            static_cast<uint16_t>(rgbPeak - rgbLow) * 255U / rgbPeak);
+        uint8_t whiteScale = 255U;
+        if (saturation >= ZeroWhiteSaturation) {
+            whiteScale = 0U;
+        } else if (saturation > FullWhiteSaturation) {
+            whiteScale = static_cast<uint8_t>(
+                static_cast<uint16_t>(ZeroWhiteSaturation - saturation) * 255U /
+                (ZeroWhiteSaturation - FullWhiteSaturation));
+        }
+        extractedWhite = static_cast<uint8_t>(
+            static_cast<uint16_t>(rgbLow) * whiteScale / 255U);
+        extractedWhite = min<uint8_t>(extractedWhite, MaxExtractedWhite);
+        red = static_cast<uint8_t>(red - extractedWhite);
+        green = static_cast<uint8_t>(green - extractedWhite);
+        blue = static_cast<uint8_t>(blue - extractedWhite);
     }
 
-    // Correct perceived brightness at the hardware boundary while preserving
-    // RGB ratios. Per-channel gamma would shift dim orange toward red and dim
-    // cyan toward blue as their weaker channels disappear first.
-    const uint8_t correctedPeak = gamma2Channel(rgbPeak);
+    const uint8_t remainingPeak = max(red, max(green, blue));
+    uint8_t outputRed = 0U;
+    uint8_t outputGreen = 0U;
+    uint8_t outputBlue = 0U;
+    if (remainingPeak > 0U) {
+        // Apply gamma to luminance and retain RGB ratios. Per-channel gamma
+        // would shift dim orange toward red and dim cyan toward blue.
+        const uint8_t correctedPeak = gamma2Channel(remainingPeak);
+        outputRed = static_cast<uint8_t>(
+            (static_cast<uint16_t>(red) * correctedPeak + remainingPeak / 2U) /
+            remainingPeak);
+        outputGreen = static_cast<uint8_t>(
+            (static_cast<uint16_t>(green) * correctedPeak + remainingPeak / 2U) /
+            remainingPeak);
+        outputBlue = static_cast<uint8_t>(
+            (static_cast<uint16_t>(blue) * correctedPeak + remainingPeak / 2U) /
+            remainingPeak);
+    }
+
+    // Explicit W is intentionally linear, as in coroNET 1. In particular this
+    // preserves the user's inside brightness. Only W extracted from RGB needs
+    // gamma because it originated in the linear RGB animation space.
+    const uint8_t outputWhite = static_cast<uint8_t>(min<uint16_t>(
+        255U, static_cast<uint16_t>(color.w) + gamma2Channel(extractedWhite)));
     return RgbwColor(
-        static_cast<uint8_t>((static_cast<uint16_t>(color.r) * correctedPeak + rgbPeak / 2U) / rgbPeak),
-        static_cast<uint8_t>((static_cast<uint16_t>(color.g) * correctedPeak + rgbPeak / 2U) / rgbPeak),
-        static_cast<uint8_t>((static_cast<uint16_t>(color.b) * correctedPeak + rgbPeak / 2U) / rgbPeak),
-        gamma2Channel(color.w));
+        outputRed, outputGreen, outputBlue, outputWhite);
 }
 
 uint8_t temperaturePercent(float temperature, float minimum, float maximum,
