@@ -188,7 +188,8 @@ uint16_t interpolateUnsigned(uint16_t first, uint16_t second,
 }
 
 RgbwColor applyUserColorCalibration(const RgbwColor& color,
-                                    const AppSettings& settings) {
+                                    const AppSettings& settings,
+                                    uint16_t saturationScaleOverride = 0U) {
     const uint8_t peak = max(color.r, max(color.g, color.b));
     const uint8_t low = min(color.r, min(color.g, color.b));
     const uint8_t delta = static_cast<uint8_t>(peak - low);
@@ -212,9 +213,11 @@ RgbwColor applyUserColorCalibration(const RgbwColor& color,
     const int16_t hueDegrees = interpolateSigned(
         settings.ledCalibrationHue[left], settings.ledCalibrationHue[right],
         position, span);
-    const uint16_t saturationScale = interpolateUnsigned(
-        settings.ledCalibrationSaturation[left], settings.ledCalibrationSaturation[right],
-        position, span);
+    const uint16_t saturationScale = saturationScaleOverride
+        ? saturationScaleOverride
+        : interpolateUnsigned(
+              settings.ledCalibrationSaturation[left], settings.ledCalibrationSaturation[right],
+              position, span);
     const uint16_t brightnessScale = interpolateUnsigned(
         settings.ledCalibrationBrightness[left], settings.ledCalibrationBrightness[right],
         position, span);
@@ -7482,6 +7485,8 @@ bool LedService::smoothAndShow(bool immediate) {
 
     const bool forceInsideWhite = !bootActive_ &&
         settingsService().settings().insideColorStyle == InsideColorStyle::White;
+    const uint16_t bootSaturationScale = bootActive_ && bootExperience().full()
+        ? 150U : 0U;
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
         // Match the proven coroNET 1 boundary: convert every target to its
@@ -7491,7 +7496,7 @@ bool LedService::smoothAndShow(bool immediate) {
         // and diffuser reproduce that target to the viewer.
         previewFrame_[i] = perceptualOutput(targetFrame_[i]);
         const RgbwColor target = perceptualOutput(applyUserColorCalibration(
-            targetFrame_[i], settingsService().settings()));
+            targetFrame_[i], settingsService().settings(), bootSaturationScale));
         const uint8_t targetPeak = max(target.r, max(target.g, target.b));
         const uint8_t targetLow = min(target.r, min(target.g, target.b));
         const uint8_t targetSaturation = targetPeak

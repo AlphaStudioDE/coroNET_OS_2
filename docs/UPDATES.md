@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Boot Color Presentation
+- Set the full first-run LED Boot Experience to a fixed 150% saturation calibration while leaving daily boot and normal animation calibration under user control.
+
 ### Moonraker Realtime Telemetry
 - Added Moonraker WebSocket identification, object discovery, status subscription, stale-session detection, and automatic reconnect handling.
 - Merged partial Moonraker notifications into complete telemetry snapshots without moving JSON parsing or network work into the display loop.
