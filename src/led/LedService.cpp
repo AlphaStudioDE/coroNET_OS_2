@@ -930,7 +930,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t value = static_cast<uint8_t>((45U + pulse * 115U / 255U) *
                     static_cast<uint16_t>(shape) / 255U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 205U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 255U, value));
             }
             break;
         }
@@ -944,7 +944,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                     const uint16_t path = rawHead - tail;
                     const uint8_t value = static_cast<uint8_t>(245U - tail * 21U);
                     setOuterVisualPathPixel(path,
-                        decorativeHsv(LedCategory::Idle, hue, 235U, value));
+                        decorativeHsv(LedCategory::Idle, hue, 255U, value));
                 }
             }
             break;
@@ -997,8 +997,8 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t amount = static_cast<uint8_t>(
                     path * 255U / max<uint16_t>(1U, hw::OuterCount - 1U));
-                const RgbwColor first = decorativeHsv(LedCategory::Idle, hueA, 235U, 145U);
-                const RgbwColor second = decorativeHsv(LedCategory::Idle, hueB, 235U, 145U);
+                const RgbwColor first = decorativeHsv(LedCategory::Idle, hueA, 255U, 145U);
+                const RgbwColor second = decorativeHsv(LedCategory::Idle, hueB, 255U, 145U);
                 setOuterVisualPathPixel(path, blend(first, second, amount));
             }
             break;
@@ -1013,7 +1013,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t value = static_cast<uint8_t>(62U +
                     max<uint8_t>(fieldA, fieldB) * 120U / 255U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 245U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 255U, value));
             }
             break;
         }
@@ -1025,7 +1025,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t value = static_cast<uint8_t>(38U + breath * 125U / 255U);
                 const uint8_t hue = static_cast<uint8_t>(24U + sectionIndex * 13U);
                 fillSection(section,
-                    decorativeHsv(LedCategory::Idle, hue, 225U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 255U, value));
             }
             break;
         }
@@ -1069,7 +1069,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                     : static_cast<uint8_t>(min<uint32_t>(255U, coverage - start));
                 if (reverse) amount = static_cast<uint8_t>(255U - amount);
                 if (amount) setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 245U, amount));
+                    decorativeHsv(LedCategory::Idle, hue, 255U, amount));
             }
             break;
         }
@@ -1100,7 +1100,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 for (uint8_t part = 0; part < length; ++part) {
                     if (head < part) continue;
                     setOuterVisualPathPixel(head - part,
-                        decorativeHsv(LedCategory::Idle, hue, 245U,
+                        decorativeHsv(LedCategory::Idle, hue, 255U,
                             part == 0U ? 205U : 145U));
                 }
             }
@@ -1113,7 +1113,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t lane = static_cast<uint8_t>((path + shift) % 6U);
                 const uint8_t value = lane < 2U ? 195U : lane == 2U ? 75U : 12U;
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 240U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 255U, value));
             }
             break;
         }
@@ -1131,7 +1131,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                     if (position < count) {
                         const uint8_t hue = static_cast<uint8_t>(143U + bubble * 15U);
                         setSection(section, position,
-                            decorativeHsv(LedCategory::Idle, hue, 180U, 175U));
+                            decorativeHsv(LedCategory::Idle, hue, 230U, 175U));
                     } else if (position == count) {
                         const uint16_t pop = sideIndex == 0U ? bubble * 4U % hw::CenterCount
                             : hw::CenterCount - 1U - bubble * 4U % hw::CenterCount;
@@ -1148,7 +1148,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t hue = static_cast<uint8_t>(base + path * 4U + ribbon / 9U);
                 const uint8_t value = static_cast<uint8_t>(55U + ribbon * 95U / 255U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 195U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 210U, value));
             }
             break;
         }
@@ -1216,7 +1216,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                     ? static_cast<uint8_t>(178U - trail * 9U) : 5U;
                 const uint8_t hue = static_cast<uint8_t>(143U + trail * 2U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 165U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 180U, value));
             }
             break;
         }
@@ -1319,7 +1319,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                         ? static_cast<uint8_t>(175U - delta * 55U) : 24U;
                     const uint8_t hue = static_cast<uint8_t>(132U + sectionIndex * 8U + distance * 2U);
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Idle, hue, 190U, value));
+                        decorativeHsv(LedCategory::Idle, hue, 210U, value));
                 }
             }
             break;
@@ -1402,7 +1402,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
         case IdleAnimation::LastPrintEcho: {
             RgbwColor filament = fromRgb(context.filamentRgb);
             if (max(filament.r, max(filament.g, filament.b)) < 12U) {
-                filament = decorativeHsv(LedCategory::Idle, static_cast<uint8_t>(now / 90U), 230U, 255U);
+                filament = decorativeHsv(LedCategory::Idle, static_cast<uint8_t>(now / 90U), 255U, 255U);
             }
             const uint8_t breath = static_cast<uint8_t>(38U + wave8(now / 86U) / 5U);
             fillSection(LedSection::Left, scaled(filament, breath));
@@ -1459,10 +1459,10 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 palette[slot] = (context.filamentColorMask & (1U << slot))
                     ? fromRgb(context.filamentColorsRgb[slot])
                     : decorativeHsv(LedCategory::Idle,
-                        static_cast<uint8_t>(34U + slot * 58U), 180U, 130U);
+                        static_cast<uint8_t>(34U + slot * 58U), 190U, 130U);
                 if (max(palette[slot].r, max(palette[slot].g, palette[slot].b)) < 12U) {
                     palette[slot] = decorativeHsv(LedCategory::Idle,
-                        static_cast<uint8_t>(34U + slot * 58U), 220U, 190U);
+                        static_cast<uint8_t>(34U + slot * 58U), 190U, 190U);
                 }
             }
             const uint8_t shimmer = static_cast<uint8_t>(78U + wave8(now / 103U) / 6U);
@@ -2877,10 +2877,10 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             uint8_t filamentHue = 0U;
             const bool chromatic = rgbHue(filament, filamentHue);
             const RgbwColor strandA = chromatic ? filament
-                : decorativeHsv(LedCategory::Print, 138U, 250U, 255U);
+                : decorativeHsv(LedCategory::Print, 138U, 255U, 255U);
             RgbwColor strandB = chromatic ? complementary(filament) : RgbwColor();
             if (strandB.r == 0U && strandB.g == 0U && strandB.b == 0U) {
-                strandB = decorativeHsv(LedCategory::Print, 232U, 235U, 255U);
+                strandB = decorativeHsv(LedCategory::Print, 232U, 255U, 255U);
             }
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t phase = static_cast<uint8_t>(now / 22U + path * 31U);
@@ -3329,8 +3329,8 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             const uint32_t cycle = now % 5200U;
             const uint8_t warmValue = cycle < 130U || (cycle >= 210U && cycle < 280U)
                 ? 230U : static_cast<uint8_t>(74U + wave8(now / 55U) / 8U);
-            const RgbwColor magenta = decorativeHsv(LedCategory::Pause, 224U, 235U, 255U);
-            const RgbwColor cyan = decorativeHsv(LedCategory::Pause, 132U, 235U, 255U);
+            const RgbwColor magenta = decorativeHsv(LedCategory::Pause, 224U, 255U, 255U);
+            const RgbwColor cyan = decorativeHsv(LedCategory::Pause, 132U, 255U, 255U);
             fillSection(LedSection::Left, scaled(magenta, warmValue));
             fillSection(LedSection::Right, scaled(cyan, warmValue));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
@@ -4696,7 +4696,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     const uint8_t fade = static_cast<uint8_t>(255U -
                         (cycle - 650U) * 150U / 1200U - delta * 35U);
                     setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(burstHue + path * 11U), 235U, fade));
+                        static_cast<uint8_t>(burstHue + path * 11U), 255U, fade));
                 }
             }
             break;
@@ -4727,7 +4727,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 if (seed < 205U || age > 10U) continue;
                 const uint8_t value = static_cast<uint8_t>(235U - age * 19U);
                 setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
-                    static_cast<uint8_t>(seed + path * 29U), 240U, value));
+                    static_cast<uint8_t>(seed + path * 29U), 255U, value));
             }
             break;
         }
@@ -4756,7 +4756,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 const uint8_t hue = static_cast<uint8_t>(step * 39U + sectionIndex * 73U);
                 const uint8_t value = accent ? 235U : 18U;
                 fillSection(section,
-                    decorativeHsv(LedCategory::Finish, hue, 245U, value));
+                    decorativeHsv(LedCategory::Finish, hue, 255U, value));
             }
             break;
         }
@@ -4773,7 +4773,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     const uint16_t path = head >= tail ? head - tail : 0U;
                     const uint8_t value = static_cast<uint8_t>(245U - tail * 55U);
                     setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(Hues[ball] + now / 70U), 240U, value));
+                        static_cast<uint8_t>(Hues[ball] + now / 70U), 255U, value));
                 }
             }
             break;
@@ -4813,7 +4813,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     const uint8_t value = active
                         ? static_cast<uint8_t>(225U - local / 5U) : 12U;
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Finish, hue, 250U, value));
+                        decorativeHsv(LedCategory::Finish, hue, 255U, value));
                 }
             }
             break;
@@ -4843,7 +4843,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 const uint8_t hue = static_cast<uint8_t>(rotation / 2U + path * 11U + helix / 6U);
                 const uint8_t value = static_cast<uint8_t>(70U + helix * 165U / 255U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Finish, hue, 245U, value));
+                    decorativeHsv(LedCategory::Finish, hue, 255U, value));
             }
             break;
         }
@@ -4928,7 +4928,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     const uint8_t hue = static_cast<uint8_t>(145U + stream * 36U + tail * 2U);
                     const uint8_t value = static_cast<uint8_t>(225U - tail * 25U);
                     setOuterVisualPathPixel(path,
-                        decorativeHsv(LedCategory::Finish, hue, 210U, value));
+                        decorativeHsv(LedCategory::Finish, hue, 255U, value));
                 }
             }
             break;
@@ -4949,7 +4949,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     : static_cast<uint8_t>(max<int>(0, fade - delta * 70));
                 const RgbwColor color = distance == 0U ? RgbwColor(255U, 255U, 245U)
                     : decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(now / 20U + path * 17U), 240U, 255U);
+                        static_cast<uint8_t>(now / 20U + path * 17U), 255U, 255U);
                 setOuterVisualPathPixel(path, scaled(color, value));
             }
             break;
@@ -5117,7 +5117,7 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 if (tooth == jewel && crownPeak) {
                     value = 255U;
                     color = decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(jewel * 51U + now / 35U), 245U, 255U);
+                        static_cast<uint8_t>(jewel * 51U + now / 35U), 255U, 255U);
                 }
                 setSection(LedSection::Center, i, scaled(color, value));
             }
@@ -5249,10 +5249,10 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 palette[slot] = (context.filamentColorMask & (1U << slot))
                     ? fromRgb(context.filamentColorsRgb[slot])
                     : decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(28U + slot * 61U), 240U, 255U);
+                        static_cast<uint8_t>(28U + slot * 61U), 255U, 255U);
                 if (max(palette[slot].r, max(palette[slot].g, palette[slot].b)) < 12U) {
                     palette[slot] = decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(28U + slot * 61U), 240U, 255U);
+                        static_cast<uint8_t>(28U + slot * 61U), 255U, 255U);
                 }
             }
             const uint32_t cycle = now % 2100U;
@@ -5614,7 +5614,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         ? static_cast<uint8_t>(min<uint16_t>(225U, 48U + hit))
                         : bars == 0U ? 92U : 16U;
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 245U, value));
+                        decorativeHsv(LedCategory::Other, hue, 255U, value));
                 }
             }
             break;
@@ -5651,7 +5651,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     (105U + sectionIndex * 17U) + sectionIndex * 5U) % (span * 2U));
                 const uint16_t bell = phase <= span ? phase : span * 2U - phase;
                 fillSection(section,
-                    decorativeHsv(LedCategory::Other, 176U, 205U, 8U));
+                    decorativeHsv(LedCategory::Other, 176U, 200U, 8U));
                 for (uint16_t i = 0; i < count; ++i) {
                     const int16_t trail = static_cast<int16_t>(bell) - static_cast<int16_t>(i);
                     if (trail < -1 || trail > 5) continue;
@@ -5660,7 +5660,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         : static_cast<uint8_t>(150U - trail * 24U);
                     const uint8_t hue = static_cast<uint8_t>(177U + sectionIndex * 13U + trail * 3);
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 175U, value));
+                        decorativeHsv(LedCategory::Other, hue, 200U, value));
                 }
             }
             break;
@@ -5793,7 +5793,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 RgbwColor color = decorativeHsv(LedCategory::Other, hue, 220U, value);
                 if (edge > 224U) {
                     color = blend(color,
-                        decorativeHsv(LedCategory::Other, 190U, 175U, 155U),
+                        decorativeHsv(LedCategory::Other, 190U, 220U, 155U),
                         static_cast<uint8_t>((edge - 224U) * 5U));
                 }
                 setOuterVisualPathPixel(path, color);
@@ -5830,8 +5830,8 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const uint8_t cloudC = wave8(static_cast<uint8_t>(now / 181U + path * 4U + 139U));
                 const uint8_t density = static_cast<uint8_t>(
                     (static_cast<uint16_t>(cloudA) + cloudB + cloudC) / 3U);
-                const RgbwColor violet = decorativeHsv(LedCategory::Other, 196U, 235U, density);
-                const RgbwColor magenta = decorativeHsv(LedCategory::Other, 229U, 235U, density);
+                const RgbwColor violet = decorativeHsv(LedCategory::Other, 196U, 255U, density);
+                const RgbwColor magenta = decorativeHsv(LedCategory::Other, 229U, 255U, density);
                 RgbwColor color = blend(violet, magenta, cloudB);
                 const uint8_t star = hash8(path * 151U + (now / 780U) * 37U);
                 if (star > 248U) color = blend(color, RgbwColor(175U, 180U, 225U), 145U);
@@ -5876,7 +5876,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     ((path * 6U / hw::OuterCount) + (wave > 215U ? 1U : 0U)) % 6U);
                 const uint8_t value = static_cast<uint8_t>(145U + wave / 7U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Other, PrideHues[stripe], 245U, value));
+                    decorativeHsv(LedCategory::Other, PrideHues[stripe], 255U, value));
             }
             break;
         }
@@ -5918,7 +5918,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         : static_cast<int16_t>(position) + trail;
                     if (trailPosition < 0 || trailPosition >= static_cast<int16_t>(hw::OuterCount)) continue;
                     setOuterVisualPathPixel(static_cast<uint16_t>(trailPosition),
-                        decorativeHsv(LedCategory::Other, Hues[ball], 245U,
+                        decorativeHsv(LedCategory::Other, Hues[ball], 255U,
                             static_cast<uint8_t>(220U - trail * 39U)));
                 }
             }
@@ -5955,7 +5955,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const LedSection section = VisualOuterSections[sectionIndex];
                 fillSection(section,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(baseHue + sectionIndex * 73U), 250U,
+                        static_cast<uint8_t>(baseHue + sectionIndex * 73U), 255U,
                         sectionIndex == (now / 760U) % 3U ? pulse : static_cast<uint8_t>(pulse / 3U)));
             }
             break;
@@ -6032,7 +6032,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         sectionIndex * 77U + wave / 4U);
                     const uint8_t value = static_cast<uint8_t>(105U + wave / 5U);
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 92U, value));
+                        decorativeHsv(LedCategory::Other, hue, 120U, value));
                 }
             }
             break;
@@ -6080,7 +6080,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 for (uint16_t i = 0; i < count; ++i) {
                     const bool bulb = ((i + chase) % 5U) < 2U;
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 245U,
+                        decorativeHsv(LedCategory::Other, hue, 255U,
                             bulb ? 205U : 45U));
                 }
             }
@@ -6101,7 +6101,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     value = ((local / 120U) & 1U) ? 115U : 8U;
                 }
                 fillSection(section,
-                    decorativeHsv(LedCategory::Other, Hues[sectionIndex], 235U, value));
+                    decorativeHsv(LedCategory::Other, Hues[sectionIndex], 255U, value));
             }
             break;
         }
@@ -6152,7 +6152,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     const uint8_t value = glint > 205U
                         ? static_cast<uint8_t>(95U + (glint - 205U) * 3U) : 38U;
                     const RgbwColor ice = decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(158U + facet / 8U), 105U, value);
+                        static_cast<uint8_t>(158U + facet / 8U), 180U, value);
                     setSection(section, i, glint > 240U
                         ? blend(ice, RgbwColor(170U, 210U, 255U), 105U) : ice);
                 }
@@ -6237,7 +6237,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     const int16_t position = static_cast<int16_t>(head) - direction * tail;
                     if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
                     setOuterVisualPathPixel(static_cast<uint16_t>(position),
-                        decorativeHsv(LedCategory::Other, hue, 240U,
+                        decorativeHsv(LedCategory::Other, hue, 255U,
                             static_cast<uint8_t>(225U - tail * 27U)));
                 }
             }
@@ -6304,7 +6304,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     const uint8_t hue = static_cast<uint8_t>(106U + breeze / 18U);
                     const uint8_t value = static_cast<uint8_t>(34U + breeze * 78U / 255U);
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 105U, value));
+                        decorativeHsv(LedCategory::Other, hue, 140U, value));
                 }
             }
             break;
@@ -6343,7 +6343,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t background = hash8(path * 97U) > 225U ? 18U : 3U;
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Other, 189U, 75U, background));
+                    decorativeHsv(LedCategory::Other, 189U, 180U, background));
             }
             for (uint8_t dust = 0; dust < 7U; ++dust) {
                 const uint16_t travel = static_cast<uint16_t>(
@@ -6356,7 +6356,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
                     setOuterVisualPathPixel(static_cast<uint16_t>(position),
                         decorativeHsv(LedCategory::Other,
-                            static_cast<uint8_t>(28U + dust * 21U), 95U,
+                            static_cast<uint8_t>(28U + dust * 21U), 180U,
                             static_cast<uint8_t>(190U - tail * 43U)));
                 }
             }
@@ -6440,7 +6440,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     const uint8_t value = static_cast<uint8_t>(
                         static_cast<uint16_t>(envelope) * (8U - distance) / 8U);
                     setOuterVisualPathPixel(path,
-                        decorativeHsv(LedCategory::Other, 161U, 45U, value));
+                        decorativeHsv(LedCategory::Other, 161U, 70U, value));
                 }
             }
             break;
@@ -6542,12 +6542,12 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const uint8_t hue = static_cast<uint8_t>(
                     hash8(path * 131U + cycle * 17U) + now / 211U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Other, hue, 230U, value));
+                    decorativeHsv(LedCategory::Other, hue, 255U, value));
             }
             const uint16_t tunnel = static_cast<uint16_t>(
                 hash8(cycle * 149U + 53U) * hw::OuterCount / 256U);
             setOuterVisualPathPixel(tunnel,
-                decorativeHsv(LedCategory::Other, 183U, 85U,
+                decorativeHsv(LedCategory::Other, 183U, 255U,
                     static_cast<uint8_t>(95U + wave8(static_cast<uint8_t>(phase * 255U / 2200U)) / 2U)));
             break;
         }
@@ -6574,7 +6574,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         const uint8_t value = delta <= 6U
                             ? static_cast<uint8_t>(220U - delta * 31U) : 18U;
                         return decorativeHsv(LedCategory::Other,
-                            path < hw::OuterCount / 2U ? 24U : 180U, 230U, value);
+                            path < hw::OuterCount / 2U ? 24U : 180U, 255U, value);
                     }
                     default: {
                         const uint8_t sheen = wave8(static_cast<uint8_t>(now / 97U + path * 5U));
@@ -6609,7 +6609,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     static_cast<uint16_t>(band) * (55U + energy * 145U / 255U) / 255U);
                 setSection(LedSection::Center, i,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(150U + distance * 10U), 245U, value));
+                        static_cast<uint8_t>(150U + distance * 10U), 255U, value));
             }
             for (uint16_t i = 0; i < hw::LeftCount; ++i) {
                 const uint8_t threshold = static_cast<uint8_t>(
@@ -6617,9 +6617,9 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const uint8_t value = energy > threshold
                     ? static_cast<uint8_t>(90U + (energy - threshold) / 2U) : 5U;
                 setSection(LedSection::Left, i,
-                    decorativeHsv(LedCategory::Other, 224U, 245U, value));
+                    decorativeHsv(LedCategory::Other, 224U, 255U, value));
                 setSection(LedSection::Right, i,
-                    decorativeHsv(LedCategory::Other, 112U, 245U, value));
+                    decorativeHsv(LedCategory::Other, 112U, 255U, value));
             }
             break;
         }
@@ -6677,10 +6677,10 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             for (uint8_t slot = 0; slot < 4U; ++slot) {
                 palette[slot] = (context.filamentColorMask & (1U << slot))
                     ? fromRgb(context.filamentColorsRgb[slot])
-                    : decorativeHsv(LedCategory::Other, fallbackHues[slot], 235U, 205U);
+                    : decorativeHsv(LedCategory::Other, fallbackHues[slot], 255U, 205U);
                 if (palette[slot].r + palette[slot].g + palette[slot].b < 28U) {
                     palette[slot] = decorativeHsv(
-                        LedCategory::Other, fallbackHues[slot], 235U, 205U);
+                        LedCategory::Other, fallbackHues[slot], 255U, 205U);
                 }
             }
             const uint16_t spotlight = static_cast<uint16_t>((now / 93U) % hw::OuterCount);
@@ -6846,7 +6846,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     static_cast<uint8_t>(release * (55U + hash8(path * 73U) % 166U) / 255U));
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(now / 19U + path * 23U), 250U, value));
+                        static_cast<uint8_t>(now / 19U + path * 23U), 255U, value));
             }
             break;
         }
@@ -6880,7 +6880,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     static_cast<uint8_t>(165U - shellDistance * 55U));
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(187U + field / 9U), 245U, value));
+                        static_cast<uint8_t>(187U + field / 9U), 255U, value));
             }
             break;
         }
@@ -7114,7 +7114,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         setSection(section, head - tail,
                             decorativeHsv(LedCategory::Other,
                                 static_cast<uint8_t>(sectionIndex * 75U + drop * 29U + now / 81U),
-                                250U, static_cast<uint8_t>(210U - tail * 34U)));
+                                255U, static_cast<uint8_t>(210U - tail * 34U)));
                     }
                 }
             }
