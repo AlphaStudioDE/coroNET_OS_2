@@ -468,7 +468,14 @@ void WebControlService::handleUpdateSettings() {
     if (doc["clockBrightness"].is<int>()) cfg.clockBrightness = constrain(doc["clockBrightness"].as<int>(), 5, 100);
     if (doc["clockStyle"].is<int>()) cfg.clockStyle = static_cast<ClockStyle>(constrain(doc["clockStyle"].as<int>(), 0, static_cast<int>(ClockStyle::Count) - 1));
     if (doc["clock24Hour"].is<bool>()) cfg.clock24Hour = doc["clock24Hour"].as<bool>();
-    if (doc["timeZone"].is<const char*>()) strlcpy(cfg.timeZone, doc["timeZone"].as<const char*>(), sizeof(cfg.timeZone));
+    if (doc["timeZone"].is<const char*>()) {
+        const char* timeZone = doc["timeZone"].as<const char*>();
+        if (!timeZone || !timeZone[0] || strlen(timeZone) >= sizeof(cfg.timeZone)) {
+            sendJson(400, "{\"ok\":false,\"error\":\"time_zone_invalid\"}");
+            return;
+        }
+        strlcpy(cfg.timeZone, timeZone, sizeof(cfg.timeZone));
+    }
     if (doc["quietTarget"].is<int>()) cfg.quietTarget = static_cast<QuietTarget>(constrain(doc["quietTarget"].as<int>(), 0, 3));
     if (doc["quietDurationMinutes"].is<int>()) cfg.quietDurationMinutes = constrain(doc["quietDurationMinutes"].as<int>(), 1, 1440);
     if (doc["quietErrorsBypass"].is<bool>()) cfg.quietErrorsBypass = doc["quietErrorsBypass"].as<bool>();

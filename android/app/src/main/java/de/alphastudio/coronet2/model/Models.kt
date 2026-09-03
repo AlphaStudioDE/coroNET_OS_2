@@ -69,6 +69,8 @@ data class DeviceSettings(
     val screenSaverDelayMinutes: Int = 5,
     val clockBrightness: Int = 35,
     val clockStyle: Int = 0,
+    val clock24Hour: Boolean = true,
+    val timeZone: String = "CET-1CEST,M3.5.0,M10.5.0/3",
     val quietTarget: Int = 0,
     val quietDurationMinutes: Int = 60,
     val ledEnabled: Boolean = true,

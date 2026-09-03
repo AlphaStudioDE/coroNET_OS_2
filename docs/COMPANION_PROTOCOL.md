@@ -121,6 +121,12 @@ Operational controls can send a bounded settings patch over BLE. Only supplied f
 {"cmd":"setSettings","ledEnabled":true,"ledBrightness":[70,80,70,45]}
 ```
 
+Clock presentation and the POSIX time-zone rule use the same patch command:
+
+```json
+{"cmd":"setSettings","clock24Hour":false,"timeZone":"CET-1CEST,M3.5.0,M10.5.0/3"}
+```
+
 The same field names are accepted by `POST /api/settings`. BLE accepts appearance, screen saver, quiet mode, LED brightness/policy, sound volume, local vent calibration, and Panda mode controls. Larger configuration changes should be split into small patches so each command remains below the 384-byte command limit.
 
 ## Secure Companion Pairing

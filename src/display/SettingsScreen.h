@@ -34,6 +34,11 @@ private:
         AccentHue,
         SaverModeNext,
         ClockStyleNext,
+        ClockFormatNext,
+        TimeZoneOpen,
+        TimeZonePrevious,
+        TimeZoneNext,
+        TimeZoneClose,
         SaverDelay,
         ClockBrightness,
         QuietTargetNext,
@@ -55,6 +60,11 @@ private:
         Action action = Action::TransportAuto;
     };
 
+    struct TimeZoneBinding {
+        SettingsScreen* owner = nullptr;
+        uint8_t slot = 0;
+    };
+
     void buildHeader();
     void buildContent();
     void buildConnectionCard(lv_obj_t* parent, int y);
@@ -67,8 +77,13 @@ private:
     void showPairingWizard();
     void updatePairingWizard();
     void closePairingWizard();
+    void showTimeZonePicker();
+    void refreshTimeZonePicker();
+    void closeTimeZonePicker();
+    void selectTimeZone(uint8_t slot);
     void handleAction(Action action, lv_event_t* event);
     static void actionEvent(lv_event_t* event);
+    static void timeZoneEvent(lv_event_t* event);
 
     lv_obj_t* root_ = nullptr;
     lv_obj_t* wifiLabel_ = nullptr;
@@ -95,6 +110,8 @@ private:
     lv_obj_t* accentSlider_ = nullptr;
     lv_obj_t* saverModeButtonLabel_ = nullptr;
     lv_obj_t* clockStyleButtonLabel_ = nullptr;
+    lv_obj_t* clockFormatButtonLabel_ = nullptr;
+    lv_obj_t* timeZoneButtonLabel_ = nullptr;
     lv_obj_t* saverDelayLabel_ = nullptr;
     lv_obj_t* saverDelaySlider_ = nullptr;
     lv_obj_t* clockBrightnessLabel_ = nullptr;
@@ -103,6 +120,12 @@ private:
     lv_obj_t* quietDurationLabel_ = nullptr;
     lv_obj_t* quietDurationSlider_ = nullptr;
     lv_obj_t* quietErrorsButtonLabel_ = nullptr;
+    lv_obj_t* timeZoneOverlay_ = nullptr;
+    lv_obj_t* timeZonePageLabel_ = nullptr;
+    lv_obj_t* timeZoneButtons_[6] = {};
+    lv_obj_t* timeZoneLabels_[6] = {};
+    TimeZoneBinding timeZoneBindings_[6] = {};
+    uint8_t timeZonePage_ = 0;
     lv_obj_t* otaStatusLabel_ = nullptr;
     lv_obj_t* otaVersionLabel_ = nullptr;
     lv_obj_t* otaProgressBar_ = nullptr;
@@ -111,7 +134,7 @@ private:
     lv_obj_t* otaButtonLabels_[4] = {};
     lv_obj_t* otaInstallButton_ = nullptr;
     lv_obj_t* factoryResetButtonLabel_ = nullptr;
-    ActionBinding actionBindings_[24] = {};
+    ActionBinding actionBindings_[28] = {};
     ui::Navigation navigation_;
     SetupCallback setupCallback_ = nullptr;
     void* callbackContext_ = nullptr;

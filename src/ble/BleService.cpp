@@ -652,6 +652,15 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["screenSaverDelayMinutes"].is<int>()) cfg.screenSaverDelayMinutes = constrain(doc["screenSaverDelayMinutes"].as<int>(), 1, 60);
         if (doc["clockBrightness"].is<int>()) cfg.clockBrightness = constrain(doc["clockBrightness"].as<int>(), 5, 100);
         if (doc["clockStyle"].is<int>()) cfg.clockStyle = static_cast<ClockStyle>(constrain(doc["clockStyle"].as<int>(), 0, static_cast<int>(ClockStyle::Count) - 1));
+        if (doc["clock24Hour"].is<bool>()) cfg.clock24Hour = doc["clock24Hour"].as<bool>();
+        if (doc["timeZone"].is<const char*>()) {
+            char timeZone[sizeof(cfg.timeZone)] = "";
+            if (!readBoundedString(doc["timeZone"], timeZone, sizeof(timeZone), true) || !timeZone[0]) {
+                publishEvent("error", "time_zone_invalid");
+                return;
+            }
+            strlcpy(cfg.timeZone, timeZone, sizeof(cfg.timeZone));
+        }
         if (doc["quietTarget"].is<int>()) cfg.quietTarget = static_cast<QuietTarget>(constrain(doc["quietTarget"].as<int>(), 0, 3));
         if (doc["quietDurationMinutes"].is<int>()) cfg.quietDurationMinutes = constrain(doc["quietDurationMinutes"].as<int>(), 1, 1440);
         if (doc["ledEnabled"].is<bool>()) cfg.ledEnabled = doc["ledEnabled"].as<bool>();
@@ -725,9 +734,11 @@ void BleService::publishSettings() {
     char safeName[64];
     char safeSsid[80];
     char safePrinterHost[80];
+    char safeTimeZone[96];
     jsonStringCopy(advertisedName_, safeName, sizeof(safeName));
     jsonStringCopy(cfg.wifiSsid, safeSsid, sizeof(safeSsid));
     jsonStringCopy(cfg.printerHost, safePrinterHost, sizeof(safePrinterHost));
+    jsonStringCopy(cfg.timeZone, safeTimeZone, sizeof(safeTimeZone));
 
     char payload[512];
     auto sendPayload = [this, &payload](int written) {
@@ -769,11 +780,13 @@ void BleService::publishSettings() {
                        "{\"v\":%u,\"t\":\"settings\",\"group\":\"appearance\",\"displayBrightness\":%u,"
                        "\"uiSkin\":%u,\"uiColorMode\":%u,\"accentHueDegrees\":%u,\"screenSaverMode\":%u,"
                        "\"screenSaverDelayMinutes\":%u,\"clockBrightness\":%u,\"clockStyle\":%u,"
+                       "\"clock24Hour\":%s,\"timeZone\":\"%s\","
                        "\"quietTarget\":%u,\"quietDurationMinutes\":%u}",
                        bleprotocol::Version, cfg.displayBrightness, static_cast<unsigned>(cfg.uiSkin),
                        static_cast<unsigned>(cfg.uiColorMode), cfg.accentHueDegrees,
                        static_cast<unsigned>(cfg.screenSaverMode), cfg.screenSaverDelayMinutes,
                        cfg.clockBrightness, static_cast<unsigned>(cfg.clockStyle),
+                       cfg.clock24Hour ? "true" : "false", safeTimeZone,
                        static_cast<unsigned>(cfg.quietTarget), cfg.quietDurationMinutes);
     if (!sendPayload(written)) return;
 

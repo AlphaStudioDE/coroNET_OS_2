@@ -117,3 +117,4 @@ Development builds expose `audio test`, `audio stop`, `audio status`, `audio res
 - Reconnection establishes a fresh baseline and does not synthesize a printer event. Audio, Panda workflows, display wake, BLE, WiFi, and Android notifications consume the shared transition sequence instead of independently inferring changes.
 - Moonraker and Panda WebSocket connections are released during OTA TLS windows so their network buffers cannot compete with secure update memory.
 - Settings changes become visible immediately through an in-memory revision, while NVS writes are debounced and bounded by a maximum delay.
+- Clock format and POSIX time-zone rules are part of the shared settings model and stay synchronized across the touchscreen, BLE, WiFi API, and Android app. Local `TZ` state is applied immediately; NTP refresh remains conditional on WiFi availability.

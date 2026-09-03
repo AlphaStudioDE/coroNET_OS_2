@@ -7,6 +7,7 @@
 #include "../companion/PairingService.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemState.h"
+#include "../core/TimeZoneCatalog.h"
 #include "../settings/SettingsService.h"
 #include "../update/OtaService.h"
 #include "UiTheme.h"
@@ -14,6 +15,10 @@
 namespace coronet {
 
 namespace {
+
+constexpr uint8_t TimeZonePageSize = 6;
+constexpr uint8_t TimeZonePageCount =
+    static_cast<uint8_t>((TimeZoneOptionCount + TimeZonePageSize - 1) / TimeZonePageSize);
 
 void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
     lv_obj_set_style_text_color(object, lv_color_hex(color), LV_PART_MAIN);
@@ -196,12 +201,12 @@ void SettingsScreen::buildContent() {
     buildDeviceCard(content, 176);
     buildSetupCard(content, 320);
     buildAppearanceCard(content, 458);
-    buildQuietCard(content, 752);
-    buildSystemCard(content, 892);
+    buildQuietCard(content, 824);
+    buildSystemCard(content, 964);
 
     lv_obj_t* endSpacer = lv_obj_create(content);
     lv_obj_set_size(endSpacer, 1, 1);
-    lv_obj_set_pos(endSpacer, 0, 1130);
+    lv_obj_set_pos(endSpacer, 0, 1202);
     lv_obj_set_style_bg_opa(endSpacer, LV_OPA_0, LV_PART_MAIN);
     lv_obj_set_style_border_width(endSpacer, 0, LV_PART_MAIN);
 }
@@ -308,15 +313,15 @@ void SettingsScreen::buildSetupCard(lv_obj_t* parent, int y) {
 
 void SettingsScreen::buildAppearanceCard(lv_obj_t* parent, int y) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 448, 286);
+    lv_obj_set_size(card, 448, 358);
     lv_obj_set_pos(card, 0, y);
     stylePanel(card);
     makeLabel(card, "APPEARANCE", ui::ColorCyan, &lv_font_montserrat_10, 14, 12);
     static const char* const rowNames[] = {
         "UI STYLE", "COLOR MODE", "ACCENT", "SCREEN SAVER", "CLOCK STYLE",
-        "INACTIVITY", "CLOCK BRIGHTNESS"
+        "TIME FORMAT", "TIME ZONE", "INACTIVITY", "CLOCK BRIGHTNESS"
     };
-    for (uint8_t i = 0; i < 7; ++i) {
+    for (uint8_t i = 0; i < 9; ++i) {
         makeLabel(card, rowNames[i], ui::ColorMuted, &lv_font_montserrat_10,
                   14, 39 + i * 36, 180);
     }
@@ -346,22 +351,33 @@ void SettingsScreen::buildAppearanceCard(lv_obj_t* parent, int y) {
     actionBindings_[9] = {this, Action::ClockStyleNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[9]);
 
-    saverDelayLabel_ = makeLabel(card, "5 min", ui::ColorText, &lv_font_montserrat_10, 168, 219, 72);
+    button = makeActionButton(card, 250, 210, 180, &clockFormatButtonLabel_);
+    actionBindings_[24] = {this, Action::ClockFormatNext};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[24]);
+    button = makeActionButton(card, 250, 246, 180, &timeZoneButtonLabel_);
+    lv_obj_set_width(timeZoneButtonLabel_, 168);
+    lv_label_set_long_mode(timeZoneButtonLabel_, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(timeZoneButtonLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_center(timeZoneButtonLabel_);
+    actionBindings_[23] = {this, Action::TimeZoneOpen};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[23]);
+
+    saverDelayLabel_ = makeLabel(card, "5 min", ui::ColorText, &lv_font_montserrat_10, 168, 291, 72);
     lv_obj_set_style_text_align(saverDelayLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     saverDelaySlider_ = lv_slider_create(card);
     lv_obj_set_size(saverDelaySlider_, 180, 16);
-    lv_obj_set_pos(saverDelaySlider_, 250, 211);
+    lv_obj_set_pos(saverDelaySlider_, 250, 283);
     lv_slider_set_range(saverDelaySlider_, 1, 60);
     styleSlider(saverDelaySlider_);
     actionBindings_[10] = {this, Action::SaverDelay};
     lv_obj_add_event_cb(saverDelaySlider_, actionEvent, LV_EVENT_VALUE_CHANGED, &actionBindings_[10]);
     lv_obj_add_event_cb(saverDelaySlider_, actionEvent, LV_EVENT_RELEASED, &actionBindings_[10]);
 
-    clockBrightnessLabel_ = makeLabel(card, "35%", ui::ColorText, &lv_font_montserrat_10, 168, 255, 72);
+    clockBrightnessLabel_ = makeLabel(card, "35%", ui::ColorText, &lv_font_montserrat_10, 168, 327, 72);
     lv_obj_set_style_text_align(clockBrightnessLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     clockBrightnessSlider_ = lv_slider_create(card);
     lv_obj_set_size(clockBrightnessSlider_, 180, 16);
-    lv_obj_set_pos(clockBrightnessSlider_, 250, 247);
+    lv_obj_set_pos(clockBrightnessSlider_, 250, 319);
     lv_slider_set_range(clockBrightnessSlider_, 5, 100);
     styleSlider(clockBrightnessSlider_);
     actionBindings_[11] = {this, Action::ClockBrightness};
@@ -516,6 +532,8 @@ void SettingsScreen::update() {
         lv_slider_set_value(accentSlider_, settings.accentHueDegrees, LV_ANIM_OFF);
     lv_label_set_text(saverModeButtonLabel_, saverModeName(settings.screenSaverMode));
     lv_label_set_text(clockStyleButtonLabel_, clockStyleName(settings.clockStyle));
+    lv_label_set_text(clockFormatButtonLabel_, settings.clock24Hour ? "24 HOUR" : "12 HOUR");
+    lv_label_set_text(timeZoneButtonLabel_, timeZoneOptionLabel(settings.timeZone));
     lv_label_set_text_fmt(saverDelayLabel_, "%u min", static_cast<unsigned>(settings.screenSaverDelayMinutes));
     if (!lv_obj_has_state(saverDelaySlider_, LV_STATE_PRESSED))
         lv_slider_set_value(saverDelaySlider_, settings.screenSaverDelayMinutes, LV_ANIM_OFF);
@@ -695,6 +713,110 @@ void SettingsScreen::closePairingWizard() {
     cacheValid_ = false;
 }
 
+void SettingsScreen::showTimeZonePicker() {
+    if (timeZoneOverlay_) return;
+    const int selected = timeZoneOptionIndex(settingsService().settings().timeZone);
+    timeZonePage_ = selected >= 0 ? static_cast<uint8_t>(selected / TimeZonePageSize) : 0;
+
+    timeZoneOverlay_ = lv_obj_create(root_);
+    lv_obj_set_size(timeZoneOverlay_, 480, 320);
+    lv_obj_set_pos(timeZoneOverlay_, 0, 0);
+    lv_obj_clear_flag(timeZoneOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(timeZoneOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(timeZoneOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(timeZoneOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(timeZoneOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(timeZoneOverlay_, 0, LV_PART_MAIN);
+
+    makeLabel(timeZoneOverlay_, "SELECT TIME ZONE", ui::ColorCyan,
+              &lv_font_montserrat_12, 18, 14);
+    timeZonePageLabel_ = makeLabel(timeZoneOverlay_, "", ui::ColorMuted,
+                                   &lv_font_montserrat_10, 350, 17, 112);
+    lv_obj_set_style_text_align(timeZonePageLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+
+    for (uint8_t slot = 0; slot < 6; ++slot) {
+        const int column = slot % 2;
+        const int row = slot / 2;
+        lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18 + column * 222,
+                                            45 + row * 58, 210, &timeZoneLabels_[slot]);
+        lv_obj_set_height(button, 48);
+        lv_obj_set_width(timeZoneLabels_[slot], 196);
+        lv_obj_set_style_text_align(timeZoneLabels_[slot], LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_center(timeZoneLabels_[slot]);
+        timeZoneButtons_[slot] = button;
+        timeZoneBindings_[slot] = {this, slot};
+        lv_obj_add_event_cb(button, timeZoneEvent, LV_EVENT_CLICKED, &timeZoneBindings_[slot]);
+    }
+
+    lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18, 231, 130, nullptr);
+    lv_obj_t* label = lv_label_create(button);
+    styleText(label, ui::ColorText, &lv_font_montserrat_12);
+    lv_label_set_text(label, LV_SYMBOL_LEFT " PREV");
+    lv_obj_center(label);
+    actionBindings_[25] = {this, Action::TimeZonePrevious};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[25]);
+
+    button = makeActionButton(timeZoneOverlay_, 166, 231, 130, nullptr);
+    label = lv_label_create(button);
+    styleText(label, ui::ColorText, &lv_font_montserrat_12);
+    lv_label_set_text(label, "NEXT " LV_SYMBOL_RIGHT);
+    lv_obj_center(label);
+    actionBindings_[26] = {this, Action::TimeZoneNext};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[26]);
+
+    button = makeActionButton(timeZoneOverlay_, 314, 231, 148, nullptr);
+    label = lv_label_create(button);
+    styleText(label, ui::ColorCyan, &lv_font_montserrat_12);
+    lv_label_set_text(label, "CLOSE");
+    lv_obj_center(label);
+    actionBindings_[27] = {this, Action::TimeZoneClose};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[27]);
+    refreshTimeZonePicker();
+}
+
+void SettingsScreen::refreshTimeZonePicker() {
+    if (!timeZoneOverlay_) return;
+    if (timeZonePage_ >= TimeZonePageCount) timeZonePage_ = TimeZonePageCount - 1;
+    lv_label_set_text_fmt(timeZonePageLabel_, "%u / %u",
+                          static_cast<unsigned>(timeZonePage_ + 1),
+                          static_cast<unsigned>(TimeZonePageCount));
+    const int selected = timeZoneOptionIndex(settingsService().settings().timeZone);
+    for (uint8_t slot = 0; slot < TimeZonePageSize; ++slot) {
+        const size_t index = static_cast<size_t>(timeZonePage_) * TimeZonePageSize + slot;
+        if (index >= TimeZoneOptionCount) {
+            lv_obj_add_flag(timeZoneButtons_[slot], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_clear_flag(timeZoneButtons_[slot], LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text_fmt(timeZoneLabels_[slot], "%s\n%s",
+                              TimeZoneOptions[index].offset, TimeZoneOptions[index].label);
+        lv_obj_set_style_border_color(timeZoneButtons_[slot],
+                                      lv_color_hex(static_cast<int>(index) == selected
+                                                       ? ui::ColorCyan : ui::ColorBorder),
+                                      LV_PART_MAIN);
+    }
+}
+
+void SettingsScreen::closeTimeZonePicker() {
+    if (!timeZoneOverlay_) return;
+    lv_obj_t* overlay = timeZoneOverlay_;
+    timeZoneOverlay_ = nullptr;
+    timeZonePageLabel_ = nullptr;
+    memset(timeZoneButtons_, 0, sizeof(timeZoneButtons_));
+    memset(timeZoneLabels_, 0, sizeof(timeZoneLabels_));
+    lv_obj_del_async(overlay);
+    cacheValid_ = false;
+}
+
+void SettingsScreen::selectTimeZone(uint8_t slot) {
+    const size_t index = static_cast<size_t>(timeZonePage_) * TimeZonePageSize + slot;
+    if (index >= TimeZoneOptionCount) return;
+    AppSettings& settings = settingsService().mutableSettings();
+    strlcpy(settings.timeZone, TimeZoneOptions[index].spec, sizeof(settings.timeZone));
+    settingsService().save();
+    closeTimeZonePicker();
+}
+
 void SettingsScreen::refreshTransportButtons() {
     const uint8_t selected = static_cast<uint8_t>(settingsService().settings().companionTransport);
     for (uint8_t index = 0; index < 3; ++index) {
@@ -765,6 +887,24 @@ void SettingsScreen::handleAction(Action action, lv_event_t* event) {
         case Action::ClockStyleNext:
             settings.clockStyle = static_cast<ClockStyle>((static_cast<uint8_t>(settings.clockStyle) + 1U) % static_cast<uint8_t>(ClockStyle::Count));
             settingsService().save();
+            break;
+        case Action::ClockFormatNext:
+            settings.clock24Hour = !settings.clock24Hour;
+            settingsService().save();
+            break;
+        case Action::TimeZoneOpen:
+            showTimeZonePicker();
+            break;
+        case Action::TimeZonePrevious:
+            timeZonePage_ = timeZonePage_ == 0 ? TimeZonePageCount - 1 : timeZonePage_ - 1;
+            refreshTimeZonePicker();
+            break;
+        case Action::TimeZoneNext:
+            timeZonePage_ = static_cast<uint8_t>((timeZonePage_ + 1) % TimeZonePageCount);
+            refreshTimeZonePicker();
+            break;
+        case Action::TimeZoneClose:
+            closeTimeZonePicker();
             break;
         case Action::SaverDelay: {
             settings.screenSaverDelayMinutes = static_cast<uint8_t>(lv_slider_get_value(saverDelaySlider_));
@@ -837,6 +977,12 @@ void SettingsScreen::actionEvent(lv_event_t* event) {
     ActionBinding* binding = static_cast<ActionBinding*>(lv_event_get_user_data(event));
     if (!binding || !binding->owner) return;
     binding->owner->handleAction(binding->action, event);
+}
+
+void SettingsScreen::timeZoneEvent(lv_event_t* event) {
+    TimeZoneBinding* binding = static_cast<TimeZoneBinding*>(lv_event_get_user_data(event));
+    if (!binding || !binding->owner) return;
+    binding->owner->selectTimeZone(binding->slot);
 }
 
 }

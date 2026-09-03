@@ -243,13 +243,18 @@ void DisplayService::updateTheme() {
 
 void DisplayService::updateTimeService(uint32_t now) {
     const AppSettings& settings = settingsService().settings();
+    const bool timeZoneChanged = strcmp(configuredTimeZone_, settings.timeZone) != 0;
+    if (timeZoneChanged) {
+        strlcpy(configuredTimeZone_, settings.timeZone, sizeof(configuredTimeZone_));
+        setenv("TZ", configuredTimeZone_, 1);
+        tzset();
+    }
     if (!state().wifiConnected) {
         state().timeReady = time(nullptr) >= 1700000000;
         return;
     }
-    if (strcmp(configuredTimeZone_, settings.timeZone) != 0 ||
+    if (timeZoneChanged ||
         (!state().timeReady && now - lastTimeSyncRequestMs_ >= 60000U)) {
-        strlcpy(configuredTimeZone_, settings.timeZone, sizeof(configuredTimeZone_));
         configTzTime(configuredTimeZone_, "pool.ntp.org", "time.nist.gov");
         lastTimeSyncRequestMs_ = now;
     }

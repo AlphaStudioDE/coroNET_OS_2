@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Clock And Time Zone Controls
+- Added complete 12-hour and 24-hour clock selection on the touchscreen and in the Android companion app.
+- Added a lightweight paged time-zone selector on the device and a matching scrollable list in the app.
+- Synchronized clock format and POSIX time-zone rules through NVS, BLE, and the authenticated WiFi API.
+- Applied time-zone changes immediately to the local clock, including while the device is temporarily offline, and added clear AM/PM presentation in 12-hour mode.
+
 ### Boot Color Presentation
 - Set the full first-run LED Boot Experience to a fixed 150% saturation calibration while leaving daily boot and normal animation calibration under user control.
 

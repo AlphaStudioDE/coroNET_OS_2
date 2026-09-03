@@ -195,10 +195,22 @@ void ClockScreen::update() {
         hour %= 12;
         if (!hour) hour = 12;
     }
+    const char* period = local.tm_hour < 12 ? "AM" : "PM";
     char timeText[16] = "";
-    snprintf(timeText, sizeof(timeText), "%02d:%02d", hour, local.tm_min);
+    const bool periodInTime = !settings.clock24Hour && style_ == ClockStyle::Bauhaus;
+    if (periodInTime) {
+        snprintf(timeText, sizeof(timeText), "%02d:%02d %s", hour, local.tm_min, period);
+    } else {
+        snprintf(timeText, sizeof(timeText), "%02d:%02d", hour, local.tm_min);
+    }
     char dateText[32] = "";
-    strftime(dateText, sizeof(dateText), "%a, %d %b %Y", &local);
+    char dateOnly[24] = "";
+    strftime(dateOnly, sizeof(dateOnly), "%a, %d %b %Y", &local);
+    if (!settings.clock24Hour && !periodInTime) {
+        snprintf(dateText, sizeof(dateText), "%s  |  %s", period, dateOnly);
+    } else {
+        strlcpy(dateText, dateOnly, sizeof(dateText));
+    }
     if (timeLabel_) lv_label_set_text(timeLabel_, timeText);
     if (secondsLabel_) lv_label_set_text_fmt(secondsLabel_, "%02d", local.tm_sec);
     if (dateLabel_) lv_label_set_text(dateLabel_, dateText);
