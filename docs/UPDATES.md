@@ -10,6 +10,7 @@
 - Merged partial Moonraker notifications into complete telemetry snapshots without moving JSON parsing or network work into the display loop.
 - Retained HTTP polling as a fallback and reduced it to a periodic integrity audit while complete realtime telemetry is active.
 - Added dynamic subscriptions for available extruders, bed, chamber, progress, print state, and Snapmaker filament metadata.
+- Restored chamber-temperature smoothing with a time-aware six-second EMA shared by the display, ventilation control, LED engine, BLE, and WiFi API.
 
 ### Network And OTA Stability
 - Added the coroNET 1 non-blocking TCP probe pattern so an unavailable printer cannot stall the UI during WebSocket connection attempts.

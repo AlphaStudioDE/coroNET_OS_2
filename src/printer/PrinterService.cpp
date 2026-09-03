@@ -39,6 +39,8 @@ constexpr uint32_t kRealtimeProbeTimeoutMs = 600;
 constexpr uint32_t kRealtimeHandshakeTimeoutMs = 1500;
 constexpr uint32_t kRealtimeRequestTimeoutMs = 3000;
 constexpr uint32_t kRealtimeStaleMs = 15000;
+constexpr uint32_t kChamberFilterTimeConstantMs = 6000;
+constexpr uint32_t kChamberFilterResetGapMs = 30000;
 
 PrinterService gPrinterService;
 
@@ -835,7 +837,8 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     result.activeTool = tool;
     result.activeToolTempC = toolTemp;
     result.bedTempC = status["heater_bed"]["temperature"] | NAN;
-    result.chamberTempC = status["temperature_sensor cavity"]["temperature"] | NAN;
+    const float rawChamberTempC = status["temperature_sensor cavity"]["temperature"] | NAN;
+    result.chamberTempC = filterChamberTemperature(rawChamberTempC);
     result.printDurationSec = duration > 0.0f ? static_cast<uint32_t>(duration + 0.5f) : 0;
     if (progress > 0.001f && progress < 1.0f && duration > 0.0f) {
         const double eta = static_cast<double>(duration) / static_cast<double>(progress) - duration;
@@ -882,6 +885,7 @@ void PrinterService::configureRealtime(const PollRequest& request) {
     strlcpy(workerSnapshot_.material, "-", sizeof(workerSnapshot_.material));
     memset(workerToolMaterials_, 0, sizeof(workerToolMaterials_));
     for (float& temperature : workerToolTemperatures_) temperature = NAN;
+    resetChamberFilter();
     strlcpy(workerChamberObject_, "temperature_sensor cavity", sizeof(workerChamberObject_));
     workerSnapshotValid_ = false;
     webSocketLastConnectTryMs_ = millis() - kRealtimeReconnectMs;
@@ -1017,6 +1021,8 @@ void PrinterService::subscribeRealtime(JsonArrayConst objects) {
     const bool detectedObjects = !objects.isNull();
     webSocketFullSubscriptionRequested_ = detectedObjects;
     realtimeFullTelemetry_ = false;
+    char previousChamberObject[sizeof(workerChamberObject_)] = "";
+    strlcpy(previousChamberObject, workerChamberObject_, sizeof(previousChamberObject));
     workerChamberObject_[0] = '\0';
 
     if (detectedObjects) {
@@ -1051,6 +1057,7 @@ void PrinterService::subscribeRealtime(JsonArrayConst objects) {
             }
         }
     }
+    if (strcmp(previousChamberObject, workerChamberObject_) != 0) resetChamberFilter();
 
     JsonDocument document;
     document["jsonrpc"] = "2.0";
@@ -1098,6 +1105,31 @@ void PrinterService::queuePollResult(PollResult& result) {
     if (!resultQueue_) return;
     result.sequence = ++workerResultSequence_;
     xQueueOverwrite(resultQueue_, &result);
+}
+
+void PrinterService::resetChamberFilter() {
+    workerChamberFilteredC_ = NAN;
+    workerChamberFilterMs_ = 0;
+}
+
+float PrinterService::filterChamberTemperature(float rawTemperatureC) {
+    if (!isfinite(rawTemperatureC)) return workerChamberFilteredC_;
+
+    const uint32_t now = millis();
+    if (!isfinite(workerChamberFilteredC_) || workerChamberFilterMs_ == 0U ||
+        now - workerChamberFilterMs_ >= kChamberFilterResetGapMs) {
+        workerChamberFilteredC_ = rawTemperatureC;
+        workerChamberFilterMs_ = now;
+        return workerChamberFilteredC_;
+    }
+
+    const uint32_t elapsedMs = now - workerChamberFilterMs_;
+    if (elapsedMs == 0U) return workerChamberFilteredC_;
+    const float alpha = static_cast<float>(elapsedMs) /
+        static_cast<float>(kChamberFilterTimeConstantMs + elapsedMs);
+    workerChamberFilteredC_ += alpha * (rawTemperatureC - workerChamberFilteredC_);
+    workerChamberFilterMs_ = now;
+    return workerChamberFilteredC_;
 }
 
 void PrinterService::applyRealtimeStatus(JsonVariantConst status) {
@@ -1171,7 +1203,8 @@ void PrinterService::applyRealtimeStatus(JsonVariantConst status) {
     if (workerChamberObject_[0]) {
         JsonVariantConst chamberStatus = status[workerChamberObject_];
         if (!chamberStatus.isNull() && !chamberStatus["temperature"].isNull()) {
-            workerSnapshot_.chamberTempC = chamberStatus["temperature"].as<float>();
+            workerSnapshot_.chamberTempC = filterChamberTemperature(
+                chamberStatus["temperature"].as<float>());
         }
     }
 

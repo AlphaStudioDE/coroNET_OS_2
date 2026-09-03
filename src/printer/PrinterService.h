@@ -120,6 +120,7 @@ private:
     PollResult workerSnapshot_;
     char workerToolMaterials_[4][25] = {};
     float workerToolTemperatures_[4] = {NAN, NAN, NAN, NAN};
+    float workerChamberFilteredC_ = NAN;
     char workerChamberObject_[65] = "temperature_sensor cavity";
     char webSocketConnectHost_[65] = "";
     int webSocketProbeSocket_ = -1;
@@ -142,6 +143,7 @@ private:
     uint32_t webSocketHandshakeStartedMs_ = 0;
     uint32_t webSocketRequestStartedMs_ = 0;
     uint32_t webSocketLastMessageMs_ = 0;
+    uint32_t workerChamberFilterMs_ = 0;
     uint32_t workerResultSequence_ = 0;
 
     bool configured() const;
@@ -174,6 +176,8 @@ private:
     void requestRealtimeServerInfo();
     void requestRealtimeObjectList();
     void subscribeRealtime(JsonArrayConst objects = JsonArrayConst());
+    void resetChamberFilter();
+    float filterChamberTemperature(float rawTemperatureC);
     void applyRealtimeStatus(JsonVariantConst status);
     void publishRealtimeSnapshot();
     void queuePollResult(PollResult& result);
