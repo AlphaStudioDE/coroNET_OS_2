@@ -7293,17 +7293,32 @@ void LedService::applyOutputPolicies() {
 
     const SystemState& system = state();
     const uint32_t now = millis();
+    // coroNET 1 rendered most decorative colours with OUT_MAX=204. Keeping
+    // that RGB headroom prevents the diffuser from visually washing bright
+    // colours toward white. Explicit W remains uncapped so inside WHITE and
+    // neutral illumination retain their full configured range.
+    constexpr uint8_t AnimationRgbMax = 204U;
     for (uint8_t sectionIndex = 0; sectionIndex < enumCount(LedSection{}); ++sectionIndex) {
         const LedSection section = static_cast<LedSection>(sectionIndex);
         const uint8_t percent = effectiveSectionBrightnessPercent(
             settings, system, section, now);
         // Percentages describe perceived brightness. The coroNET 1 gamma-2
         // conversion is applied once before smoothing the physical frame.
-        const uint8_t scaleValue = brightnessPercentToScale(percent);
+        const uint8_t whiteScale = brightnessPercentToScale(percent);
+        const uint8_t rgbScale = static_cast<uint8_t>(
+            (static_cast<uint16_t>(whiteScale) * AnimationRgbMax + 127U) / 255U);
         const uint16_t count = sectionCount(section);
         for (uint16_t i = 0; i < count; ++i) {
             const uint16_t physical = sectionPhysicalIndex(section, i);
-            targetFrame_[physical] = scaled(targetFrame_[physical], scaleValue);
+            RgbwColor& color = targetFrame_[physical];
+            color.r = static_cast<uint8_t>(
+                static_cast<uint16_t>(color.r) * rgbScale / 255U);
+            color.g = static_cast<uint8_t>(
+                static_cast<uint16_t>(color.g) * rgbScale / 255U);
+            color.b = static_cast<uint8_t>(
+                static_cast<uint16_t>(color.b) * rgbScale / 255U);
+            color.w = static_cast<uint8_t>(
+                static_cast<uint16_t>(color.w) * whiteScale / 255U);
         }
     }
 }
