@@ -20,7 +20,7 @@ namespace {
 
 constexpr int kCanvasWidth = 420;
 constexpr int kCanvasHeight = 52;
-constexpr uint8_t kSoundBrowserRows = 4;
+constexpr uint8_t kSoundBrowserRows = 5;
 
 const char* kCategoryNames[] = {"IDLE", "PRINT", "PAUSE", "ERROR", "FINISH", "OTHER"};
 const char* kSectionNames[] = {"RIGHT", "CENTER", "LEFT", "INSIDE"};
@@ -433,26 +433,21 @@ void ControlScreen::buildSoundBrowserOverlay() {
                Action::SoundBrowserClose);
     soundBrowserScenarioLabel_ = makeLabel(soundBrowserOverlay_, "PRINT START", ui::ColorCyan,
                                            &lv_font_montserrat_10, 18, 45, 380);
-    soundBrowserDefaultLabel_ = makeButton(soundBrowserOverlay_, 18, 62, 444, 34,
-                                           "USE DEFAULT", Action::SoundBrowserDefault);
-    lv_obj_set_width(soundBrowserDefaultLabel_, 420);
-    lv_label_set_long_mode(soundBrowserDefaultLabel_, LV_LABEL_LONG_DOT);
-
-    makeButton(soundBrowserOverlay_, 18, 106, 42, 32, LV_SYMBOL_LEFT,
+    makeButton(soundBrowserOverlay_, 18, 62, 42, 32, LV_SYMBOL_LEFT,
                Action::SoundBrowserFolderPrev);
     soundBrowserFolderLabel_ = makeLabel(soundBrowserOverlay_, "FOLDER", ui::ColorText,
-                                         &lv_font_montserrat_12, 72, 116, 336);
+                                         &lv_font_montserrat_12, 72, 72, 336);
     lv_obj_set_style_text_align(soundBrowserFolderLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    makeButton(soundBrowserOverlay_, 420, 106, 42, 32, LV_SYMBOL_RIGHT,
+    makeButton(soundBrowserOverlay_, 420, 62, 42, 32, LV_SYMBOL_RIGHT,
                Action::SoundBrowserFolderNext);
 
     static constexpr Action RowActions[kSoundBrowserRows] = {
         Action::SoundBrowserRow0, Action::SoundBrowserRow1, Action::SoundBrowserRow2,
-        Action::SoundBrowserRow3,
+        Action::SoundBrowserRow3, Action::SoundBrowserRow4,
     };
     for (uint8_t row = 0; row < kSoundBrowserRows; ++row) {
         soundBrowserRowLabels_[row] = makeButton(
-            soundBrowserOverlay_, 18, 150 + row * 31, 444, 27, "", RowActions[row]);
+            soundBrowserOverlay_, 18, 106 + row * 32, 444, 28, "", RowActions[row]);
         lv_obj_set_width(soundBrowserRowLabels_[row], 420);
         lv_label_set_long_mode(soundBrowserRowLabels_[row], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(soundBrowserRowLabels_[row], LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
@@ -730,24 +725,6 @@ void ControlScreen::refreshSoundBrowser() {
                               static_cast<unsigned>(soundBrowserFolder_ + 1U),
                               static_cast<unsigned>(folderCount), folderName ? folderName : "-");
     }
-    char defaultPath[65] = "";
-    snprintf(defaultPath, sizeof(defaultPath), "/sounds/%s",
-             kScenarioDefaultFiles[selectedSound_]);
-    bool defaultReady = audioService().pathAvailable(defaultPath);
-    if (!defaultReady) {
-        snprintf(defaultPath, sizeof(defaultPath), "/%s",
-                 kScenarioDefaultFiles[selectedSound_]);
-        defaultReady = audioService().pathAvailable(defaultPath);
-    }
-    lv_label_set_text_fmt(soundBrowserDefaultLabel_, "%s%sDEFAULT: %s",
-                          selected[0] ? "" : LV_SYMBOL_OK "  ",
-                          defaultReady ? "" : "MISSING  ",
-                          kScenarioDefaultFiles[selectedSound_]);
-    lv_obj_t* defaultButton = lv_obj_get_parent(soundBrowserDefaultLabel_);
-    lv_obj_set_style_border_color(defaultButton,
-                                  lv_color_hex(selected[0] ? ui::ColorBorder : ui::ColorCyan),
-                                  LV_PART_MAIN);
-
     for (uint8_t row = 0; row < kSoundBrowserRows; ++row) {
         lv_obj_t* label = soundBrowserRowLabels_[row];
         lv_obj_t* button = lv_obj_get_parent(label);
@@ -881,11 +858,6 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::SoundPlay: audioService().playScenario(static_cast<SoundScenario>(selectedSound_)); break;
         case Action::SoundStop: audioService().stop(); break;
         case Action::SoundRescan: audioService().requestStorageRefresh(); break;
-        case Action::SoundBrowserDefault:
-            settings.soundPath[selectedSound_][0] = '\0';
-            settingsService().save();
-            closeSoundBrowser();
-            break;
         case Action::SoundBrowserPrev: {
             const uint8_t count = audioService().folderFileCount(soundBrowserFolder_);
             const uint8_t pages = max<uint8_t>(1U, static_cast<uint8_t>(
@@ -922,6 +894,7 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::SoundBrowserRow1: selectSoundBrowserRow(1U); break;
         case Action::SoundBrowserRow2: selectSoundBrowserRow(2U); break;
         case Action::SoundBrowserRow3: selectSoundBrowserRow(3U); break;
+        case Action::SoundBrowserRow4: selectSoundBrowserRow(4U); break;
     }
     update();
 }

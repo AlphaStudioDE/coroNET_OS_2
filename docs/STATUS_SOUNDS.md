@@ -39,9 +39,8 @@ For consistent quality and modest SD bandwidth, 16-bit mono at 22.05 kHz is reco
 2. Use the left and right arrows to select **Print Start**, **Print Finish**, **Error**, **Pause**, or **Idle**.
 3. Press the large **Selected Sound** button.
 4. Select a folder with the upper arrow pair, then choose a WAV by its filename. Full SD paths remain hidden.
-5. Choose **Default** at any time to restore the standard file for that event.
-6. Set volume and repeat behavior, then press **Test**.
-7. Touch the screen or press **Stop** to end playback.
+5. Set volume and repeat behavior, then press **Test**.
+6. Touch the screen or press **Stop** to end playback.
 
 The default option resolves `/sounds/start.wav`, `/sounds/finish.wav`, `/sounds/error.wav`, `/sounds/pause.wav`, or `/sounds/idle.wav`, with the same filenames in the SD root as fallback. If a custom file is removed, the screen marks it as missing and the matching default file is used when available.
 

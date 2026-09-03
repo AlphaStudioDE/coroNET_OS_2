@@ -32,10 +32,10 @@ private:
         ServoClosed, ServoOpen, ServoReverse, FanMinimum, FanMaximum,
         PandaEnabled, PandaMode, PandaTarget, PandaPreset, PandaHours,
         SoundPrev, SoundNext, SoundBrowse, SoundVolume, SoundRepeat, SoundPlay, SoundStop,
-        SoundRescan, SoundBrowserDefault, SoundBrowserPrev, SoundBrowserNext,
+        SoundRescan, SoundBrowserPrev, SoundBrowserNext,
         SoundBrowserFolderPrev, SoundBrowserFolderNext,
         SoundBrowserClose, SoundBrowserRow0, SoundBrowserRow1, SoundBrowserRow2,
-        SoundBrowserRow3,
+        SoundBrowserRow3, SoundBrowserRow4,
     };
 
     struct Binding { ControlScreen* owner = nullptr; Action action = Action::Preview; };
@@ -129,10 +129,9 @@ private:
     lv_obj_t* soundStorageLabel_ = nullptr;
     lv_obj_t* soundBrowserOverlay_ = nullptr;
     lv_obj_t* soundBrowserScenarioLabel_ = nullptr;
-    lv_obj_t* soundBrowserDefaultLabel_ = nullptr;
     lv_obj_t* soundBrowserFolderLabel_ = nullptr;
     lv_obj_t* soundBrowserPageLabel_ = nullptr;
-    lv_obj_t* soundBrowserRowLabels_[4] = {};
+    lv_obj_t* soundBrowserRowLabels_[5] = {};
     Binding bindings_[48] = {};
     uint8_t bindingCount_ = 0;
     uint8_t selectedCategory_ = 0;
