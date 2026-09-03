@@ -184,10 +184,30 @@ uint8_t approachChannel(uint8_t current, uint8_t target, uint8_t amount) {
 }
 
 RgbwColor approach(const RgbwColor& current, const RgbwColor& target, uint8_t amount) {
-    return RgbwColor(approachChannel(current.r, target.r, amount),
-                     approachChannel(current.g, target.g, amount),
-                     approachChannel(current.b, target.b, amount),
-                     approachChannel(current.w, target.w, amount));
+    const uint8_t peak = max(target.r, max(target.g, target.b));
+    const uint8_t low = min(target.r, min(target.g, target.b));
+    const uint8_t saturation = peak
+        ? static_cast<uint8_t>(static_cast<uint16_t>(peak - low) * 255U / peak)
+        : 0U;
+    const bool saturatedTarget = peak > 16U && saturation >= 120U;
+    const uint8_t lowChannelLimit = static_cast<uint8_t>(peak / 3U);
+    const uint8_t fastRgbAmount = max<uint8_t>(amount, 224U);
+    const uint8_t fastWhiteAmount = max<uint8_t>(amount, 240U);
+
+    auto channelAmount = [&](uint8_t now, uint8_t next) -> uint8_t {
+        return saturatedTarget && next < now && next <= lowChannelLimit
+            ? fastRgbAmount : amount;
+    };
+
+    // A regular RGB crossfade retains obsolete channels long enough to turn
+    // moving saturated colors pastel. Clear those channels, and any obsolete W,
+    // quickly while keeping the intended target color and ordinary fades intact.
+    return RgbwColor(
+        approachChannel(current.r, target.r, channelAmount(current.r, target.r)),
+        approachChannel(current.g, target.g, channelAmount(current.g, target.g)),
+        approachChannel(current.b, target.b, channelAmount(current.b, target.b)),
+        approachChannel(current.w, target.w,
+                        saturatedTarget && target.w < current.w ? fastWhiteAmount : amount));
 }
 
 RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
