@@ -71,6 +71,14 @@ jobs:
           .pio/build/coronet_os2
           "${{ steps.version.outputs.version }}"
 
+      - name: Prepare detailed release notes
+        if: github.ref_type == 'tag'
+        run: >-
+          python scripts/extract_release_notes.py
+          docs/UPDATES.md
+          "${{ steps.version.outputs.version }}"
+          dist/RELEASE_NOTES.md
+
       - name: Upload development firmware
         uses: actions/upload-artifact@v7
         with:
@@ -94,6 +102,7 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
             gh release create "${GITHUB_REF_NAME}" \
               --title "coroNET OS 2 ${{ steps.version.outputs.version }}" \
+              --notes-file dist/RELEASE_NOTES.md \
               --generate-notes
           gh release upload "${GITHUB_REF_NAME}" \
             dist/coronet_os2.bin \
