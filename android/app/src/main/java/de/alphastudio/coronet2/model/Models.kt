@@ -85,6 +85,7 @@ data class DeviceSettings(
     val servoReverse: Boolean = false,
     val diyHeaterOutputHigh: Boolean = false,
     val pandaEnabled: Boolean = false,
+    val pandaHost: String = "",
     val pandaMode: Int = 0,
     val pandaTargetTempC: Int = 40,
 )

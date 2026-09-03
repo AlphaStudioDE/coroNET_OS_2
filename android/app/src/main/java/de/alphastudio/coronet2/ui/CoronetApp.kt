@@ -218,7 +218,9 @@ private fun LedPage(settings: DeviceSettings, send: (String) -> Unit) = PageColu
 }
 
 @Composable
-private fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) = PageColumn {
+private fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) {
+    var pandaHost by remember(settings.pandaHost) { mutableStateOf(settings.pandaHost) }
+    PageColumn {
     PageTitle("Vent", "Local chamber airflow")
     SectionCard {
         ChoiceRow("Mode", listOf("AUTO", "TARGET", "MANUAL").getOrElse(settings.ventMode) { "AUTO" }) {
@@ -248,12 +250,24 @@ private fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (
     }
     SectionCard {
         Text("Panda Breath", fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            value = pandaHost,
+            onValueChange = { pandaHost = it.take(64) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Address or hostname") },
+            placeholder = { Text("PandaBreath.local") },
+            singleLine = true,
+        )
+        Button(onClick = { send(json("pandaHost", pandaHost.trim())) }) {
+            Text("Save address")
+        }
         SettingSwitch("Integration", settings.pandaEnabled) { send(json("pandaEnabled", it)) }
         ChoiceRow("Workflow", listOf("OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRY").getOrElse(settings.pandaMode) { "OFF" }) {
             send(json("pandaMode", (settings.pandaMode + 1) % 6))
         }
         ValueSlider("Panda target", settings.pandaTargetTempC, 30..60, " C") { send(json("pandaTargetTempC", it)) }
     }
+}
 }
 
 @Composable

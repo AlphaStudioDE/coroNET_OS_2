@@ -1,9 +1,11 @@
 #include "PandaBreathService.h"
 
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
 
 #include "../settings/SettingsService.h"
+#include "../wifi/WifiService.h"
 
 namespace coronet {
 
@@ -13,6 +15,8 @@ PandaBreathService gPandaBreathService;
 constexpr uint32_t kConnectRetryMs = 5000;
 constexpr uint32_t kWorkflowIntervalMs = 500;
 constexpr uint32_t kCommandRefreshMs = 15000;
+constexpr uint32_t kDiscoveryQueryMs = 1200;
+constexpr uint32_t kDiscoveryMessageMs = 5000;
 
 }
 
@@ -40,12 +44,21 @@ void PandaBreathService::loop() {
     }
     if (observedSettingsRevision_ != settingsService().revision()) configureFromSettings();
 
+    if (discoveryRequested_) {
+        discoveryRequested_ = false;
+        performDiscovery();
+        return;
+    }
+
     const AppSettings& settings = settingsService().settings();
     if (!settings.pandaEnabled || !configuredHost_[0]) {
         observedPrinterEventSequence_ = state().printerStateEventSequence;
         if (socketConfigured_) disconnect();
         state().pandaConnected = false;
-        setPhase(PandaWorkflowPhase::Idle, settings.pandaEnabled ? "Panda address required" : "Panda disabled");
+        if (static_cast<int32_t>(discoveryStatusUntilMs_ - millis()) <= 0) {
+            setPhase(PandaWorkflowPhase::Idle,
+                     settings.pandaEnabled ? "Panda address required" : "Panda disabled");
+        }
         return;
     }
     if (WiFi.status() != WL_CONNECTED) {
@@ -70,6 +83,48 @@ void PandaBreathService::applyNow() {
     observedSettingsRevision_ = 0;
     commandDirty_ = true;
     lastWorkflowMs_ = 0;
+}
+
+void PandaBreathService::requestDiscovery() {
+    discoveryRequested_ = true;
+    strlcpy(state().pandaStatusText, "Panda discovery queued", sizeof(state().pandaStatusText));
+}
+
+void PandaBreathService::performDiscovery() {
+    if (WiFi.status() != WL_CONNECTED) {
+        strlcpy(state().pandaStatusText, "Connect Wi-Fi before discovery",
+                sizeof(state().pandaStatusText));
+        discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
+        return;
+    }
+
+    strlcpy(state().pandaStatusText, "Searching for Panda Breath",
+            sizeof(state().pandaStatusText));
+    if (!wifiService().acquireMdns(1500, pdMS_TO_TICKS(250))) {
+        strlcpy(state().pandaStatusText, "Panda discovery unavailable",
+                sizeof(state().pandaStatusText));
+        discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
+        return;
+    }
+
+    const IPAddress address = MDNS.queryHost("PandaBreath", kDiscoveryQueryMs);
+    wifiService().releaseMdns();
+    if (!address || address == IPAddress(0, 0, 0, 0)) {
+        strlcpy(state().pandaStatusText, "Panda Breath not found",
+                sizeof(state().pandaStatusText));
+        discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
+        return;
+    }
+
+    AppSettings& settings = settingsService().mutableSettings();
+    const String host = address.toString();
+    strlcpy(settings.pandaHost, host.c_str(), sizeof(settings.pandaHost));
+    settings.pandaEnabled = true;
+    settingsService().save();
+    configureFromSettings();
+    strlcpy(state().pandaStatusText, "Panda Breath found; connecting",
+            sizeof(state().pandaStatusText));
+    discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
 }
 
 void PandaBreathService::disconnect() {

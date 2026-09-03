@@ -102,6 +102,7 @@ fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings())
     servoReverse = json.optBoolean("servoReverse", previous.servoReverse),
     diyHeaterOutputHigh = json.optBoolean("diyHeaterOutputHigh", previous.diyHeaterOutputHigh),
     pandaEnabled = json.optBoolean("pandaEnabled", previous.pandaEnabled),
+    pandaHost = json.optString("pandaHost", previous.pandaHost),
     pandaMode = json.optInt("pandaMode", previous.pandaMode),
     pandaTargetTempC = json.optInt("pandaTargetTempC", previous.pandaTargetTempC),
 )

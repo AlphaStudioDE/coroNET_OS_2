@@ -674,6 +674,9 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["servoReverse"].is<bool>()) cfg.servoReverse = doc["servoReverse"].as<bool>();
         if (doc["diyHeaterOutputHigh"].is<bool>()) cfg.diyHeaterOutputHigh = doc["diyHeaterOutputHigh"].as<bool>();
         if (doc["pandaEnabled"].is<bool>()) cfg.pandaEnabled = doc["pandaEnabled"].as<bool>();
+        if (doc["pandaHost"].is<const char*>()) {
+            readBoundedString(doc["pandaHost"], cfg.pandaHost, sizeof(cfg.pandaHost), false);
+        }
         if (doc["pandaMode"].is<int>()) cfg.pandaMode = static_cast<PandaBreathMode>(constrain(doc["pandaMode"].as<int>(), 0, static_cast<int>(PandaBreathMode::Count) - 1));
         if (doc["pandaTargetTempC"].is<int>()) cfg.pandaTargetTempC = constrain(doc["pandaTargetTempC"].as<int>(), 30, 60);
         settingsService().save();
@@ -760,6 +763,8 @@ void BleService::publishSettings() {
                                  cfg.printerApiKey[0] ? 1 : 0);
     if (!sendPayload(written)) return;
 
+    char safePandaHost[132];
+    jsonStringCopy(cfg.pandaHost, safePandaHost, sizeof(safePandaHost));
     written = snprintf(payload, sizeof(payload),
                        "{\"v\":%u,\"t\":\"settings\",\"group\":\"appearance\",\"displayBrightness\":%u,"
                        "\"uiSkin\":%u,\"uiColorMode\":%u,\"accentHueDegrees\":%u,\"screenSaverMode\":%u,"
@@ -787,11 +792,11 @@ void BleService::publishSettings() {
                        "\"ventTargetTempC\":%u,\"manualFanPercent\":%u,\"manualFlapPercent\":%u,"
                        "\"servoClosedUs\":%u,\"servoOpenUs\":%u,\"servoReverse\":%s,"
                        "\"diyHeaterOutputHigh\":%s,"
-                       "\"pandaEnabled\":%s,\"pandaMode\":%u,\"pandaTargetTempC\":%u}",
+                       "\"pandaEnabled\":%s,\"pandaHost\":\"%s\",\"pandaMode\":%u,\"pandaTargetTempC\":%u}",
                        bleprotocol::Version, static_cast<unsigned>(cfg.ventMode), cfg.ventTargetTempC,
                        cfg.manualFanPercent, cfg.manualFlapPercent, cfg.servoClosedUs, cfg.servoOpenUs,
                        cfg.servoReverse ? "true" : "false", cfg.diyHeaterOutputHigh ? "true" : "false",
-                       cfg.pandaEnabled ? "true" : "false",
+                       cfg.pandaEnabled ? "true" : "false", safePandaHost,
                        static_cast<unsigned>(cfg.pandaMode), cfg.pandaTargetTempC);
     sendPayload(written);
 }

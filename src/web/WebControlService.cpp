@@ -391,6 +391,7 @@ void WebControlService::handleSettings() {
     doc["servoReverse"] = cfg.servoReverse;
     doc["diyHeaterOutputHigh"] = cfg.diyHeaterOutputHigh;
     doc["pandaEnabled"] = cfg.pandaEnabled;
+    doc["pandaHost"] = cfg.pandaHost;
     doc["pandaMode"] = static_cast<uint8_t>(cfg.pandaMode);
     doc["pandaTargetTempC"] = cfg.pandaTargetTempC;
     doc["pandaPrintTargetTempC"] = cfg.pandaPrintTargetTempC;
@@ -516,6 +517,9 @@ void WebControlService::handleUpdateSettings() {
     if (doc["servoReverse"].is<bool>()) cfg.servoReverse = doc["servoReverse"].as<bool>();
     if (doc["diyHeaterOutputHigh"].is<bool>()) cfg.diyHeaterOutputHigh = doc["diyHeaterOutputHigh"].as<bool>();
     if (doc["pandaEnabled"].is<bool>()) cfg.pandaEnabled = doc["pandaEnabled"].as<bool>();
+    if (doc["pandaHost"].is<const char*>()) {
+        strlcpy(cfg.pandaHost, doc["pandaHost"].as<const char*>(), sizeof(cfg.pandaHost));
+    }
     if (doc["pandaMode"].is<int>()) cfg.pandaMode = static_cast<PandaBreathMode>(constrain(doc["pandaMode"].as<int>(), 0, static_cast<int>(PandaBreathMode::Count) - 1));
     if (doc["pandaTargetTempC"].is<int>()) cfg.pandaTargetTempC = constrain(doc["pandaTargetTempC"].as<int>(), 30, 60);
     if (doc["pandaPrintTargetTempC"].is<int>()) cfg.pandaPrintTargetTempC = constrain(doc["pandaPrintTargetTempC"].as<int>(), 30, 60);

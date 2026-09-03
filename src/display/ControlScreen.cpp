@@ -379,8 +379,12 @@ void ControlScreen::buildVentPage() {
     pandaPresetLabel_ = makeButton(panda, 14, 146, 188, 34, "DRY: PLA", Action::PandaPreset);
     pandaHoursLabel_ = makeLabel(panda, "12 H", ui::ColorMuted, &lv_font_montserrat_10, 214, 157, 55);
     pandaHoursSlider_ = makeSlider(panda, 272, 153, 162, 1, 24, 12, Action::PandaHours);
-    makeLabel(panda, settingsService().settings().pandaHost[0] ? settingsService().settings().pandaHost : "Panda address not configured",
-              ui::ColorMuted, &lv_font_montserrat_10, 14, 196, 420);
+    pandaHostLabel_ = makeLabel(
+        panda,
+        settingsService().settings().pandaHost[0] ? settingsService().settings().pandaHost
+                                                  : "Panda address not configured",
+        ui::ColorMuted, &lv_font_montserrat_10, 14, 196, 300);
+    pandaDiscoverLabel_ = makeButton(panda, 324, 187, 110, 30, "DISCOVER", Action::PandaDiscover);
 
     lv_obj_t* diyHeater = makeCard(content, 664, 126, "DIY CHAMBER HEATER");
     diyHeaterLabel_ = makeButton(diyHeater, 14, 34, 150, 38, "OUTPUT: OFF", Action::DiyHeaterToggle);
@@ -645,6 +649,8 @@ void ControlScreen::refreshVent() {
     lv_label_set_text_fmt(pandaTargetLabel_, "TARGET %u C", settings.pandaTargetTempC);
     lv_label_set_text_fmt(pandaPresetLabel_, "DRY: %s", presets[static_cast<uint8_t>(settings.pandaDryPreset)]);
     lv_label_set_text_fmt(pandaHoursLabel_, "%u H", settings.pandaDryHours);
+    lv_label_set_text(pandaHostLabel_, settings.pandaHost[0] ? settings.pandaHost
+                                                             : "Panda address not configured");
     if (!lv_obj_has_state(pandaTargetSlider_, LV_STATE_PRESSED)) lv_slider_set_value(pandaTargetSlider_, settings.pandaTargetTempC, LV_ANIM_OFF);
     if (!lv_obj_has_state(pandaHoursSlider_, LV_STATE_PRESSED)) lv_slider_set_value(pandaHoursSlider_, settings.pandaDryHours, LV_ANIM_OFF);
     char pandaTemperature[16] = "--.-";
@@ -867,6 +873,7 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::PandaTarget: settings.pandaTargetTempC = lv_slider_get_value(pandaTargetSlider_); pandaBreathService().applyNow(); if (commit) settingsService().save(); break;
         case Action::PandaPreset: settings.pandaDryPreset = static_cast<PandaDryPreset>((static_cast<uint8_t>(settings.pandaDryPreset) + 1U) % static_cast<uint8_t>(PandaDryPreset::Count)); settingsService().save(); pandaBreathService().applyNow(); break;
         case Action::PandaHours: settings.pandaDryHours = lv_slider_get_value(pandaHoursSlider_); pandaBreathService().applyNow(); if (commit) settingsService().save(); break;
+        case Action::PandaDiscover: pandaBreathService().requestDiscovery(); break;
         case Action::SoundPrev: selectedSound_ = (selectedSound_ + 4U) % 5U; break;
         case Action::SoundNext: selectedSound_ = (selectedSound_ + 1U) % 5U; break;
         case Action::SoundBrowse: openSoundBrowser(); break;

@@ -31,7 +31,7 @@ private:
         VentAuto, VentTarget, VentManual, VentTargetTemp, ManualFan, ManualFlap,
         ServoClosed, ServoOpen, ServoReverse, FanMinimum, FanMaximum,
         DiyHeaterToggle,
-        PandaEnabled, PandaMode, PandaTarget, PandaPreset, PandaHours,
+        PandaEnabled, PandaMode, PandaTarget, PandaPreset, PandaHours, PandaDiscover,
         SoundPrev, SoundNext, SoundBrowse, SoundVolume, SoundRepeat, SoundPlay, SoundStop,
         SoundRescan, SoundBrowserPrev, SoundBrowserNext,
         SoundBrowserFolderPrev, SoundBrowserFolderNext,
@@ -106,6 +106,8 @@ private:
     lv_obj_t* pandaEnabledLabel_ = nullptr;
     lv_obj_t* pandaModeLabel_ = nullptr;
     lv_obj_t* pandaStatusLabel_ = nullptr;
+    lv_obj_t* pandaHostLabel_ = nullptr;
+    lv_obj_t* pandaDiscoverLabel_ = nullptr;
     lv_obj_t* servoClosedLabel_ = nullptr;
     lv_obj_t* servoClosedSlider_ = nullptr;
     lv_obj_t* servoOpenLabel_ = nullptr;

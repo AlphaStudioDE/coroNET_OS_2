@@ -52,3 +52,7 @@ largest blocks independently for internal RAM, DMA-capable RAM, and PSRAM.
 - Outer LEDs: `0..41`
 - Inside LEDs: `42..59`
 - Physical section directions are inherited from coroNET 1 and will be expressed through logical mapping helpers in the OS 2 LED engine.
+
+## Panda Breath Network Setup
+
+Panda Breath does not require an additional GPIO connection. Use `DISCOVER` on the VENT page to resolve `PandaBreath.local` through mDNS. If the device uses a custom hostname or mDNS is unavailable, enter its hostname or IPv4 address in the Android companion app. A failed discovery does not erase a previously saved address.

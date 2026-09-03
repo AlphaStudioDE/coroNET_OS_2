@@ -70,7 +70,7 @@ The repository is public early so that the architecture, documentation, hardware
 | Android companion app for OS 2 | Working on a physical phone over BLE and local WiFi |
 | Layered RGBW LED engine | Working on hardware, including ambient, dimming, mirror, and previews |
 | PWM fan and servo flap | Working on hardware with calibration and fail-safe logic |
-| Panda Breath workflows | Implemented; physical Panda validation pending |
+| Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
 | Verified GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public release install verified on hardware |
 

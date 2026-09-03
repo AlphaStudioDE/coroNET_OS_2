@@ -13,6 +13,7 @@ public:
     void begin();
     void loop();
     void applyNow();
+    void requestDiscovery();
     void disconnect();
     void logStatus() const;
 
@@ -23,6 +24,7 @@ private:
     };
 
     void configureFromSettings();
+    void performDiscovery();
     void connectIfNeeded();
     void handleEvent(WStype_t type, uint8_t* payload, size_t length);
     void handleMessage(const uint8_t* payload, size_t length);
@@ -56,6 +58,8 @@ private:
     uint32_t phaseStartedMs_ = 0;
     uint32_t holdStartedMs_ = 0;
     uint32_t observedPrinterEventSequence_ = 0;
+    bool discoveryRequested_ = false;
+    uint32_t discoveryStatusUntilMs_ = 0;
 };
 
 PandaBreathService& pandaBreathService();
