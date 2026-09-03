@@ -198,6 +198,30 @@ RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
         static_cast<uint8_t>((static_cast<uint16_t>(color.w) * scale + 127U) / 255U));
 }
 
+uint8_t gamma2Channel(uint8_t value) {
+    if (value == 0U) return 0U;
+    const uint16_t corrected = static_cast<uint16_t>(
+        (static_cast<uint32_t>(value) * value + 127U) / 255U);
+    return static_cast<uint8_t>(max<uint16_t>(1U, corrected));
+}
+
+RgbwColor gamma2Output(const RgbwColor& color) {
+    const uint8_t rgbPeak = max(color.r, max(color.g, color.b));
+    if (rgbPeak == 0U) {
+        return RgbwColor(0U, 0U, 0U, gamma2Channel(color.w));
+    }
+
+    // Correct perceived brightness at the hardware boundary while preserving
+    // RGB ratios. Per-channel gamma would shift dim orange toward red and dim
+    // cyan toward blue as their weaker channels disappear first.
+    const uint8_t correctedPeak = gamma2Channel(rgbPeak);
+    return RgbwColor(
+        static_cast<uint8_t>((static_cast<uint16_t>(color.r) * correctedPeak + rgbPeak / 2U) / rgbPeak),
+        static_cast<uint8_t>((static_cast<uint16_t>(color.g) * correctedPeak + rgbPeak / 2U) / rgbPeak),
+        static_cast<uint8_t>((static_cast<uint16_t>(color.b) * correctedPeak + rgbPeak / 2U) / rgbPeak),
+        gamma2Channel(color.w));
+}
+
 uint8_t temperaturePercent(float temperature, float minimum, float maximum,
                            uint8_t fallback) {
     if (isnan(temperature) || maximum <= minimum) return fallback;
@@ -7204,9 +7228,9 @@ void LedService::applyOutputPolicies() {
         const bool dimmed = dimmAllowed && inactive && settings.ledDimmEnabled[sectionIndex];
         const uint8_t percent = dimmed ? settings.ledDimmPercent[sectionIndex]
                                        : settings.ledBrightness[sectionIndex];
-        const uint32_t scaleValue = dimmed
-            ? static_cast<uint32_t>(percent) * percent * 255U / 10000U
-            : static_cast<uint32_t>(percent) * 255U / 100U;
+        // Percentages describe perceived brightness. The common gamma 2.0
+        // conversion is applied once, immediately before SPI encoding.
+        const uint32_t scaleValue = static_cast<uint32_t>(percent) * 255U / 100U;
         const LedSection section = static_cast<LedSection>(sectionIndex);
         const uint16_t count = sectionCount(section);
         for (uint16_t i = 0; i < count; ++i) {
@@ -7261,7 +7285,7 @@ void LedService::encodeFrame() {
         txBuffer_[output++] = NibbleLutLo[low];
     };
     for (uint16_t outputIndex = 0; outputIndex < hw::LedCount; ++outputIndex) {
-        const RgbwColor& color = currentFrame_[outputIndex];
+        const RgbwColor color = gamma2Output(currentFrame_[outputIndex]);
         append(color.g);
         append(color.r);
         append(color.b);
