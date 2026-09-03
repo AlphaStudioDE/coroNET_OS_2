@@ -1650,7 +1650,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                     const uint8_t value = static_cast<uint8_t>(
                         static_cast<uint16_t>(shape) * breath / 255U);
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Idle, 23U, 165U, value));
+                        decorativeHsv(LedCategory::Idle, 26U, 238U, value));
                 }
             }
             break;
@@ -6479,7 +6479,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     : static_cast<uint8_t>(35U + heat * 175U / 255U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(250U + heat * 35U / 255U), 255U, value));
+                        static_cast<uint8_t>(heat * 29U / 255U), 255U, value));
             }
             break;
         }
