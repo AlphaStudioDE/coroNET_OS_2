@@ -15,6 +15,7 @@
 #include "../core/SystemState.h"
 #include "../led/LedService.h"
 #include "../panda/PandaBreathService.h"
+#include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 #include "../vent/VentService.h"
 
@@ -45,16 +46,22 @@ public:
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         state().otaTlsWindowActive = true;
         const uint32_t started = millis();
-        while (state().bleReady && millis() - started < 1500U) {
+        while ((state().bleReady || !printerService().realtimeResourcesReleased() ||
+                !pandaBreathService().realtimeResourcesReleased()) &&
+               millis() - started < 1500U) {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
-        prepared_ = !state().bleReady;
+        const bool bleReleased = !state().bleReady;
+        prepared_ = bleReleased && printerService().realtimeResourcesReleased() &&
+                    pandaBreathService().realtimeResourcesReleased();
         const uint32_t freeAfter = heap_caps_get_free_size(
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         const uint32_t largestAfter = heap_caps_get_largest_free_block(
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        Serial.printf("[ota-tls] ble=%s internal=%lu/%lu->%lu/%lu\n",
-                      prepared_ ? "released" : "still-active",
+        Serial.printf("[ota-tls] ble=%s printer-ws=%s panda-ws=%s internal=%lu/%lu->%lu/%lu\n",
+                      bleReleased ? "released" : "still-active",
+                      printerService().realtimeResourcesReleased() ? "released" : "still-active",
+                      pandaBreathService().realtimeResourcesReleased() ? "released" : "still-active",
                       static_cast<unsigned long>(freeBefore),
                       static_cast<unsigned long>(largestBefore),
                       static_cast<unsigned long>(freeAfter),

@@ -60,7 +60,7 @@ The repository is public early so that the architecture, documentation, hardware
 | Unique device identity and BLE peripheral | Working, framed protocol V2 |
 | Local WiFi HTTP API and mDNS | Token-authenticated implementation |
 | First-run setup wizard | Working on hardware, with WiFi validation and printer discovery |
-| Moonraker HTTP polling and discovery | Background worker implementation |
+| Moonraker realtime telemetry, HTTP fallback, and discovery | Background WebSocket worker implementation |
 | I2S audio output | Working on hardware, with PSRAM staging and diagnostic tone |
 | SD-backed WAV playback | Working on hardware, with PSRAM staging and indexed asset validation |
 | Home dashboard | Working on hardware, with live printer and connectivity state |

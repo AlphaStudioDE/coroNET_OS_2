@@ -15,6 +15,7 @@ public:
     void applyNow();
     void requestDiscovery();
     void disconnect();
+    bool realtimeResourcesReleased() const { return !socketConfigured_; }
     void logStatus() const;
 
 private:
@@ -44,7 +45,7 @@ private:
     WebSocketsClient socket_;
     bool initialized_ = false;
     bool connected_ = false;
-    bool socketConfigured_ = false;
+    volatile bool socketConfigured_ = false;
     bool desiredOn_ = false;
     bool desiredDrying_ = false;
     uint8_t desiredTargetC_ = 0;

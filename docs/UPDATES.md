@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Moonraker Realtime Telemetry
+- Added Moonraker WebSocket identification, object discovery, status subscription, stale-session detection, and automatic reconnect handling.
+- Merged partial Moonraker notifications into complete telemetry snapshots without moving JSON parsing or network work into the display loop.
+- Retained HTTP polling as a fallback and reduced it to a periodic integrity audit while complete realtime telemetry is active.
+- Added dynamic subscriptions for available extruders, bed, chamber, progress, print state, and Snapmaker filament metadata.
+
+### Network And OTA Stability
+- Added the coroNET 1 non-blocking TCP probe pattern so an unavailable printer cannot stall the UI during WebSocket connection attempts.
+- Decoupled printer configuration generations from unrelated settings changes, preventing LED or UI edits from invalidating valid printer telemetry.
+- Released Moonraker and Panda WebSocket connections during OTA TLS windows to preserve contiguous internal memory for secure updates.
+
 ## 0.2.2
 
 ### Ventilation Hardware Control

@@ -4,8 +4,11 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <lwip/inet.h>
+#include <lwip/sockets.h>
 #include <mdns.h>
 
+#include "../config/AppConfig.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
 #include "../wifi/WifiService.h"
@@ -17,6 +20,7 @@ namespace {
 constexpr uint32_t kPollIdleMs = 5000;
 constexpr uint32_t kPollActiveMs = 2000;
 constexpr uint32_t kPollOfflineMs = 8000;
+constexpr uint32_t kPollRealtimeAuditMs = 30000;
 constexpr uint32_t kHttpTimeoutMs = 700;
 constexpr uint8_t kFailuresBeforeOffline = 3;
 constexpr uint32_t kWorkerStackBytes = 6144;
@@ -29,6 +33,12 @@ constexpr uint32_t kDiscoveryMdnsReadyTimeoutMs = 1800;
 constexpr uint32_t kDiscoveryMdnsQueryTimeoutMs = 1200;
 constexpr uint16_t kQuickDiscoveryTargetLimit = 60;
 constexpr uint16_t kDiscoveryTargetLimit = 254;
+constexpr uint32_t kRealtimeWorkerTickMs = 10;
+constexpr uint32_t kRealtimeReconnectMs = 5000;
+constexpr uint32_t kRealtimeProbeTimeoutMs = 600;
+constexpr uint32_t kRealtimeHandshakeTimeoutMs = 1500;
+constexpr uint32_t kRealtimeRequestTimeoutMs = 3000;
+constexpr uint32_t kRealtimeStaleMs = 15000;
 
 PrinterService gPrinterService;
 
@@ -99,6 +109,40 @@ void addAuthHeader(HTTPClient& http, const char* apiKey) {
     if (apiKey && apiKey[0]) http.addHeader("X-Api-Key", apiKey);
 }
 
+void normalizePrinterHost(const char* input, char output[65]) {
+    String host = input ? input : "";
+    host.trim();
+    if (host.startsWith("http://")) host.remove(0, 7);
+    else if (host.startsWith("https://")) host.remove(0, 8);
+    const int slash = host.indexOf('/');
+    if (slash >= 0) host.remove(slash);
+    host.trim();
+    strlcpy(output, host.c_str(), 65);
+}
+
+bool payloadContains(const uint8_t* payload, size_t length, const char* literal) {
+    if (!payload || !literal) return false;
+    const size_t literalLength = strlen(literal);
+    if (!literalLength || length < literalLength) return false;
+    for (size_t index = 0; index + literalLength <= length; ++index) {
+        if (memcmp(payload + index, literal, literalLength) == 0) return true;
+    }
+    return false;
+}
+
+bool objectListContains(JsonArrayConst objects, const char* name) {
+    if (objects.isNull() || !name || !name[0]) return false;
+    for (JsonVariantConst value : objects) {
+        const char* objectName = value.as<const char*>();
+        if (objectName && strcmp(objectName, name) == 0) return true;
+    }
+    return false;
+}
+
+bool isNewerSequence(uint32_t candidate, uint32_t reference) {
+    return reference == 0 || static_cast<int32_t>(candidate - reference) > 0;
+}
+
 String mdnsTxtValueByKey(const mdns_result_t* result, const char* key) {
     if (!result || !key || !key[0]) return String();
     for (size_t index = 0; index < result->txt_count; ++index) {
@@ -119,12 +163,14 @@ PrinterService& printerService() {
 }
 
 void PrinterService::begin() {
-    requestQueue_ = xQueueCreate(2, sizeof(WorkerRequest));
+    requestQueue_ = xQueueCreate(3, sizeof(WorkerRequest));
     resultQueue_ = xQueueCreate(1, sizeof(PollResult));
+    realtimeResultQueue_ = xQueueCreate(1, sizeof(PollResult));
     httpMutex_ = xSemaphoreCreateMutex();
     discoveredPrinters_ = static_cast<DiscoveredPrinter*>(heap_caps_calloc(
         MaxDiscoveredPrinters, sizeof(DiscoveredPrinter), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!requestQueue_ || !resultQueue_ || !httpMutex_ || !discoveredPrinters_) {
+    if (!requestQueue_ || !resultQueue_ || !realtimeResultQueue_ || !httpMutex_ ||
+        !discoveredPrinters_) {
         Serial.println("[printer] queue or mutex allocation failed");
         setOffline("printer_worker_alloc_failed");
         return;
@@ -145,6 +191,13 @@ void PrinterService::begin() {
     }
 
     started_ = true;
+    observedSettingsRevision_ = settingsService().revision();
+    const AppSettings& settings = settingsService().settings();
+    normalizePrinterHost(settings.printerHost, configuredHost_);
+    configuredPort_ = settings.printerPort ? settings.printerPort : 7125;
+    strlcpy(configuredApiKey_, settings.printerApiKey, sizeof(configuredApiKey_));
+    enqueueConfiguration();
+    lastPollMs_ = millis() - kPollOfflineMs;
     SystemState& system = state();
     system.setupDone = settingsService().settings().setupDone;
     system.printerConfigured = configured();
@@ -155,19 +208,24 @@ void PrinterService::begin() {
 
 void PrinterService::logStatus() const {
     const UBaseType_t stackHeadroom = workerTask_ ? uxTaskGetStackHighWaterMark(workerTask_) : 0;
-    Serial.printf("[printer] ready=%u configured=%u connected=%u telemetry=%u stackHeadroom=%uB failures=%u\n",
+    Serial.printf("[printer] ready=%u configured=%u connected=%u telemetry=%u ws=%u/%u released=%u stackHeadroom=%uB failures=%u\n",
                   started_ ? 1U : 0U,
                   state().printerConfigured ? 1U : 0U,
                   state().printerConnected ? 1U : 0U,
                   state().printerTelemetryValid ? 1U : 0U,
+                  realtimeConnected_ ? 1U : 0U,
+                  realtimeSubscribed_ ? 1U : 0U,
+                  realtimeResourcesReleased_ ? 1U : 0U,
                   static_cast<unsigned>(stackHeadroom),
                   static_cast<unsigned>(consecutiveFailures_));
 }
 
 void PrinterService::loop() {
     if (!started_) return;
+    refreshConfiguration();
+    if (queuedConfigRevision_ != printerConfigRevision_) enqueueConfiguration();
     consumeResults();
-    if (state().maintenanceMode) return;
+    if (state().maintenanceMode || state().otaTlsWindowActive) return;
 
     SystemState& system = state();
     system.setupDone = settingsService().settings().setupDone;
@@ -189,11 +247,14 @@ void PrinterService::loop() {
     if (pollInFlight_) return;
 
     const uint32_t now = millis();
-    const uint32_t interval = system.printerConnected
-                                  ? ((system.printerState == PrinterState::Printing || system.printerState == PrinterState::Paused)
-                                         ? kPollActiveMs
-                                         : kPollIdleMs)
-                                  : kPollOfflineMs;
+    const uint32_t interval = realtimeSubscribed_ && realtimeFullTelemetry_
+                                  ? kPollRealtimeAuditMs
+                                  : (system.printerConnected
+                                         ? ((system.printerState == PrinterState::Printing ||
+                                             system.printerState == PrinterState::Paused)
+                                                ? kPollActiveMs
+                                                : kPollIdleMs)
+                                         : kPollOfflineMs);
     if (now - lastPollMs_ < interval) return;
     lastPollMs_ = now;
 
@@ -203,7 +264,8 @@ void PrinterService::loop() {
 }
 
 bool PrinterService::requestDiscovery() {
-    if (!started_ || state().maintenanceMode || WiFi.status() != WL_CONNECTED || !discoveredPrinters_) {
+    if (!started_ || state().maintenanceMode || state().otaTlsWindowActive ||
+        WiFi.status() != WL_CONNECTED || !discoveredPrinters_) {
         updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi is not connected");
         return false;
     }
@@ -254,9 +316,10 @@ bool PrinterService::discoveredPrinter(uint8_t index, DiscoveredPrinter& output)
 PrinterTestResult PrinterService::testConnection() {
     PrinterTestResult result;
     lastTestMs_ = millis();
+    refreshConfiguration();
 
     PollRequest request;
-    if (state().maintenanceMode) {
+    if (state().maintenanceMode || state().otaTlsWindowActive) {
         strlcpy(result.message, "maintenance_mode", sizeof(result.message));
         return result;
     }
@@ -292,22 +355,58 @@ PrinterTestResult PrinterService::testConnection() {
 }
 
 bool PrinterService::configured() const {
-    const AppSettings& cfg = settingsService().settings();
-    return cfg.printerHost[0] != '\0' && cfg.printerPort > 0;
+    return configuredHost_[0] != '\0' && configuredPort_ > 0;
 }
 
 bool PrinterService::captureRequest(PollRequest& request) const {
-    const AppSettings& cfg = settingsService().settings();
-    if (!cfg.printerHost[0] || !cfg.printerPort) return false;
+    if (!configuredHost_[0] || !configuredPort_) return false;
+    request.settingsRevision = printerConfigRevision_;
+    strlcpy(request.host, configuredHost_, sizeof(request.host));
+    request.port = configuredPort_;
+    strlcpy(request.apiKey, configuredApiKey_, sizeof(request.apiKey));
+    return true;
+}
 
-    request.settingsRevision = settingsService().revision();
-    strlcpy(request.host, cfg.printerHost, sizeof(request.host));
-    request.port = cfg.printerPort;
-    strlcpy(request.apiKey, cfg.printerApiKey, sizeof(request.apiKey));
+void PrinterService::refreshConfiguration() {
+    const uint32_t settingsRevision = settingsService().revision();
+    if (settingsRevision == observedSettingsRevision_) return;
+    observedSettingsRevision_ = settingsRevision;
+
+    const AppSettings& settings = settingsService().settings();
+    char normalizedHost[sizeof(configuredHost_)] = "";
+    normalizePrinterHost(settings.printerHost, normalizedHost);
+    const uint16_t port = settings.printerPort ? settings.printerPort : 7125;
+    if (strcmp(normalizedHost, configuredHost_) == 0 && port == configuredPort_ &&
+        strcmp(settings.printerApiKey, configuredApiKey_) == 0) {
+        return;
+    }
+
+    strlcpy(configuredHost_, normalizedHost, sizeof(configuredHost_));
+    configuredPort_ = port;
+    strlcpy(configuredApiKey_, settings.printerApiKey, sizeof(configuredApiKey_));
+    printerConfigRevision_++;
+    queuedConfigRevision_ = 0;
+    consecutiveFailures_ = 0;
+    lastPollMs_ = millis() - kPollOfflineMs;
+    enqueueConfiguration();
+    setOffline(configured() ? "printer_config_changed" : "not_configured");
+}
+
+bool PrinterService::enqueueConfiguration() {
+    if (!requestQueue_ || queuedConfigRevision_ == printerConfigRevision_) return true;
+    WorkerRequest request;
+    request.type = WorkerJobType::Configure;
+    request.poll.settingsRevision = printerConfigRevision_;
+    strlcpy(request.poll.host, configuredHost_, sizeof(request.poll.host));
+    request.poll.port = configuredPort_;
+    strlcpy(request.poll.apiKey, configuredApiKey_, sizeof(request.poll.apiKey));
+    if (xQueueSend(requestQueue_, &request, 0) != pdTRUE) return false;
+    queuedConfigRevision_ = printerConfigRevision_;
     return true;
 }
 
 bool PrinterService::enqueuePoll() {
+    if (queuedConfigRevision_ != printerConfigRevision_ && !enqueueConfiguration()) return false;
     WorkerRequest request;
     request.type = WorkerJobType::Poll;
     if (!captureRequest(request.poll)) return false;
@@ -352,7 +451,8 @@ bool PrinterService::addDiscoveredPrinter(const char* host, uint16_t port, const
 }
 
 bool PrinterService::probeMoonraker(const char* host, uint16_t port) {
-    if (!host || !host[0] || WiFi.status() != WL_CONNECTED) return false;
+    if (!host || !host[0] || WiFi.status() != WL_CONNECTED || state().maintenanceMode ||
+        state().otaTlsWindowActive) return false;
 
     WiFiClient portProbe;
     if (!portProbe.connect(host, port, kDiscoveryTcpTimeoutMs)) return false;
@@ -512,7 +612,8 @@ void PrinterService::performDiscovery() {
     char host[16] = "";
     updateDiscovery(PrinterDiscoveryStatus::Scanning, 15, "Running quick local scan...");
     for (uint16_t index = 0; index < targetCount; ++index) {
-        if (WiFi.status() != WL_CONNECTED) {
+        if (WiFi.status() != WL_CONNECTED || state().maintenanceMode ||
+            state().otaTlsWindowActive) {
             updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
             return;
         }
@@ -542,7 +643,8 @@ void PrinterService::performDiscovery() {
     for (int address = 1; address <= 254; ++address) addTarget(address);
     updateDiscovery(PrinterDiscoveryStatus::Scanning, 46, "Quick scan empty. Running full scan...");
     for (uint16_t index = quickTargetCount; index < targetCount; ++index) {
-        if (WiFi.status() != WL_CONNECTED) {
+        if (WiFi.status() != WL_CONNECTED || state().maintenanceMode ||
+            state().otaTlsWindowActive) {
             updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
             return;
         }
@@ -567,13 +669,26 @@ void PrinterService::performDiscovery() {
 }
 
 void PrinterService::consumeResults() {
-    PollResult result;
-    while (xQueueReceive(resultQueue_, &result, 0) == pdTRUE) {
+    PollResult pending[2];
+    uint8_t count = 0;
+    if (xQueueReceive(resultQueue_, &pending[count], 0) == pdTRUE) {
         pollInFlight_ = false;
-        if (result.settingsRevision != settingsService().revision()) {
-            lastPollMs_ = 0;
+        count++;
+    }
+    if (xQueueReceive(realtimeResultQueue_, &pending[count], 0) == pdTRUE) count++;
+    if (count == 2 && isNewerSequence(pending[0].sequence, pending[1].sequence)) {
+        const PollResult swap = pending[0];
+        pending[0] = pending[1];
+        pending[1] = swap;
+    }
+    for (uint8_t index = 0; index < count; ++index) {
+        const PollResult& result = pending[index];
+        if (result.settingsRevision != printerConfigRevision_ ||
+            !isNewerSequence(result.sequence, lastAppliedResultSequence_)) {
+            if (result.settingsRevision != printerConfigRevision_) lastPollMs_ = 0;
             continue;
         }
+        lastAppliedResultSequence_ = result.sequence;
         applyResult(result);
     }
 }
@@ -749,6 +864,522 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     return true;
 }
 
+void PrinterService::configureRealtime(const PollRequest& request) {
+    const bool unchanged = workerConfigValid_ &&
+                           request.settingsRevision == workerConfig_.settingsRevision &&
+                           request.port == workerConfig_.port &&
+                           strcmp(request.host, workerConfig_.host) == 0 &&
+                           strcmp(request.apiKey, workerConfig_.apiKey) == 0;
+    if (unchanged) return;
+
+    releaseRealtime("printer configuration changed");
+    workerConfig_ = request;
+    workerConfigValid_ = request.host[0] != '\0' && request.port > 0;
+    workerSnapshot_ = PollResult{};
+    workerSnapshot_.settingsRevision = request.settingsRevision;
+    workerSnapshot_.filamentColorRgb = 0xFFFFFF;
+    strlcpy(workerSnapshot_.filename, "-", sizeof(workerSnapshot_.filename));
+    strlcpy(workerSnapshot_.material, "-", sizeof(workerSnapshot_.material));
+    memset(workerToolMaterials_, 0, sizeof(workerToolMaterials_));
+    for (float& temperature : workerToolTemperatures_) temperature = NAN;
+    strlcpy(workerChamberObject_, "temperature_sensor cavity", sizeof(workerChamberObject_));
+    workerSnapshotValid_ = false;
+    webSocketLastConnectTryMs_ = millis() - kRealtimeReconnectMs;
+}
+
+void PrinterService::releaseRealtime(const char* reason) {
+    const bool wasActive = webSocketProbeSocket_ >= 0 || webSocketHandshakePending_ ||
+                           realtimeConnected_ || realtimeSubscribed_ ||
+                           webSocketServerInfoPending_ || webSocketObjectListPending_ ||
+                           webSocketSubscribePending_;
+    closeRealtimeProbe();
+    webSocket_.disconnect();
+    realtimeConnected_ = false;
+    realtimeSubscribed_ = false;
+    realtimeFullTelemetry_ = false;
+    webSocketHandshakePending_ = false;
+    webSocketServerInfoPending_ = false;
+    webSocketObjectListPending_ = false;
+    webSocketSubscribePending_ = false;
+    webSocketKlippyReady_ = false;
+    webSocketCoreFallbackAttempted_ = false;
+    webSocketAbortRequested_ = false;
+    webSocketFullSubscriptionRequested_ = false;
+    webSocketLastMessageMs_ = 0;
+    realtimeResourcesReleased_ = true;
+    if (wasActive && reason && reason[0]) Serial.printf("[printer-ws] released: %s\n", reason);
+}
+
+bool PrinterService::startRealtimeProbe() {
+    if (webSocketProbeSocket_ >= 0 || !workerConfigValid_) return webSocketProbeSocket_ >= 0;
+
+    IPAddress address;
+    if (!address.fromString(workerConfig_.host)) {
+        if (WiFi.hostByName(workerConfig_.host, address) != 1 || !address) return false;
+    }
+    const String resolved = address.toString();
+    strlcpy(webSocketConnectHost_, resolved.c_str(), sizeof(webSocketConnectHost_));
+
+    sockaddr_in endpoint = {};
+    endpoint.sin_family = AF_INET;
+    endpoint.sin_port = htons(workerConfig_.port);
+    if (!inet_aton(webSocketConnectHost_, &endpoint.sin_addr)) return false;
+
+    const int socket = lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socket < 0) return false;
+    const int flags = lwip_fcntl(socket, F_GETFL, 0);
+    if (flags < 0 || lwip_fcntl(socket, F_SETFL, flags | O_NONBLOCK) < 0) {
+        lwip_close(socket);
+        return false;
+    }
+    const int connected = lwip_connect(socket, reinterpret_cast<sockaddr*>(&endpoint),
+                                       sizeof(endpoint));
+    if (connected < 0 && errno != EINPROGRESS && errno != EWOULDBLOCK) {
+        lwip_close(socket);
+        return false;
+    }
+    webSocketProbeSocket_ = socket;
+    webSocketProbeStartedMs_ = millis();
+    realtimeResourcesReleased_ = false;
+    return true;
+}
+
+int PrinterService::checkRealtimeProbe() const {
+    if (webSocketProbeSocket_ < 0) return -1;
+    fd_set writeSet;
+    fd_set errorSet;
+    FD_ZERO(&writeSet);
+    FD_ZERO(&errorSet);
+    FD_SET(webSocketProbeSocket_, &writeSet);
+    FD_SET(webSocketProbeSocket_, &errorSet);
+    timeval timeout = {0, 0};
+    const int selected = lwip_select(webSocketProbeSocket_ + 1, nullptr, &writeSet,
+                                     &errorSet, &timeout);
+    if (selected > 0 && (FD_ISSET(webSocketProbeSocket_, &writeSet) ||
+                         FD_ISSET(webSocketProbeSocket_, &errorSet))) {
+        int socketError = 0;
+        socklen_t length = sizeof(socketError);
+        if (lwip_getsockopt(webSocketProbeSocket_, SOL_SOCKET, SO_ERROR,
+                            &socketError, &length) != 0 || socketError != 0) {
+            return -1;
+        }
+        return 1;
+    }
+    if (millis() - webSocketProbeStartedMs_ >= kRealtimeProbeTimeoutMs) return -1;
+    return 0;
+}
+
+void PrinterService::closeRealtimeProbe() {
+    if (webSocketProbeSocket_ >= 0) {
+        lwip_close(webSocketProbeSocket_);
+        webSocketProbeSocket_ = -1;
+    }
+}
+
+void PrinterService::beginRealtimeHandshake() {
+    closeRealtimeProbe();
+    webSocket_.disconnect();
+    webSocket_.begin(webSocketConnectHost_, workerConfig_.port, "/websocket", "");
+    if (workerConfig_.apiKey[0]) {
+        String header = "X-Api-Key: ";
+        header += workerConfig_.apiKey;
+        webSocket_.setExtraHeaders(header.c_str());
+    } else {
+        webSocket_.setExtraHeaders("");
+    }
+    webSocket_.onEvent([this](WStype_t type, uint8_t* payload, size_t length) {
+        handleRealtimeEvent(type, payload, length);
+    });
+    webSocket_.setReconnectInterval(0);
+    webSocket_.enableHeartbeat(0, 0, 0);
+    webSocketHandshakePending_ = true;
+    webSocketHandshakeStartedMs_ = millis();
+    webSocketLastConnectTryMs_ = webSocketHandshakeStartedMs_;
+    realtimeResourcesReleased_ = false;
+}
+
+void PrinterService::requestRealtimeServerInfo() {
+    static constexpr char Request[] =
+        "{\"jsonrpc\":\"2.0\",\"method\":\"server.info\",\"id\":100}";
+    webSocketServerInfoPending_ = webSocket_.sendTXT(Request);
+    webSocketRequestStartedMs_ = millis();
+}
+
+void PrinterService::requestRealtimeObjectList() {
+    static constexpr char Request[] =
+        "{\"jsonrpc\":\"2.0\",\"method\":\"printer.objects.list\",\"id\":103}";
+    webSocketObjectListPending_ = webSocket_.sendTXT(Request);
+    webSocketRequestStartedMs_ = millis();
+}
+
+void PrinterService::subscribeRealtime(JsonArrayConst objects) {
+    if (!realtimeConnected_) return;
+    const bool detectedObjects = !objects.isNull();
+    webSocketFullSubscriptionRequested_ = detectedObjects;
+    realtimeFullTelemetry_ = false;
+    workerChamberObject_[0] = '\0';
+
+    if (detectedObjects) {
+        static constexpr const char* PreferredChamberObjects[] = {
+            "temperature_sensor cavity",
+            "temperature_sensor chamber",
+            "temperature_sensor enclosure",
+            "temperature_sensor chamber_temp",
+            "temperature_sensor enclosure_temp",
+        };
+        for (const char* candidate : PreferredChamberObjects) {
+            if (objectListContains(objects, candidate)) {
+                strlcpy(workerChamberObject_, candidate, sizeof(workerChamberObject_));
+                break;
+            }
+        }
+        if (!workerChamberObject_[0]) {
+            for (JsonVariantConst value : objects) {
+                const char* candidate = value.as<const char*>();
+                if (!candidate) continue;
+                String lower(candidate);
+                lower.toLowerCase();
+                const bool temperatureObject = lower.startsWith("temperature_sensor ") ||
+                                               lower.startsWith("temperature_fan ");
+                const bool chamberAlias = lower.indexOf("cavity") >= 0 ||
+                                          lower.indexOf("chamber") >= 0 ||
+                                          lower.indexOf("enclosure") >= 0;
+                if (temperatureObject && chamberAlias) {
+                    strlcpy(workerChamberObject_, candidate, sizeof(workerChamberObject_));
+                    break;
+                }
+            }
+        }
+    }
+
+    JsonDocument document;
+    document["jsonrpc"] = "2.0";
+    document["method"] = "printer.objects.subscribe";
+    document["id"] = 101;
+    JsonObject subscribed = document["params"]["objects"].to<JsonObject>();
+
+    auto addFields = [&](const char* object, std::initializer_list<const char*> fields) {
+        if (detectedObjects && !objectListContains(objects, object)) return;
+        JsonArray array = subscribed[object].to<JsonArray>();
+        for (const char* field : fields) array.add(field);
+    };
+    addFields("print_stats", {"state", "filename", "print_duration", "total_duration"});
+    addFields("display_status", {"progress"});
+    addFields("toolhead", {"extruder"});
+    if (detectedObjects) {
+        addFields("print_task_config", {"filament_color_rgba", "filament_type"});
+        addFields("extruder", {"temperature"});
+        addFields("extruder1", {"temperature"});
+        addFields("extruder2", {"temperature"});
+        addFields("extruder3", {"temperature"});
+        addFields("heater_bed", {"temperature"});
+        if (workerChamberObject_[0]) addFields(workerChamberObject_, {"temperature"});
+    }
+
+    String payload;
+    payload.reserve(768);
+    serializeJson(document, payload);
+    webSocketSubscribePending_ = webSocket_.sendTXT(payload);
+    webSocketObjectListPending_ = false;
+    webSocketRequestStartedMs_ = millis();
+}
+
+void PrinterService::publishRealtimeSnapshot() {
+    if (!workerSnapshotValid_ || !realtimeResultQueue_) return;
+    workerSnapshot_.ok = true;
+    workerSnapshot_.httpCode = 101;
+    workerSnapshot_.settingsRevision = workerConfig_.settingsRevision;
+    workerSnapshot_.sequence = ++workerResultSequence_;
+    strlcpy(workerSnapshot_.message, "websocket", sizeof(workerSnapshot_.message));
+    xQueueOverwrite(realtimeResultQueue_, &workerSnapshot_);
+}
+
+void PrinterService::queuePollResult(PollResult& result) {
+    if (!resultQueue_) return;
+    result.sequence = ++workerResultSequence_;
+    xQueueOverwrite(resultQueue_, &result);
+}
+
+void PrinterService::applyRealtimeStatus(JsonVariantConst status) {
+    if (!status.is<JsonObjectConst>()) return;
+
+    JsonVariantConst printStats = status["print_stats"];
+    if (!printStats.isNull()) {
+        const char* rawState = printStats["state"] | nullptr;
+        if (rawState && rawState[0]) {
+            workerSnapshot_.printerState = static_cast<uint8_t>(normalizePrinterState(rawState));
+            workerSnapshotValid_ = true;
+        }
+        const char* filename = printStats["filename"] | nullptr;
+        if (filename) strlcpy(workerSnapshot_.filename, filename, sizeof(workerSnapshot_.filename));
+        if (!printStats["print_duration"].isNull()) {
+            const float duration = printStats["print_duration"].as<float>();
+            workerSnapshot_.printDurationSec = duration > 0.0f
+                                                   ? static_cast<uint32_t>(duration + 0.5f)
+                                                   : 0;
+        }
+    }
+
+    JsonVariantConst displayStatus = status["display_status"];
+    if (!displayStatus.isNull() && !displayStatus["progress"].isNull()) {
+        workerSnapshot_.printProgress = clampProgress(displayStatus["progress"].as<float>());
+    }
+
+    JsonVariantConst toolhead = status["toolhead"];
+    if (!toolhead.isNull()) {
+        const char* extruder = toolhead["extruder"] | nullptr;
+        if (extruder) workerSnapshot_.activeTool = toolIndexFromObject(extruder);
+    }
+
+    JsonVariantConst taskConfig = status["print_task_config"];
+    if (!taskConfig.isNull()) {
+        JsonArrayConst colors = taskConfig["filament_color_rgba"].as<JsonArrayConst>();
+        if (!colors.isNull()) {
+            for (uint8_t index = 0; index < 4U && index < colors.size(); ++index) {
+                uint32_t color = 0;
+                if (parseFilamentColor(colors[index] | "", color)) {
+                    workerSnapshot_.filamentColorsRgb[index] = color;
+                    workerSnapshot_.filamentColorMask |= static_cast<uint8_t>(1U << index);
+                }
+            }
+        }
+        JsonArrayConst materials = taskConfig["filament_type"].as<JsonArrayConst>();
+        if (!materials.isNull()) {
+            for (uint8_t index = 0; index < 4U && index < materials.size(); ++index) {
+                const char* material = materials[index] | nullptr;
+                if (material) strlcpy(workerToolMaterials_[index], material,
+                                      sizeof(workerToolMaterials_[index]));
+            }
+        }
+    }
+
+    static constexpr const char* ToolObjects[] = {
+        "extruder", "extruder1", "extruder2", "extruder3",
+    };
+    for (uint8_t index = 0; index < 4; ++index) {
+        JsonVariantConst extruderStatus = status[ToolObjects[index]];
+        if (!extruderStatus.isNull() && !extruderStatus["temperature"].isNull()) {
+            workerToolTemperatures_[index] = extruderStatus["temperature"].as<float>();
+        }
+    }
+    const uint8_t tool = workerSnapshot_.activeTool < 4 ? workerSnapshot_.activeTool : 0;
+    workerSnapshot_.activeToolTempC = workerToolTemperatures_[tool];
+    JsonVariantConst bedStatus = status["heater_bed"];
+    if (!bedStatus.isNull() && !bedStatus["temperature"].isNull()) {
+        workerSnapshot_.bedTempC = bedStatus["temperature"].as<float>();
+    }
+    if (workerChamberObject_[0]) {
+        JsonVariantConst chamberStatus = status[workerChamberObject_];
+        if (!chamberStatus.isNull() && !chamberStatus["temperature"].isNull()) {
+            workerSnapshot_.chamberTempC = chamberStatus["temperature"].as<float>();
+        }
+    }
+
+    if (workerSnapshot_.filamentColorMask & (1U << tool)) {
+        workerSnapshot_.filamentColorRgb = workerSnapshot_.filamentColorsRgb[tool];
+    }
+    strlcpy(workerSnapshot_.material,
+            workerToolMaterials_[tool][0] ? workerToolMaterials_[tool] : "-",
+            sizeof(workerSnapshot_.material));
+
+    const float progress = static_cast<float>(workerSnapshot_.printProgress) / 100.0f;
+    const uint32_t duration = workerSnapshot_.printDurationSec;
+    workerSnapshot_.printEtaSec = 0;
+    if (progress > 0.001f && progress < 1.0f && duration > 0) {
+        const double eta = static_cast<double>(duration) / progress - duration;
+        if (isfinite(eta) && eta > 0.0 && eta <= static_cast<double>(UINT32_MAX)) {
+            workerSnapshot_.printEtaSec = static_cast<uint32_t>(eta + 0.5);
+        }
+    }
+    publishRealtimeSnapshot();
+    if (realtimeSubscribed_ && webSocketFullSubscriptionRequested_) {
+        realtimeFullTelemetry_ = workerSnapshotValid_;
+    }
+}
+
+void PrinterService::handleRealtimeJson(const uint8_t* payload, size_t length) {
+    JsonDocument document;
+    if (deserializeJson(document, payload, length) != DeserializationError::Ok) return;
+
+    const uint32_t id = document["id"] | 0U;
+    if (id == 100U) {
+        webSocketServerInfoPending_ = false;
+        const char* klippyState = document["result"]["klippy_state"] | "";
+        webSocketKlippyReady_ = strcmp(klippyState, "ready") == 0;
+        if (webSocketKlippyReady_) requestRealtimeObjectList();
+        return;
+    }
+    if (id == 103U) {
+        webSocketObjectListPending_ = false;
+        webSocketCoreFallbackAttempted_ = false;
+        JsonArrayConst objects = document["result"]["objects"].as<JsonArrayConst>();
+        subscribeRealtime(objects);
+        return;
+    }
+    if (id == 101U) {
+        webSocketSubscribePending_ = false;
+        if (!document["error"].isNull()) {
+            realtimeSubscribed_ = false;
+            realtimeFullTelemetry_ = false;
+            if (!webSocketCoreFallbackAttempted_) {
+                webSocketCoreFallbackAttempted_ = true;
+                Serial.println("[printer-ws] subscription rejected; retrying core objects");
+                subscribeRealtime();
+            } else {
+                webSocketAbortRequested_ = true;
+            }
+            return;
+        }
+        realtimeSubscribed_ = true;
+        JsonVariantConst status = document["result"]["status"];
+        if (!status.isNull()) applyRealtimeStatus(status);
+        realtimeFullTelemetry_ = webSocketFullSubscriptionRequested_ && workerSnapshotValid_;
+        Serial.println("[printer-ws] realtime telemetry subscribed");
+        return;
+    }
+
+    const char* method = document["method"] | "";
+    if (strcmp(method, "notify_status_update") == 0) {
+        JsonArrayConst params = document["params"].as<JsonArrayConst>();
+        if (!params.isNull() && params.size() > 0) applyRealtimeStatus(params[0]);
+    } else if (strcmp(method, "notify_klippy_ready") == 0) {
+        webSocketKlippyReady_ = true;
+        realtimeSubscribed_ = false;
+        requestRealtimeObjectList();
+    } else if (strcmp(method, "notify_klippy_shutdown") == 0 ||
+               strcmp(method, "notify_klippy_disconnected") == 0) {
+        webSocketKlippyReady_ = false;
+        realtimeSubscribed_ = false;
+        webSocketSubscribePending_ = false;
+    }
+}
+
+void PrinterService::handleRealtimeEvent(WStype_t type, uint8_t* payload, size_t length) {
+    switch (type) {
+        case WStype_CONNECTED: {
+            realtimeConnected_ = true;
+            realtimeSubscribed_ = false;
+            realtimeFullTelemetry_ = false;
+            realtimeResourcesReleased_ = false;
+            webSocketHandshakePending_ = false;
+            webSocketServerInfoPending_ = false;
+            webSocketObjectListPending_ = false;
+            webSocketSubscribePending_ = false;
+            webSocketKlippyReady_ = false;
+            webSocketCoreFallbackAttempted_ = false;
+            webSocketAbortRequested_ = false;
+            webSocketFullSubscriptionRequested_ = false;
+            webSocketLastMessageMs_ = millis();
+            char identify[384];
+            snprintf(identify, sizeof(identify),
+                     "{\"jsonrpc\":\"2.0\",\"method\":\"server.connection.identify\","
+                     "\"params\":{\"client_name\":\"coroNET OS 2\",\"version\":\"%s\","
+                     "\"type\":\"display\",\"url\":\"https://github.com/AlphaStudioDE/coroNET_OS_2\"},\"id\":1}",
+                     config::FirmwareVersion);
+            webSocket_.sendTXT(identify);
+            requestRealtimeServerInfo();
+            Serial.printf("[printer-ws] connected to %s:%u\n", webSocketConnectHost_,
+                          static_cast<unsigned>(workerConfig_.port));
+            break;
+        }
+        case WStype_TEXT:
+            if (payload && length) {
+                webSocketLastMessageMs_ = millis();
+                if (!payloadContains(payload, length,
+                                     "\"method\":\"notify_proc_stat_update\"")) {
+                    handleRealtimeJson(payload, length);
+                }
+            }
+            break;
+        case WStype_PONG:
+        case WStype_PING:
+            webSocketLastMessageMs_ = millis();
+            break;
+        case WStype_DISCONNECTED:
+        case WStype_ERROR:
+            realtimeConnected_ = false;
+            realtimeSubscribed_ = false;
+            realtimeFullTelemetry_ = false;
+            realtimeResourcesReleased_ = true;
+            webSocketHandshakePending_ = false;
+            webSocketServerInfoPending_ = false;
+            webSocketObjectListPending_ = false;
+            webSocketSubscribePending_ = false;
+            webSocketKlippyReady_ = false;
+            webSocketLastConnectTryMs_ = millis();
+            break;
+        default:
+            break;
+    }
+}
+
+void PrinterService::serviceRealtime() {
+    if (!workerConfigValid_ || WiFi.status() != WL_CONNECTED || state().maintenanceMode ||
+        state().otaTlsWindowActive) {
+        releaseRealtime(state().otaTlsWindowActive ? "OTA TLS window" :
+                        state().maintenanceMode ? "maintenance" :
+                        WiFi.status() != WL_CONNECTED ? "Wi-Fi offline" : "not configured");
+        return;
+    }
+
+    const uint32_t now = millis();
+    if (!realtimeConnected_) {
+        if (webSocketProbeSocket_ >= 0) {
+            const int probe = checkRealtimeProbe();
+            if (probe > 0) beginRealtimeHandshake();
+            else if (probe < 0) {
+                closeRealtimeProbe();
+                realtimeResourcesReleased_ = true;
+                webSocketLastConnectTryMs_ = now;
+            }
+            return;
+        }
+        if (webSocketHandshakePending_) {
+            const uint32_t started = millis();
+            webSocket_.loop();
+            if (!realtimeConnected_ &&
+                (millis() - started > 500U || now - webSocketHandshakeStartedMs_ >=
+                                                  kRealtimeHandshakeTimeoutMs)) {
+                releaseRealtime("handshake timeout");
+                webSocketLastConnectTryMs_ = millis();
+            }
+            return;
+        }
+        if (now - webSocketLastConnectTryMs_ >= kRealtimeReconnectMs) {
+            if (!startRealtimeProbe()) webSocketLastConnectTryMs_ = now;
+        }
+        return;
+    }
+
+    webSocket_.loop();
+    if (webSocketAbortRequested_) {
+        releaseRealtime("subscription rejected");
+        webSocketLastConnectTryMs_ = millis();
+        return;
+    }
+    if (!realtimeConnected_) return;
+    if (webSocketLastMessageMs_ && millis() - webSocketLastMessageMs_ > kRealtimeStaleMs) {
+        releaseRealtime("stale connection");
+        webSocketLastConnectTryMs_ = millis();
+        return;
+    }
+
+    if ((webSocketServerInfoPending_ || webSocketObjectListPending_ ||
+         webSocketSubscribePending_) &&
+        millis() - webSocketRequestStartedMs_ >= kRealtimeRequestTimeoutMs) {
+        if (webSocketObjectListPending_) {
+            webSocketObjectListPending_ = false;
+            subscribeRealtime();
+        } else if (webSocketSubscribePending_) {
+            webSocketSubscribePending_ = false;
+            subscribeRealtime();
+        } else {
+            webSocketServerInfoPending_ = false;
+            requestRealtimeObjectList();
+        }
+    }
+}
+
 void PrinterService::setOffline(const char* message, int httpCode) {
     SystemState& system = state();
     setConnectionState(false);
@@ -779,9 +1410,34 @@ void PrinterService::workerTaskEntry(void* context) {
 void PrinterService::workerLoop() {
     WorkerRequest request;
     for (;;) {
-        if (xQueueReceive(requestQueue_, &request, portMAX_DELAY) != pdTRUE) continue;
+        const bool suspended = state().maintenanceMode || state().otaTlsWindowActive;
+        if (suspended) releaseRealtime("system network window");
+
+        if (xQueueReceive(requestQueue_, &request, pdMS_TO_TICKS(kRealtimeWorkerTickMs)) != pdTRUE) {
+            serviceRealtime();
+            continue;
+        }
+
+        if (request.type == WorkerJobType::Configure) {
+            configureRealtime(request.poll);
+            serviceRealtime();
+            continue;
+        }
+        if (state().maintenanceMode || state().otaTlsWindowActive) {
+            if (request.type == WorkerJobType::Discover) {
+                updateDiscovery(PrinterDiscoveryStatus::Failed, 0,
+                                "Printer discovery paused for system update");
+            } else {
+                PollResult paused;
+                paused.settingsRevision = request.poll.settingsRevision;
+                strlcpy(paused.message, "printer_poll_paused", sizeof(paused.message));
+                queuePollResult(paused);
+            }
+            continue;
+        }
 
         if (request.type == WorkerJobType::Discover) {
+            releaseRealtime("printer discovery");
             if (xSemaphoreTake(httpMutex_, portMAX_DELAY) == pdTRUE) {
                 performDiscovery();
                 xSemaphoreGive(httpMutex_);
@@ -793,13 +1449,31 @@ void PrinterService::workerLoop() {
 
         PollResult result;
         result.settingsRevision = request.poll.settingsRevision;
+        configureRealtime(request.poll);
         if (xSemaphoreTake(httpMutex_, portMAX_DELAY) == pdTRUE) {
             result.ok = performPoll(request.poll, result);
             xSemaphoreGive(httpMutex_);
         } else {
             strlcpy(result.message, "http_mutex_failed", sizeof(result.message));
         }
-        xQueueOverwrite(resultQueue_, &result);
+        if (result.ok) {
+            workerSnapshot_ = result;
+            workerSnapshotValid_ = true;
+            if (result.activeTool < 4) {
+                workerToolTemperatures_[result.activeTool] = result.activeToolTempC;
+            }
+            if (result.activeTool < 4 && result.material[0]) {
+                strlcpy(workerToolMaterials_[result.activeTool], result.material,
+                        sizeof(workerToolMaterials_[result.activeTool]));
+            }
+        } else if (realtimeConnected_ && realtimeSubscribed_ && workerSnapshotValid_) {
+            result = workerSnapshot_;
+            result.settingsRevision = workerConfig_.settingsRevision;
+            result.ok = true;
+            strlcpy(result.message, "websocket_http_audit_deferred", sizeof(result.message));
+        }
+        queuePollResult(result);
+        serviceRealtime();
     }
 }
 

@@ -37,7 +37,7 @@ void PandaBreathService::begin() {
 
 void PandaBreathService::loop() {
     if (!initialized_) return;
-    if (state().maintenanceMode) {
+    if (state().maintenanceMode || state().otaTlsWindowActive) {
         observedPrinterEventSequence_ = state().printerStateEventSequence;
         if (socketConfigured_) disconnect();
         return;

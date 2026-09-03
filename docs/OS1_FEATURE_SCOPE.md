@@ -42,9 +42,9 @@ Status meanings:
 | NET-01 | Nearby Wi-Fi scan, password entry, and connection validation | OS2 | Implemented. |
 | NET-02 | Automatic Snapmaker and Moonraker discovery | OS2 | Implemented. |
 | NET-03 | Manual printer host and port configuration | OS2 | Implemented through setup. |
-| NET-04 | Moonraker HTTP telemetry polling | OS2 | Initial worker is implemented. |
-| NET-05 | Moonraker WebSocket subscription and event updates | OS2 | Retain as a later real-time telemetry milestone after HTTP polling is stable. |
-| NET-06 | Fast/medium/slow telemetry polling groups | REDESIGN | Retain only telemetry cadence that is measured and needed. |
+| NET-04 | Moonraker HTTP telemetry polling | OS2 | Implemented as fallback and periodic realtime integrity audit. |
+| NET-05 | Moonraker WebSocket subscription and event updates | OS2 | Implemented in the background printer worker with object discovery, stale-session detection, and reconnect handling. |
+| NET-06 | Fast/medium/slow telemetry polling groups | REDESIGN | Replaced by realtime events plus measured fallback and audit intervals. |
 | NET-07 | Printer and Wi-Fi watchdog/reconnect behavior | OS2 | Initial resilient lifecycle exists and needs soak testing. |
 | NET-08 | BLE companion bridge | OS2 | Implemented with framed protocol V2 and revisioned printer events. |
 | NET-09 | Local Wi-Fi companion API and mDNS | OS2 | Implemented with token authentication. |
