@@ -12,6 +12,7 @@
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
+#include "../led/LedService.h"
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 
@@ -511,6 +512,34 @@ void BleService::handleCommand(const char* command, size_t length) {
         publishEvent("ack", "settings");
         return;
     }
+    if (strcmp(cmd, "previewLed") == 0) {
+        const int category = doc["category"] | -1;
+        const int animation = doc["animation"] | -1;
+        const uint32_t durationMs = constrain(doc["durationMs"] | 10000U, 1000U, 30000U);
+        if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 || animation > 255) {
+            publishEvent("error", "led_preview_invalid");
+            return;
+        }
+        const bool started = ledService().requestPreview(static_cast<LedCategory>(category), static_cast<uint8_t>(animation), durationMs);
+        publishEvent(started ? "ack" : "error", started ? "led_preview_started" : "led_unavailable");
+        return;
+    }
+    if (strcmp(cmd, "calibrateLed") == 0) {
+        const bool active = doc["active"] | false;
+        if (!active) {
+            ledService().stopColorCalibration();
+            publishEvent("ack", "led_calibration_stopped");
+            return;
+        }
+        const int color = doc["color"] | -1;
+        if (color < 0 || color >= static_cast<int>(LedCalibrationColor::Count)) {
+            publishEvent("error", "led_calibration_invalid");
+            return;
+        }
+        const bool started = ledService().startColorCalibration(static_cast<LedCalibrationColor>(color));
+        publishEvent(started ? "ack" : "error", started ? "led_calibration_started" : "led_unavailable");
+        return;
+    }
     if (strcmp(cmd, "setWifi") == 0) {
         AppSettings& cfg = settingsService().mutableSettings();
         char ssid[sizeof(cfg.wifiSsid)] = "";
@@ -663,21 +692,65 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         if (doc["quietTarget"].is<int>()) cfg.quietTarget = static_cast<QuietTarget>(constrain(doc["quietTarget"].as<int>(), 0, 3));
         if (doc["quietDurationMinutes"].is<int>()) cfg.quietDurationMinutes = constrain(doc["quietDurationMinutes"].as<int>(), 1, 1440);
+        if (doc["quietErrorsBypass"].is<bool>()) cfg.quietErrorsBypass = doc["quietErrorsBypass"].as<bool>();
         if (doc["ledEnabled"].is<bool>()) cfg.ledEnabled = doc["ledEnabled"].as<bool>();
+        if (doc["ledOtherMode"].is<bool>()) cfg.ledOtherMode = doc["ledOtherMode"].as<bool>();
         if (doc["insideColorStyle"].is<int>()) cfg.insideColorStyle = static_cast<InsideColorStyle>(constrain(doc["insideColorStyle"].as<int>(), 0, 1));
         if (doc["mirrorLedLayout"].is<bool>()) cfg.mirrorLedLayout = doc["mirrorLedLayout"].as<bool>();
         if (doc["ledBrightness"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["ledBrightness"].as<JsonArrayConst>();
             for (uint8_t i = 0; i < enumCount(LedSection{}) && i < values.size(); ++i) cfg.ledBrightness[i] = constrain(values[i].as<int>(), 0, 100);
         }
+        if (doc["ledDimmEnabled"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledDimmEnabled"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(LedSection{}) && i < values.size(); ++i) cfg.ledDimmEnabled[i] = values[i].as<bool>();
+        }
+        if (doc["ledDimmPercent"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledDimmPercent"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(LedSection{}) && i < values.size(); ++i) cfg.ledDimmPercent[i] = constrain(values[i].as<int>(), 0, 100);
+        }
+        if (doc["ledAnimation"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledAnimation"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) cfg.ledAnimation[i] = constrain(values[i].as<int>(), 0, 255);
+        }
+        if (doc["ledColorRemixDegrees"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledColorRemixDegrees"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) cfg.ledColorRemixDegrees[i] = constrain(values[i].as<int>(), -180, 180);
+        }
+        if (doc["ledCalibrationHue"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledCalibrationHue"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationHue[i] = constrain(values[i].as<int>(), -30, 30);
+        }
+        if (doc["ledCalibrationSaturation"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledCalibrationSaturation"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationSaturation[i] = constrain(values[i].as<int>(), 50, 180);
+        }
+        if (doc["ledCalibrationBrightness"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledCalibrationBrightness"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationBrightness[i] = constrain(values[i].as<int>(), 50, 150);
+        }
         if (doc["soundVolume"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["soundVolume"].as<JsonArrayConst>();
             for (uint8_t i = 0; i < enumCount(SoundScenario{}) && i < values.size(); ++i) cfg.soundVolume[i] = constrain(values[i].as<int>(), 0, 100);
+        }
+        if (doc["soundRepeat"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["soundRepeat"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(SoundScenario{}) && i < values.size(); ++i) cfg.soundRepeat[i] = values[i].as<bool>();
+        }
+        if (doc["soundPath"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["soundPath"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(SoundScenario{}) && i < values.size(); ++i) {
+                if (values[i].is<const char*>()) readBoundedString(values[i], cfg.soundPath[i], sizeof(cfg.soundPath[i]), true);
+            }
         }
         if (doc["ventMode"].is<int>()) cfg.ventMode = static_cast<VentMode>(constrain(doc["ventMode"].as<int>(), 0, 2));
         if (doc["ventTargetTempC"].is<int>()) cfg.ventTargetTempC = constrain(doc["ventTargetTempC"].as<int>(), 20, 80);
         if (doc["manualFanPercent"].is<int>()) cfg.manualFanPercent = constrain(doc["manualFanPercent"].as<int>(), 0, 100);
         if (doc["manualFlapPercent"].is<int>()) cfg.manualFlapPercent = constrain(doc["manualFlapPercent"].as<int>(), 0, 100);
+        if (doc["fanMinPercent"].is<int>()) cfg.fanMinPercent = constrain(doc["fanMinPercent"].as<int>(), 0, cfg.fanMaxPercent);
+        if (doc["fanMaxPercent"].is<int>()) cfg.fanMaxPercent = constrain(doc["fanMaxPercent"].as<int>(), cfg.fanMinPercent, 100);
+        if (doc["failsafeFanPercent"].is<int>()) cfg.failsafeFanPercent = constrain(doc["failsafeFanPercent"].as<int>(), 0, 100);
+        if (doc["failsafeFlapPercent"].is<int>()) cfg.failsafeFlapPercent = constrain(doc["failsafeFlapPercent"].as<int>(), 0, 100);
         if (doc["servoClosedUs"].is<int>()) cfg.servoClosedUs = constrain(doc["servoClosedUs"].as<int>(), 500, 2500);
         if (doc["servoOpenUs"].is<int>()) cfg.servoOpenUs = constrain(doc["servoOpenUs"].as<int>(), 500, 2500);
         if (doc["servoReverse"].is<bool>()) cfg.servoReverse = doc["servoReverse"].as<bool>();
@@ -688,6 +761,13 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         if (doc["pandaMode"].is<int>()) cfg.pandaMode = static_cast<PandaBreathMode>(constrain(doc["pandaMode"].as<int>(), 0, static_cast<int>(PandaBreathMode::Count) - 1));
         if (doc["pandaTargetTempC"].is<int>()) cfg.pandaTargetTempC = constrain(doc["pandaTargetTempC"].as<int>(), 30, 60);
+        if (doc["pandaPrintTargetTempC"].is<int>()) cfg.pandaPrintTargetTempC = constrain(doc["pandaPrintTargetTempC"].as<int>(), 30, 60);
+        if (doc["pandaDryPreset"].is<int>()) cfg.pandaDryPreset = static_cast<PandaDryPreset>(constrain(doc["pandaDryPreset"].as<int>(), 0, static_cast<int>(PandaDryPreset::Count) - 1));
+        if (doc["pandaDryHours"].is<int>()) cfg.pandaDryHours = constrain(doc["pandaDryHours"].as<int>(), 1, 24);
+        if (doc["pandaPreheatHoldMinutes"].is<int>()) cfg.pandaPreheatHoldMinutes = constrain(doc["pandaPreheatHoldMinutes"].as<int>(), 1, 120);
+        if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 240);
+        if (doc["pandaTemperingEndTempC"].is<int>()) cfg.pandaTemperingEndTempC = constrain(doc["pandaTemperingEndTempC"].as<int>(), 0, 60);
+        if (doc["pandaTemperingAfterPrint"].is<bool>()) cfg.pandaTemperingAfterPrint = doc["pandaTemperingAfterPrint"].as<bool>();
         settingsService().save();
         publishSettings();
         publishEvent("ack", "settings_saved");
@@ -783,36 +863,89 @@ void BleService::publishSettings() {
                        "\"uiSkin\":%u,\"uiColorMode\":%u,\"accentHueDegrees\":%u,\"screenSaverMode\":%u,"
                        "\"screenSaverDelayMinutes\":%u,\"clockBrightness\":%u,\"clockStyle\":%u,"
                        "\"clock24Hour\":%s,\"timeZone\":\"%s\","
-                       "\"quietTarget\":%u,\"quietDurationMinutes\":%u}",
+                       "\"quietTarget\":%u,\"quietDurationMinutes\":%u,\"quietErrorsBypass\":%s}",
                        bleprotocol::Version, settingsRevision, cfg.displayBrightness, static_cast<unsigned>(cfg.uiSkin),
                        static_cast<unsigned>(cfg.uiColorMode), cfg.accentHueDegrees,
                        static_cast<unsigned>(cfg.screenSaverMode), cfg.screenSaverDelayMinutes,
                        cfg.clockBrightness, static_cast<unsigned>(cfg.clockStyle),
                        cfg.clock24Hour ? "true" : "false", safeTimeZone,
-                       static_cast<unsigned>(cfg.quietTarget), cfg.quietDurationMinutes);
+                       static_cast<unsigned>(cfg.quietTarget), cfg.quietDurationMinutes,
+                       cfg.quietErrorsBypass ? "true" : "false");
     if (!sendPayload(written)) return;
 
     written = snprintf(payload, sizeof(payload),
-                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"led_sound\",\"sr\":%lu,\"ledEnabled\":%s,"
-                       "\"ledBrightness\":[%u,%u,%u,%u],\"insideColorStyle\":%u,\"mirrorLedLayout\":%s,"
-                       "\"soundVolume\":[%u,%u,%u,%u,%u]}",
-                       bleprotocol::Version, settingsRevision, cfg.ledEnabled ? "true" : "false",
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"led\",\"sr\":%lu,\"ledEnabled\":%s,"
+                       "\"ledOtherMode\":%s,\"ledBrightness\":[%u,%u,%u,%u],"
+                       "\"ledDimmEnabled\":[%s,%s,%s,%s],\"ledDimmPercent\":[%u,%u,%u,%u],"
+                       "\"insideColorStyle\":%u,\"mirrorLedLayout\":%s,"
+                       "\"ledAnimation\":[%u,%u,%u,%u,%u,%u],"
+                       "\"ledColorRemixDegrees\":[%d,%d,%d,%d,%d,%d]}",
+                       bleprotocol::Version, settingsRevision, cfg.ledEnabled ? "true" : "false", cfg.ledOtherMode ? "true" : "false",
                        cfg.ledBrightness[0], cfg.ledBrightness[1], cfg.ledBrightness[2], cfg.ledBrightness[3],
+                       cfg.ledDimmEnabled[0] ? "true" : "false", cfg.ledDimmEnabled[1] ? "true" : "false",
+                       cfg.ledDimmEnabled[2] ? "true" : "false", cfg.ledDimmEnabled[3] ? "true" : "false",
+                       cfg.ledDimmPercent[0], cfg.ledDimmPercent[1], cfg.ledDimmPercent[2], cfg.ledDimmPercent[3],
                        static_cast<unsigned>(cfg.insideColorStyle), cfg.mirrorLedLayout ? "true" : "false",
-                       cfg.soundVolume[0], cfg.soundVolume[1], cfg.soundVolume[2], cfg.soundVolume[3], cfg.soundVolume[4]);
+                       cfg.ledAnimation[0], cfg.ledAnimation[1], cfg.ledAnimation[2], cfg.ledAnimation[3], cfg.ledAnimation[4], cfg.ledAnimation[5],
+                       cfg.ledColorRemixDegrees[0], cfg.ledColorRemixDegrees[1], cfg.ledColorRemixDegrees[2],
+                       cfg.ledColorRemixDegrees[3], cfg.ledColorRemixDegrees[4], cfg.ledColorRemixDegrees[5]);
     if (!sendPayload(written)) return;
+
+    written = snprintf(payload, sizeof(payload),
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"led_calibration\",\"sr\":%lu,"
+                       "\"ledCalibrationHue\":[%d,%d,%d,%d,%d,%d,%d,%d],"
+                       "\"ledCalibrationSaturation\":[%u,%u,%u,%u,%u,%u,%u,%u],"
+                       "\"ledCalibrationBrightness\":[%u,%u,%u,%u,%u,%u,%u,%u]}",
+                       bleprotocol::Version, settingsRevision,
+                       cfg.ledCalibrationHue[0], cfg.ledCalibrationHue[1], cfg.ledCalibrationHue[2], cfg.ledCalibrationHue[3],
+                       cfg.ledCalibrationHue[4], cfg.ledCalibrationHue[5], cfg.ledCalibrationHue[6], cfg.ledCalibrationHue[7],
+                       cfg.ledCalibrationSaturation[0], cfg.ledCalibrationSaturation[1], cfg.ledCalibrationSaturation[2], cfg.ledCalibrationSaturation[3],
+                       cfg.ledCalibrationSaturation[4], cfg.ledCalibrationSaturation[5], cfg.ledCalibrationSaturation[6], cfg.ledCalibrationSaturation[7],
+                       cfg.ledCalibrationBrightness[0], cfg.ledCalibrationBrightness[1], cfg.ledCalibrationBrightness[2], cfg.ledCalibrationBrightness[3],
+                       cfg.ledCalibrationBrightness[4], cfg.ledCalibrationBrightness[5], cfg.ledCalibrationBrightness[6], cfg.ledCalibrationBrightness[7]);
+    if (!sendPayload(written)) return;
+
+    written = snprintf(payload, sizeof(payload),
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"sound\",\"sr\":%lu,"
+                       "\"soundVolume\":[%u,%u,%u,%u,%u],\"soundRepeat\":[%s,%s,%s,%s,%s]}",
+                       bleprotocol::Version, settingsRevision,
+                       cfg.soundVolume[0], cfg.soundVolume[1], cfg.soundVolume[2], cfg.soundVolume[3], cfg.soundVolume[4],
+                       cfg.soundRepeat[0] ? "true" : "false", cfg.soundRepeat[1] ? "true" : "false",
+                       cfg.soundRepeat[2] ? "true" : "false", cfg.soundRepeat[3] ? "true" : "false",
+                       cfg.soundRepeat[4] ? "true" : "false");
+    if (!sendPayload(written)) return;
+
+    for (uint8_t i = 0; i < enumCount(SoundScenario{}); ++i) {
+        char safePath[132];
+        jsonStringCopy(cfg.soundPath[i], safePath, sizeof(safePath));
+        written = snprintf(payload, sizeof(payload),
+                           "{\"v\":%u,\"t\":\"settings\",\"group\":\"sound_path\",\"sr\":%lu,"
+                           "\"soundPathIndex\":%u,\"soundPathValue\":\"%s\"}",
+                           bleprotocol::Version, settingsRevision, i, safePath);
+        if (!sendPayload(written)) return;
+    }
 
     written = snprintf(payload, sizeof(payload),
                        "{\"v\":%u,\"t\":\"settings\",\"group\":\"vent\",\"sr\":%lu,\"ventMode\":%u,"
                        "\"ventTargetTempC\":%u,\"manualFanPercent\":%u,\"manualFlapPercent\":%u,"
-                       "\"servoClosedUs\":%u,\"servoOpenUs\":%u,\"servoReverse\":%s,"
-                       "\"diyHeaterOutputHigh\":%s,"
-                       "\"pandaEnabled\":%s,\"pandaHost\":\"%s\",\"pandaMode\":%u,\"pandaTargetTempC\":%u}",
+                       "\"fanMinPercent\":%u,\"fanMaxPercent\":%u,\"failsafeFanPercent\":%u,\"failsafeFlapPercent\":%u,"
+                       "\"servoClosedUs\":%u,\"servoOpenUs\":%u,\"servoReverse\":%s,\"diyHeaterOutputHigh\":%s}",
                        bleprotocol::Version, settingsRevision, static_cast<unsigned>(cfg.ventMode), cfg.ventTargetTempC,
-                       cfg.manualFanPercent, cfg.manualFlapPercent, cfg.servoClosedUs, cfg.servoOpenUs,
-                       cfg.servoReverse ? "true" : "false", cfg.diyHeaterOutputHigh ? "true" : "false",
-                       cfg.pandaEnabled ? "true" : "false", safePandaHost,
-                       static_cast<unsigned>(cfg.pandaMode), cfg.pandaTargetTempC);
+                       cfg.manualFanPercent, cfg.manualFlapPercent, cfg.fanMinPercent, cfg.fanMaxPercent,
+                       cfg.failsafeFanPercent, cfg.failsafeFlapPercent, cfg.servoClosedUs, cfg.servoOpenUs,
+                       cfg.servoReverse ? "true" : "false", cfg.diyHeaterOutputHigh ? "true" : "false");
+    if (!sendPayload(written)) return;
+
+    written = snprintf(payload, sizeof(payload),
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"panda\",\"sr\":%lu,\"pandaEnabled\":%s,"
+                       "\"pandaHost\":\"%s\",\"pandaMode\":%u,\"pandaTargetTempC\":%u,\"pandaPrintTargetTempC\":%u,"
+                       "\"pandaDryPreset\":%u,\"pandaDryHours\":%u,\"pandaPreheatHoldMinutes\":%u,"
+                       "\"pandaTemperingDurationMinutes\":%u,\"pandaTemperingEndTempC\":%u,\"pandaTemperingAfterPrint\":%s}",
+                       bleprotocol::Version, settingsRevision, cfg.pandaEnabled ? "true" : "false", safePandaHost,
+                       static_cast<unsigned>(cfg.pandaMode), cfg.pandaTargetTempC, cfg.pandaPrintTargetTempC,
+                       static_cast<unsigned>(cfg.pandaDryPreset), cfg.pandaDryHours, cfg.pandaPreheatHoldMinutes,
+                       cfg.pandaTemperingDurationMinutes, cfg.pandaTemperingEndTempC,
+                       cfg.pandaTemperingAfterPrint ? "true" : "false");
     sendPayload(written);
 }
 

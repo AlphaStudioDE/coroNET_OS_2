@@ -12,6 +12,8 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 - encrypted per-device offline state and settings cache;
 - firmware-revision conflict handling for simultaneous touchscreen and phone edits;
 - Home, LED, Vent, Sound, and Settings screens;
+- adaptive landscape console UI matching the touchscreen's information hierarchy while using the phone's wider canvas;
+- real firmware-driven LED animation previews and physical color calibration over BLE or WiFi;
 - revisioned printer Error and Finish notifications without reconnect duplicates;
 - Android 8.0 (API 26) and newer.
 

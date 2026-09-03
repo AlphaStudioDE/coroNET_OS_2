@@ -117,6 +117,13 @@ fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings())
         json.has("sr") -> json.optLong("sr", previous.revision)
         else -> previous.revision
     },
+    setupDone = json.optBoolean("setupDone", previous.setupDone),
+    bleEnabled = json.optBoolean("bleEnabled", previous.bleEnabled),
+    apiPaired = json.optBoolean("apiPaired", previous.apiPaired),
+    companionTransport = json.optInt("transportValue", json.optInt("transport", previous.companionTransport)),
+    wifiSsid = json.optString("wifiSsid", previous.wifiSsid),
+    printerHost = json.optString("printerHost", previous.printerHost),
+    printerPort = json.optInt("printerPort", previous.printerPort),
     displayBrightness = json.optInt("displayBrightness", json.optInt("brightness", previous.displayBrightness)),
     uiSkin = json.optInt("uiSkin", previous.uiSkin),
     uiColorMode = json.optInt("uiColorMode", json.optInt("uiColor", previous.uiColorMode)),
@@ -129,15 +136,37 @@ fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings())
     timeZone = json.optString("timeZone", previous.timeZone),
     quietTarget = json.optInt("quietTarget", previous.quietTarget),
     quietDurationMinutes = json.optInt("quietDurationMinutes", previous.quietDurationMinutes),
+    quietErrorsBypass = json.optBoolean("quietErrorsBypass", previous.quietErrorsBypass),
     ledEnabled = json.optBoolean("ledEnabled", previous.ledEnabled),
+    ledOtherMode = json.optBoolean("ledOtherMode", previous.ledOtherMode),
     ledBrightness = json.optIntList("ledBrightness", previous.ledBrightness),
+    ledDimmEnabled = json.optBooleanList("ledDimmEnabled", previous.ledDimmEnabled),
+    ledDimmPercent = json.optIntList("ledDimmPercent", previous.ledDimmPercent),
     insideColorStyle = json.optInt("insideColorStyle", previous.insideColorStyle),
     mirrorLedLayout = json.optBoolean("mirrorLedLayout", previous.mirrorLedLayout),
+    ledAnimation = json.optIntList("ledAnimation", previous.ledAnimation),
+    ledColorRemixDegrees = json.optIntList("ledColorRemixDegrees", previous.ledColorRemixDegrees),
+    ledCalibrationHue = json.optIntList("ledCalibrationHue", previous.ledCalibrationHue),
+    ledCalibrationSaturation = json.optIntList("ledCalibrationSaturation", previous.ledCalibrationSaturation),
+    ledCalibrationBrightness = json.optIntList("ledCalibrationBrightness", previous.ledCalibrationBrightness),
     soundVolume = json.optIntList("soundVolume", previous.soundVolume),
+    soundRepeat = json.optBooleanList("soundRepeat", previous.soundRepeat),
+    soundPath = if (json.has("soundPathIndex")) {
+        previous.soundPath.toMutableList().also { values ->
+            while (values.size < 5) values.add("")
+            json.optInt("soundPathIndex", -1).takeIf { it in values.indices }?.let { index ->
+                values[index] = json.optString("soundPathValue", values[index])
+            }
+        }
+    } else json.optStringList("soundPath", previous.soundPath),
     ventMode = json.optInt("ventMode", previous.ventMode),
     ventTargetTempC = json.optInt("ventTargetTempC", previous.ventTargetTempC),
     manualFanPercent = json.optInt("manualFanPercent", previous.manualFanPercent),
     manualFlapPercent = json.optInt("manualFlapPercent", previous.manualFlapPercent),
+    fanMinPercent = json.optInt("fanMinPercent", previous.fanMinPercent),
+    fanMaxPercent = json.optInt("fanMaxPercent", previous.fanMaxPercent),
+    failsafeFanPercent = json.optInt("failsafeFanPercent", previous.failsafeFanPercent),
+    failsafeFlapPercent = json.optInt("failsafeFlapPercent", previous.failsafeFlapPercent),
     servoClosedUs = json.optInt("servoClosedUs", previous.servoClosedUs),
     servoOpenUs = json.optInt("servoOpenUs", previous.servoOpenUs),
     servoReverse = json.optBoolean("servoReverse", previous.servoReverse),
@@ -146,6 +175,13 @@ fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings())
     pandaHost = json.optString("pandaHost", previous.pandaHost),
     pandaMode = json.optInt("pandaMode", previous.pandaMode),
     pandaTargetTempC = json.optInt("pandaTargetTempC", previous.pandaTargetTempC),
+    pandaPrintTargetTempC = json.optInt("pandaPrintTargetTempC", previous.pandaPrintTargetTempC),
+    pandaDryPreset = json.optInt("pandaDryPreset", previous.pandaDryPreset),
+    pandaDryHours = json.optInt("pandaDryHours", previous.pandaDryHours),
+    pandaPreheatHoldMinutes = json.optInt("pandaPreheatHoldMinutes", previous.pandaPreheatHoldMinutes),
+    pandaTemperingDurationMinutes = json.optInt("pandaTemperingDurationMinutes", previous.pandaTemperingDurationMinutes),
+    pandaTemperingEndTempC = json.optInt("pandaTemperingEndTempC", previous.pandaTemperingEndTempC),
+    pandaTemperingAfterPrint = json.optBoolean("pandaTemperingAfterPrint", previous.pandaTemperingAfterPrint),
 )
 
 private fun JSONObject.optDoubleOrNull(key: String): Double? =
@@ -154,4 +190,14 @@ private fun JSONObject.optDoubleOrNull(key: String): Double? =
 private fun JSONObject.optIntList(key: String, fallback: List<Int>): List<Int> {
     val array = optJSONArray(key) ?: return fallback
     return List(array.length()) { array.optInt(it, fallback.getOrElse(it) { 0 }) }
+}
+
+private fun JSONObject.optBooleanList(key: String, fallback: List<Boolean>): List<Boolean> {
+    val array = optJSONArray(key) ?: return fallback
+    return List(array.length()) { array.optBoolean(it, fallback.getOrElse(it) { false }) }
+}
+
+private fun JSONObject.optStringList(key: String, fallback: List<String>): List<String> {
+    val array = optJSONArray(key) ?: return fallback
+    return List(array.length()) { array.optString(it, fallback.getOrElse(it) { "" }) }
 }

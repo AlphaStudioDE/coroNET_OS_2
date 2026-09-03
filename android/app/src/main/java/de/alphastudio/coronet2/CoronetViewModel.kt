@@ -242,6 +242,39 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun previewLed(category: Int, animation: Int) {
+        val device = _snapshot.value.device ?: return
+        val payload = JSONObject()
+            .put("category", category.coerceIn(0, 5))
+            .put("animation", animation.coerceIn(0, 255))
+            .put("durationMs", 10000)
+        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                if (!wifi.post(device, "/api/led/preview", payload.toString())) {
+                    _snapshot.update { it.copy(error = "LED preview could not be started") }
+                }
+            }
+        } else if (_snapshot.value.connection == ConnectionKind.Ble) {
+            payload.put("cmd", "previewLed")
+            if (!ble.send(payload.toString())) {
+                _snapshot.update { it.copy(error = "LED preview could not be delivered") }
+            }
+        }
+    }
+
+    fun calibrateLed(active: Boolean, color: Int) {
+        val device = _snapshot.value.device ?: return
+        val payload = JSONObject().put("active", active).put("color", color.coerceIn(0, 7))
+        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                wifi.post(device, "/api/led/calibration", payload.toString())
+            }
+        } else if (_snapshot.value.connection == ConnectionKind.Ble) {
+            payload.put("cmd", "calibrateLed")
+            ble.send(payload.toString())
+        }
+    }
+
     fun requestBleSettings() { ble.send("{\"cmd\":\"getSettings\"}") }
 
     fun confirmPairingCodesMatch() {

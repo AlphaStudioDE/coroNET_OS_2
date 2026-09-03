@@ -7,6 +7,7 @@
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
+#include "../led/LedService.h"
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 #include "../update/OtaService.h"
@@ -206,6 +207,8 @@ void WebControlService::registerRoutes() {
     server_.on("/api/state", HTTP_GET, [this]() { if (authorizeRequest()) handleState(); });
     server_.on("/api/settings", HTTP_GET, [this]() { if (authorizeRequest()) handleSettings(); });
     server_.on("/api/settings", HTTP_POST, [this]() { if (authorizeRequest()) handleUpdateSettings(); });
+    server_.on("/api/led/preview", HTTP_POST, [this]() { if (authorizeRequest()) handleLedPreview(); });
+    server_.on("/api/led/calibration", HTTP_POST, [this]() { if (authorizeRequest()) handleLedCalibration(); });
     server_.on("/api/printer/test", HTTP_POST, [this]() { if (authorizeRequest()) handlePrinterTest(); });
     server_.on("/api/ota/check", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaCheck(); });
     server_.on("/api/ota/install", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaInstall(false); });
@@ -213,6 +216,8 @@ void WebControlService::registerRoutes() {
     server_.on("/api/ota/sd", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaSdRecovery(); });
     server_.on("/api/state", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/settings", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/led/preview", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/led/calibration", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/printer/test", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/check", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/install", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -310,6 +315,8 @@ void WebControlService::handleRoot() {
     addCommonState(doc);
     doc["api"] = "/api/state";
     doc["settings"] = "/api/settings";
+    doc["ledPreview"] = "/api/led/preview";
+    doc["ledCalibration"] = "/api/led/calibration";
     doc["printerTest"] = "/api/printer/test";
     doc["otaCheck"] = "/api/ota/check";
     doc["otaInstall"] = "/api/ota/install";
@@ -375,6 +382,14 @@ void WebControlService::handleSettings() {
     JsonArray animations = doc["ledAnimation"].to<JsonArray>();
     JsonArray remix = doc["ledColorRemixDegrees"].to<JsonArray>();
     for (uint8_t i = 0; i < enumCount(LedCategory{}); ++i) { animations.add(cfg.ledAnimation[i]); remix.add(cfg.ledColorRemixDegrees[i]); }
+    JsonArray calibrationHue = doc["ledCalibrationHue"].to<JsonArray>();
+    JsonArray calibrationSaturation = doc["ledCalibrationSaturation"].to<JsonArray>();
+    JsonArray calibrationBrightness = doc["ledCalibrationBrightness"].to<JsonArray>();
+    for (uint8_t i = 0; i < 8; ++i) {
+        calibrationHue.add(cfg.ledCalibrationHue[i]);
+        calibrationSaturation.add(cfg.ledCalibrationSaturation[i]);
+        calibrationBrightness.add(cfg.ledCalibrationBrightness[i]);
+    }
     JsonArray soundVolume = doc["soundVolume"].to<JsonArray>();
     JsonArray soundRepeat = doc["soundRepeat"].to<JsonArray>();
     JsonArray soundPath = doc["soundPath"].to<JsonArray>();
@@ -501,6 +516,18 @@ void WebControlService::handleUpdateSettings() {
         JsonArrayConst values = doc["ledColorRemixDegrees"].as<JsonArrayConst>();
         for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) cfg.ledColorRemixDegrees[i] = constrain(values[i].as<int>(), -180, 180);
     }
+    if (doc["ledCalibrationHue"].is<JsonArrayConst>()) {
+        JsonArrayConst values = doc["ledCalibrationHue"].as<JsonArrayConst>();
+        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationHue[i] = constrain(values[i].as<int>(), -30, 30);
+    }
+    if (doc["ledCalibrationSaturation"].is<JsonArrayConst>()) {
+        JsonArrayConst values = doc["ledCalibrationSaturation"].as<JsonArrayConst>();
+        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationSaturation[i] = constrain(values[i].as<int>(), 50, 180);
+    }
+    if (doc["ledCalibrationBrightness"].is<JsonArrayConst>()) {
+        JsonArrayConst values = doc["ledCalibrationBrightness"].as<JsonArrayConst>();
+        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationBrightness[i] = constrain(values[i].as<int>(), 50, 150);
+    }
     if (doc["soundVolume"].is<JsonArrayConst>()) copyPercentArray(doc["soundVolume"].as<JsonArrayConst>(), cfg.soundVolume, enumCount(SoundScenario{}));
     if (doc["soundRepeat"].is<JsonArrayConst>()) {
         JsonArrayConst values = doc["soundRepeat"].as<JsonArrayConst>();
@@ -593,6 +620,43 @@ void WebControlService::handlePrinterTest() {
     String payload;
     serializeJson(doc, payload);
     sendJson(result.ok ? 200 : 503, payload);
+}
+
+void WebControlService::handleLedPreview() {
+    JsonDocument doc;
+    if (deserializeJson(doc, server_.arg("plain")) || !doc["category"].is<int>() || !doc["animation"].is<int>()) {
+        sendJson(400, "{\"ok\":false,\"error\":\"invalid_preview\"}");
+        return;
+    }
+    const int category = doc["category"].as<int>();
+    const int animation = doc["animation"].as<int>();
+    const uint32_t durationMs = constrain(doc["durationMs"] | 10000U, 1000U, 30000U);
+    if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 || animation > 255) {
+        sendJson(400, "{\"ok\":false,\"error\":\"preview_out_of_range\"}");
+        return;
+    }
+    const bool started = ledService().requestPreview(static_cast<LedCategory>(category), static_cast<uint8_t>(animation), durationMs);
+    sendJson(started ? 202 : 409, started ? "{\"ok\":true,\"preview\":true}" : "{\"ok\":false,\"error\":\"led_unavailable\"}");
+}
+
+void WebControlService::handleLedCalibration() {
+    JsonDocument doc;
+    if (deserializeJson(doc, server_.arg("plain")) || !doc["active"].is<bool>()) {
+        sendJson(400, "{\"ok\":false,\"error\":\"invalid_calibration\"}");
+        return;
+    }
+    if (!doc["active"].as<bool>()) {
+        ledService().stopColorCalibration();
+        sendJson(200, "{\"ok\":true,\"calibration\":false}");
+        return;
+    }
+    const int color = doc["color"] | -1;
+    if (color < 0 || color >= static_cast<int>(LedCalibrationColor::Count)) {
+        sendJson(400, "{\"ok\":false,\"error\":\"calibration_color_invalid\"}");
+        return;
+    }
+    const bool started = ledService().startColorCalibration(static_cast<LedCalibrationColor>(color));
+    sendJson(started ? 200 : 409, started ? "{\"ok\":true,\"calibration\":true}" : "{\"ok\":false,\"error\":\"led_unavailable\"}");
 }
 
 void WebControlService::handleOtaCheck() {

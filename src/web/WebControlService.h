@@ -32,6 +32,8 @@ private:
     void handleState();
     void handleSettings();
     void handleUpdateSettings();
+    void handleLedPreview();
+    void handleLedCalibration();
     void handlePrinterTest();
     void handleOtaCheck();
     void handleOtaInstall(bool reinstall);

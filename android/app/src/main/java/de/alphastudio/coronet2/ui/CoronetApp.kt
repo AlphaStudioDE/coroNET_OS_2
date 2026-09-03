@@ -1,76 +1,81 @@
 package de.alphastudio.coronet2.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.Air
+import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.alphastudio.coronet2.CoronetViewModel
-import de.alphastudio.coronet2.model.*
-import org.json.JSONArray
-import org.json.JSONObject
-import kotlin.math.roundToInt
+import de.alphastudio.coronet2.model.ConnectionKind
+import de.alphastudio.coronet2.model.CoronetDevice
+import de.alphastudio.coronet2.model.DeviceSnapshot
+import de.alphastudio.coronet2.model.PairingChallenge
 
-private val CoronetDark = darkColorScheme(
-    primary = Color(0xFF16C7E8), secondary = Color(0xFFFFB323), tertiary = Color(0xFF42E19B),
-    onPrimary = Color(0xFF001F27),
-    background = Color(0xFF071018), surface = Color(0xFF0D1821), surfaceVariant = Color(0xFF14232E),
-    onBackground = Color(0xFFEAF7FA), onSurface = Color(0xFFEAF7FA), outline = Color(0xFF365363),
-)
-
-private enum class Page(val label: String) { Home("Home"), Led("LED"), Vent("Vent"), Sound("Sound"), Settings("Settings") }
-
-private data class TimeZoneChoice(val label: String, val offset: String, val spec: String)
-
-private val timeZoneChoices = listOf(
-    TimeZoneChoice("Apia / Nuku'alofa", "UTC+13", "<+13>-13"),
-    TimeZoneChoice("Auckland", "UTC+12/+13", "NZST-12NZDT,M9.5.0,M4.1.0/3"),
-    TimeZoneChoice("Fiji", "UTC+12", "<+12>-12"),
-    TimeZoneChoice("Honiara", "UTC+11", "<+11>-11"),
-    TimeZoneChoice("Sydney / Melbourne", "UTC+10/+11", "AEST-10AEDT,M10.1.0,M4.1.0/3"),
-    TimeZoneChoice("Adelaide", "UTC+9:30/+10:30", "ACST-9:30ACDT,M10.1.0,M4.1.0/3"),
-    TimeZoneChoice("Darwin", "UTC+9:30", "ACST-9:30"),
-    TimeZoneChoice("Tokyo / Seoul", "UTC+9", "JST-9"),
-    TimeZoneChoice("Shanghai / Singapore", "UTC+8", "CST-8"),
-    TimeZoneChoice("Bangkok / Jakarta", "UTC+7", "<+07>-7"),
-    TimeZoneChoice("Yangon", "UTC+6:30", "<+0630>-6:30"),
-    TimeZoneChoice("Dhaka", "UTC+6", "<+06>-6"),
-    TimeZoneChoice("Kolkata / Mumbai", "UTC+5:30", "IST-5:30"),
-    TimeZoneChoice("Almaty / Karachi / Tashkent", "UTC+5", "<+05>-5"),
-    TimeZoneChoice("Dubai / Muscat", "UTC+4", "<+04>-4"),
-    TimeZoneChoice("Moscow / Minsk", "UTC+3", "MSK-3"),
-    TimeZoneChoice("Cairo", "UTC+2/+3", "EET-2EEST,M4.5.5/0,M10.5.4/24"),
-    TimeZoneChoice("Helsinki / Athens / Kyiv", "UTC+2/+3", "EET-2EEST,M3.5.0/3,M10.5.0/4"),
-    TimeZoneChoice("Johannesburg", "UTC+2", "SAST-2"),
-    TimeZoneChoice("Berlin / Warsaw", "UTC+1/+2", "CET-1CEST,M3.5.0,M10.5.0/3"),
-    TimeZoneChoice("London / Dublin", "UTC+0/+1", "GMT0BST,M3.5.0/1,M10.5.0"),
-    TimeZoneChoice("UTC / Reykjavik", "UTC+0", "UTC0"),
-    TimeZoneChoice("Azores", "UTC-1/+0", "<-01>1<+00>,M3.5.0/0,M10.5.0/1"),
-    TimeZoneChoice("Sao Paulo", "UTC-3", "BRT3"),
-    TimeZoneChoice("Buenos Aires", "UTC-3", "<-03>3"),
-    TimeZoneChoice("New York / Toronto", "UTC-5/-4", "EST5EDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Chicago", "UTC-6/-5", "CST6CDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Mexico City", "UTC-6", "CST6"),
-    TimeZoneChoice("Denver", "UTC-7/-6", "MST7MDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Phoenix", "UTC-7", "MST7"),
-    TimeZoneChoice("Los Angeles / Vancouver", "UTC-8/-7", "PST8PDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Anchorage / Juneau", "UTC-9/-8", "AKST9AKDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Honolulu / Hawaii", "UTC-10", "HST10"),
-    TimeZoneChoice("Pago Pago / Midway", "UTC-11", "<-11>11"),
-)
-
-private fun timeZoneLabel(spec: String): String =
-    timeZoneChoices.firstOrNull { it.spec == spec }?.let { "${it.offset}  ${it.label}" } ?: "Custom"
+private enum class AppPage(val label: String, val icon: ImageVector) {
+    Home("HOME", Icons.Rounded.Home),
+    Led("LED", Icons.Rounded.Lightbulb),
+    Vent("VENT", Icons.Rounded.Air),
+    Sound("SOUND", Icons.AutoMirrored.Rounded.VolumeUp),
+    Settings("SET", Icons.Rounded.Settings),
+}
 
 @Composable
 fun CoronetApp(model: CoronetViewModel) {
@@ -82,51 +87,136 @@ fun CoronetApp(model: CoronetViewModel) {
     val scanning by model.scanning.collectAsState()
     val pairingChallenge by model.pairingChallenge.collectAsState()
     val pairingCandidate by model.pairingCandidate.collectAsState()
-    var page by remember { mutableStateOf(Page.Home) }
-    var manageDevices by remember { mutableStateOf(devices.isEmpty()) }
+    var pageName by rememberSaveable { mutableStateOf(AppPage.Home.name) }
+    var manageDevices by rememberSaveable { mutableStateOf(devices.isEmpty()) }
+    val page = AppPage.entries.firstOrNull { it.name == pageName } ?: AppPage.Home
 
-    MaterialTheme(colorScheme = CoronetDark, typography = Typography()) {
+    CoronetTheme(settings) {
         Scaffold(
+            modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             containerColor = MaterialTheme.colorScheme.background,
-            topBar = { DeviceHeader(snapshot, onManage = { manageDevices = true }) },
+            topBar = {
+                ConsoleHeader(page, snapshot) { manageDevices = true }
+            },
             bottomBar = {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    Page.entries.forEach { item ->
-                        NavigationBarItem(
-                            selected = page == item, onClick = { page = item },
-                            icon = { Text(item.label.take(1), fontWeight = FontWeight.Bold) },
-                            label = { Text(item.label, fontSize = 11.sp) },
-                        )
-                    }
-                }
+                ConsoleNavigation(page) { pageName = it.name }
             },
         ) { padding ->
-            Box(Modifier.padding(padding).fillMaxSize()) {
-                when (page) {
-                    Page.Home -> HomePage(snapshot)
-                    Page.Led -> LedPage(settings, model::sendSettings)
-                    Page.Vent -> VentPage(settings, snapshot, model::sendSettings)
-                    Page.Sound -> SoundPage(settings, snapshot, model::sendSettings)
-                    Page.Settings -> SettingsPage(settings, snapshot, model::sendSettings, model::sendOtaAction)
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "page",
+                modifier = Modifier.padding(padding).fillMaxSize(),
+            ) { selected ->
+                when (selected) {
+                    AppPage.Home -> HomePage(snapshot)
+                    AppPage.Led -> LedPage(settings, snapshot, model::sendSettings, model::previewLed, model::calibrateLed)
+                    AppPage.Vent -> VentPage(settings, snapshot, model::sendSettings)
+                    AppPage.Sound -> SoundPage(settings, snapshot, model::sendSettings)
+                    AppPage.Settings -> SettingsPage(settings, snapshot, model::sendSettings, model::sendOtaAction)
                 }
             }
         }
-        if (manageDevices) DeviceManager(
-            devices = devices, selectedId = selectedId, discovered = discovered, scanning = scanning,
-            onSelect = { model.select(it); manageDevices = false },
-            onScan = model::startScan, onAdd = { model.addAndConnect(it); manageDevices = false },
-            onSave = { model.saveDevice(it); manageDevices = false },
-            onRemove = model::removeSelected, onDismiss = { manageDevices = false },
-        )
-        pairingChallenge?.let { challenge ->
-            PairingDialog(
-                challenge = challenge,
-                onConfirm = model::confirmPairingCodesMatch,
-                onCancel = model::cancelPairing,
+
+        if (manageDevices) {
+            DeviceManager(
+                devices = devices,
+                selectedId = selectedId,
+                discovered = discovered,
+                scanning = scanning,
+                onSelect = model::select,
+                onScan = model::startScan,
+                onAdd = model::addAndConnect,
+                onSave = model::saveDevice,
+                onRemove = model::removeSelected,
+                onDismiss = { manageDevices = false },
             )
+        }
+        pairingChallenge?.let {
+            PairingDialog(it, model::confirmPairingCodesMatch, model::cancelPairing)
         }
         if (pairingCandidate != null && pairingChallenge == null) {
             PairingWaitingDialog(pairingCandidate!!, model::cancelPairing)
+        }
+    }
+}
+
+@Composable
+private fun ConsoleHeader(page: AppPage, snapshot: DeviceSnapshot, onDevices: () -> Unit) {
+    val palette = LocalCoronetPalette.current
+    Surface(
+        color = palette.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = BorderStroke(1.dp, palette.border),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("coro", color = palette.text, fontSize = 20.sp, fontWeight = FontWeight.Light)
+            Text("NET", color = palette.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("  /  ${page.label}", color = palette.muted, fontSize = 12.sp)
+            Spacer(Modifier.weight(1f))
+            StatusPill(
+                text = when (snapshot.connection) {
+                    ConnectionKind.Wifi -> "Wi-Fi"
+                    ConnectionKind.Ble -> "BLE"
+                    ConnectionKind.Offline -> if (snapshot.cached) "OFFLINE CACHE" else "OFFLINE"
+                },
+                color = connectionColor(snapshot.connection),
+            )
+            Spacer(Modifier.width(8.dp))
+            StatusPill(
+                text = if (snapshot.printer.connected) snapshot.printer.state.uppercase() else "PRINTER OFFLINE",
+                color = if (snapshot.printer.connected) stateColor(snapshot.printer.state) else palette.muted,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(snapshot.device?.name ?: "No device", color = palette.text, fontSize = 13.sp, maxLines = 1)
+            IconButton(onClick = onDevices, modifier = Modifier.size(42.dp)) {
+                Icon(Icons.Rounded.Devices, contentDescription = "Manage coroNET devices", tint = palette.accent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(text: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.10f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.75f)),
+        shape = RoundedCornerShape(5.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(Modifier.size(6.dp).background(color, CircleShape))
+            Text(text, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun ConsoleNavigation(selected: AppPage, onSelect: (AppPage) -> Unit) {
+    val palette = LocalCoronetPalette.current
+    NavigationBar(containerColor = palette.surface, tonalElevation = 0.dp, modifier = Modifier.height(58.dp)) {
+        AppPage.entries.forEach { page ->
+            NavigationBarItem(
+                selected = page == selected,
+                onClick = { onSelect(page) },
+                icon = { Icon(page.icon, contentDescription = page.label, modifier = Modifier.size(20.dp)) },
+                label = { Text(page.label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = palette.background,
+                    selectedTextColor = palette.accent,
+                    indicatorColor = palette.accent,
+                    unselectedIconColor = palette.muted,
+                    unselectedTextColor = palette.muted,
+                ),
+            )
         }
     }
 }
@@ -141,8 +231,7 @@ private fun PairingWaitingDialog(device: CoronetDevice, onCancel: () -> Unit) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
                 Text("Waiting for a secure pairing session.")
                 Text(
-                    "On coroNET, open Settings > Companion connection and tap PAIR PHONE. " +
-                        "This device will only be saved after both codes are confirmed.",
+                    "On coroNET, open Settings > Companion connection and tap PAIR PHONE.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -153,18 +242,13 @@ private fun PairingWaitingDialog(device: CoronetDevice, onCancel: () -> Unit) {
 }
 
 @Composable
-private fun PairingDialog(
-    challenge: PairingChallenge,
-    onConfirm: () -> Unit,
-    onCancel: () -> Unit,
-) {
+private fun PairingDialog(challenge: PairingChallenge, onConfirm: () -> Unit, onCancel: () -> Unit) {
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("Pair ${challenge.deviceName}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Check that this code matches the code shown on coroNET.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Confirm that both displays show the same code.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     "%03d %03d".format(challenge.code / 1000, challenge.code % 1000),
                     fontSize = 38.sp,
@@ -172,8 +256,8 @@ private fun PairingDialog(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    if (challenge.confirmedOnPhone) "Confirmed here. Complete confirmation on coroNET."
-                    else "Only continue when both displays show exactly the same number.",
+                    if (challenge.confirmedOnPhone) "Confirmed here. Finish confirmation on coroNET."
+                    else "Continue only when the numbers match exactly.",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -188,311 +272,74 @@ private fun PairingDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DeviceHeader(snapshot: DeviceSnapshot, onManage: () -> Unit) {
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-        title = {
-            Column {
-                Text(snapshot.device?.name ?: "coroNET", fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp)
-                Text(
-                    when (snapshot.connection) {
-                        ConnectionKind.Wifi -> "Connected via Wi-Fi"
-                        ConnectionKind.Ble -> "Connected via BLE"
-                        ConnectionKind.Offline -> if (snapshot.cached) "Offline - showing saved data" else "Offline"
-                    },
-                    fontSize = 12.sp, color = connectionColor(snapshot.connection), letterSpacing = 0.sp,
-                )
-            }
-        },
-        actions = { TextButton(onClick = onManage) { Text("DEVICES") } },
-    )
-}
-
-@Composable
-private fun HomePage(snapshot: DeviceSnapshot) = PageColumn {
-    Text("Printer", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Light)
-    StatusPanel(snapshot.printer)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Metric("Tool", snapshot.printer.toolTemp?.let { "%.1f C".format(it) } ?: "--", Modifier.weight(1f))
-        Metric("Bed", snapshot.printer.bedTemp?.let { "%.1f C".format(it) } ?: "--", Modifier.weight(1f))
-        Metric("Chamber", snapshot.printer.chamberTemp?.let { "%.1f C".format(it) } ?: "--", Modifier.weight(1f))
-    }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Metric("Fan", "${snapshot.fanPercent}%", Modifier.weight(1f))
-        Metric("Flap", "${snapshot.flapPercent}%", Modifier.weight(1f))
-        Metric("Firmware", snapshot.firmware, Modifier.weight(1f))
-    }
-    snapshot.error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
-}
-
-@Composable
-private fun StatusPanel(printer: PrinterSnapshot) = SectionCard {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(printer.state.uppercase(), color = stateColor(printer.state), fontWeight = FontWeight.Bold)
-            Text(printer.filename.ifBlank { printer.status.ifBlank { "Waiting for printer" } }, maxLines = 2)
-        }
-        Text("${printer.progress}%", fontSize = 30.sp, fontWeight = FontWeight.Light)
-    }
-    LinearProgressIndicator(
-        progress = { printer.progress.coerceIn(0, 100) / 100f },
-        modifier = Modifier.fillMaxWidth().height(7.dp), color = stateColor(printer.state),
-    )
-}
-
-@Composable
-private fun LedPage(settings: DeviceSettings, send: (String) -> Unit) = PageColumn {
-    PageTitle("LED", "Physical light engine")
-    SectionCard {
-        SettingSwitch("LED output", settings.ledEnabled) { send(json("ledEnabled", it)) }
-        val labels = listOf("Right", "Center", "Left", "Inside")
-        labels.forEachIndexed { index, label ->
-            ValueSlider(label, settings.ledBrightness.getOrElse(index) { 70 }, 0..100, "%") { value ->
-                val values = settings.ledBrightness.toMutableList().also { while (it.size < 4) it.add(70); it[index] = value }
-                send(JSONObject().put("ledBrightness", JSONArray(values)).toString())
-            }
-        }
-    }
-    SectionCard {
-        ChoiceRow("Inside light", if (settings.insideColorStyle == 0) "WHITE" else "AMBIENT") {
-            send(json("insideColorStyle", if (settings.insideColorStyle == 0) 1 else 0))
-        }
-        SettingSwitch("Mirror LED layout", settings.mirrorLedLayout) { send(json("mirrorLedLayout", it)) }
-    }
-}
-
-@Composable
-private fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) {
-    var pandaHost by remember(settings.pandaHost) { mutableStateOf(settings.pandaHost) }
-    PageColumn {
-    PageTitle("Vent", "Local chamber airflow")
-    SectionCard {
-        ChoiceRow("Mode", listOf("AUTO", "TARGET", "MANUAL").getOrElse(settings.ventMode) { "AUTO" }) {
-            send(json("ventMode", (settings.ventMode + 1) % 3))
-        }
-        ValueSlider("Target temperature", settings.ventTargetTempC, 20..80, " C") { send(json("ventTargetTempC", it)) }
-        if (settings.ventMode == 2) {
-            ValueSlider("Manual fan", settings.manualFanPercent, 0..100, "%") { send(json("manualFanPercent", it)) }
-            ValueSlider("Manual flap", settings.manualFlapPercent, 0..100, "%") { send(json("manualFlapPercent", it)) }
-        }
-        Text("Live: fan ${snapshot.fanPercent}%  |  flap ${snapshot.flapPercent}%", color = MaterialTheme.colorScheme.primary)
-    }
-    SectionCard {
-        Text("Servo calibration", fontWeight = FontWeight.SemiBold)
-        ValueSlider("Closed", settings.servoClosedUs, 500..2500, " us") { send(json("servoClosedUs", it)) }
-        ValueSlider("Open", settings.servoOpenUs, 500..2500, " us") { send(json("servoOpenUs", it)) }
-        SettingSwitch("Reverse servo", settings.servoReverse) { send(json("servoReverse", it)) }
-    }
-    SectionCard {
-        Text("DIY chamber heater", fontWeight = FontWeight.SemiBold)
-        SettingSwitch("GPIO46 output HIGH", settings.diyHeaterOutputHigh) {
-            send(json("diyHeaterOutputHigh", it))
-        }
-        Text("3.3 V logic only. Use an external relay, MOSFET or optocoupler.",
-             style = MaterialTheme.typography.bodySmall,
-             color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    SectionCard {
-        Text("Panda Breath", fontWeight = FontWeight.SemiBold)
-        OutlinedTextField(
-            value = pandaHost,
-            onValueChange = { pandaHost = it.take(64) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Address or hostname") },
-            placeholder = { Text("PandaBreath.local") },
-            singleLine = true,
-        )
-        Button(onClick = { send(json("pandaHost", pandaHost.trim())) }) {
-            Text("Save address")
-        }
-        SettingSwitch("Integration", settings.pandaEnabled) { send(json("pandaEnabled", it)) }
-        ChoiceRow("Workflow", listOf("OFF", "AUTO", "PREHEAT", "TEMPER", "FORCED", "DRY").getOrElse(settings.pandaMode) { "OFF" }) {
-            send(json("pandaMode", (settings.pandaMode + 1) % 6))
-        }
-        ValueSlider("Panda target", settings.pandaTargetTempC, 30..60, " C") { send(json("pandaTargetTempC", it)) }
-    }
-}
-}
-
-@Composable
-private fun SoundPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: (String) -> Unit) = PageColumn {
-    PageTitle("Sound", if (snapshot.audioPlaying) "Audio is playing" else "Scenario mixer")
-    SectionCard {
-        listOf("Start", "Finish", "Error", "Pause", "Idle").forEachIndexed { index, label ->
-            ValueSlider(label, settings.soundVolume.getOrElse(index) { 75 }, 0..100, "%") { value ->
-                val values = settings.soundVolume.toMutableList().also { while (it.size < 5) it.add(75); it[index] = value }
-                send(JSONObject().put("soundVolume", JSONArray(values)).toString())
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsPage(
-    settings: DeviceSettings,
-    snapshot: DeviceSnapshot,
-    send: (String) -> Unit,
-    sendOta: (String) -> Unit,
-) {
-    var pendingOtaAction by remember { mutableStateOf<String?>(null) }
-    var showTimeZonePicker by remember { mutableStateOf(false) }
-    PageColumn {
-        PageTitle("Settings", "Appearance and behavior")
-        SectionCard {
-            ChoiceRow("Interface", listOf("CORONET", "GRAPHITE", "AURORA", "MINIMAL").getOrElse(settings.uiSkin) { "CORONET" }) {
-                send(json("uiSkin", (settings.uiSkin + 1) % 4))
-            }
-            ChoiceRow("Color mode", listOf("DARK", "LIGHT", "AUTO").getOrElse(settings.uiColorMode) { "DARK" }) {
-                send(json("uiColorMode", (settings.uiColorMode + 1) % 3))
-            }
-            ValueSlider("Accent hue", settings.accentHueDegrees, 0..359, " deg") { send(json("accentHueDegrees", it)) }
-            ValueSlider("Display", settings.displayBrightness, 10..100, "%") { send(json("displayBrightness", it)) }
-        }
-        SectionCard {
-            Text("Screen saver", fontWeight = FontWeight.SemiBold)
-            ChoiceRow("Mode", listOf("DISABLED", "DISPLAY OFF", "CLOCK").getOrElse(settings.screenSaverMode) { "CLOCK" }) {
-                send(json("screenSaverMode", (settings.screenSaverMode + 1) % 3))
-            }
-            ChoiceRow("Clock", listOf("DIGITAL", "RETRO", "ANALOG", "LINHO", "BAUHAUS", "MATRIX", "ARC").getOrElse(settings.clockStyle) { "DIGITAL" }) {
-                send(json("clockStyle", (settings.clockStyle + 1) % 7))
-            }
-            ChoiceRow("Time format", if (settings.clock24Hour) "24 HOUR" else "12 HOUR") {
-                send(json("clock24Hour", !settings.clock24Hour))
-            }
-            ChoiceRow("Time zone", timeZoneLabel(settings.timeZone)) { showTimeZonePicker = true }
-            ValueSlider("After", settings.screenSaverDelayMinutes, 1..60, " min") { send(json("screenSaverDelayMinutes", it)) }
-            ValueSlider("Clock brightness", settings.clockBrightness, 5..100, "%") { send(json("clockBrightness", it)) }
-        }
-        SectionCard {
-            ChoiceRow("Quiet mode", listOf("OFF", "SOUND", "LEDS", "BOTH").getOrElse(settings.quietTarget) { "OFF" }) {
-                send(json("quietTarget", (settings.quietTarget + 1) % 4))
-            }
-            ValueSlider("Duration", settings.quietDurationMinutes.coerceAtMost(240), 1..240, " min") { send(json("quietDurationMinutes", it)) }
-        }
-        SectionCard {
-            Text("Firmware update", fontWeight = FontWeight.SemiBold)
-            Text("Installed ${snapshot.firmware}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (snapshot.ota.availableVersion.isNotBlank()) {
-                Text("Latest ${snapshot.ota.availableVersion}", color = MaterialTheme.colorScheme.primary)
-            }
-            Text(snapshot.ota.status, fontSize = 13.sp, color = otaStatusColor(snapshot.ota.state))
-            if (snapshot.ota.busy || snapshot.ota.progress > 0) {
-                LinearProgressIndicator(
-                    progress = { snapshot.ota.progress / 100f },
-                    modifier = Modifier.fillMaxWidth().height(7.dp),
-                )
-                Text("${snapshot.ota.progress}%", modifier = Modifier.align(Alignment.End), fontSize = 12.sp)
-            }
-            if (snapshot.connection != ConnectionKind.Wifi) {
-                Text("Firmware updates require a local Wi-Fi connection.", fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { sendOta("check") },
-                    enabled = snapshot.connection == ConnectionKind.Wifi && !snapshot.ota.busy,
-                    modifier = Modifier.weight(1f),
-                ) { Text(if (snapshot.ota.state == 1) "CHECKING" else "CHECK") }
-                Button(
-                    onClick = { pendingOtaAction = "install" },
-                    enabled = snapshot.connection == ConnectionKind.Wifi && snapshot.ota.updateAvailable && !snapshot.ota.busy,
-                    modifier = Modifier.weight(1f),
-                ) { Text("INSTALL") }
-            }
-            TextButton(
-                onClick = { pendingOtaAction = "reinstall" },
-                enabled = snapshot.connection == ConnectionKind.Wifi && !snapshot.ota.busy,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("REINSTALL CURRENT RELEASE") }
-        }
-    }
-
-    pendingOtaAction?.let { action ->
-        AlertDialog(
-            onDismissRequest = { pendingOtaAction = null },
-            title = { Text(if (action == "reinstall") "Reinstall firmware?" else "Install update?") },
-            text = { Text("coroNET will stop background services, install the verified firmware, and restart. Do not disconnect power.") },
-            confirmButton = {
-                Button(onClick = { pendingOtaAction = null; sendOta(action) }) { Text("CONTINUE") }
-            },
-            dismissButton = { TextButton(onClick = { pendingOtaAction = null }) { Text("CANCEL") } },
-        )
-    }
-
-    if (showTimeZonePicker) {
-        AlertDialog(
-            onDismissRequest = { showTimeZonePicker = false },
-            title = { Text("Select time zone") },
-            text = {
-                Column(
-                    Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    timeZoneChoices.forEach { choice ->
-                        TextButton(
-                            onClick = {
-                                send(json("timeZone", choice.spec))
-                                showTimeZonePicker = false
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                "${choice.offset}  ${choice.label}",
-                                modifier = Modifier.fillMaxWidth(),
-                                color = if (choice.spec == settings.timeZone)
-                                    MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showTimeZonePicker = false }) { Text("CLOSE") } },
-        )
-    }
-}
-
-@Composable
-private fun otaStatusColor(state: Int): Color = when (state) {
-    2, 7 -> MaterialTheme.colorScheme.tertiary
-    8 -> MaterialTheme.colorScheme.error
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
 @Composable
 private fun DeviceManager(
-    devices: List<CoronetDevice>, selectedId: String?, discovered: List<CoronetDevice>, scanning: Boolean,
-    onSelect: (String) -> Unit, onScan: () -> Unit, onAdd: (CoronetDevice) -> Unit,
-    onSave: (CoronetDevice) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit,
+    devices: List<CoronetDevice>,
+    selectedId: String?,
+    discovered: List<CoronetDevice>,
+    scanning: Boolean,
+    onSelect: (String?) -> Unit,
+    onScan: () -> Unit,
+    onAdd: (CoronetDevice) -> Unit,
+    onSave: (CoronetDevice) -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    var edited by remember(devices, selectedId) { mutableStateOf(devices.firstOrNull { it.id == selectedId } ?: devices.firstOrNull()) }
+    var edited by remember(devices, selectedId) {
+        mutableStateOf(devices.firstOrNull { it.id == selectedId } ?: devices.firstOrNull())
+    }
     var host by remember(edited) { mutableStateOf(edited?.host.orEmpty()) }
     var token by remember(edited) { mutableStateOf(edited?.token.orEmpty()) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("coroNET devices") },
         text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                devices.forEach { device ->
-                    OutlinedButton(onClick = { edited = device; host = device.host; token = device.token; onSelect(device.id) }, Modifier.fillMaxWidth()) {
-                        Text(if (device.id == selectedId) "${device.name}  SELECTED" else device.name)
+            Row(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 480.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("SAVED", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    devices.forEach { device ->
+                        OutlinedButton(
+                            onClick = {
+                                edited = device
+                                host = device.host
+                                token = device.token
+                                onSelect(device.id)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (device.id == selectedId) "${device.name}  ACTIVE" else device.name, maxLines = 1) }
+                    }
+                    HorizontalDivider()
+                    Button(onClick = onScan, enabled = !scanning, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (scanning) "SCANNING..." else "SCAN BLE")
+                    }
+                    discovered.forEach { device ->
+                        val saved = devices.any { it.id == device.id || it.address == device.address }
+                        TextButton(onClick = { onAdd(device) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("${if (saved) "CONNECT" else "PAIR"}  ${device.name}", maxLines = 1)
+                        }
                     }
                 }
-                HorizontalDivider()
-                Button(onClick = onScan, enabled = !scanning, modifier = Modifier.fillMaxWidth()) { Text(if (scanning) "SCANNING..." else "SCAN BLE") }
-                discovered.forEach { device ->
-                    val saved = devices.any { it.id == device.id || it.address == device.address }
-                    TextButton(onClick = { onAdd(device) }, Modifier.fillMaxWidth()) {
-                        Text("${if (saved) "CONNECT" else "PAIR"} ${device.name}")
-                    }
-                }
-                edited?.let { device ->
-                    Text("Wi-Fi connection", fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(host, { host = it }, label = { Text("IP address or host") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(token, { token = it }, label = { Text("API token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = { onSave(device.copy(host = host.trim(), token = token.trim())) }, Modifier.fillMaxWidth()) { Text("SAVE CONNECTION") }
-                    TextButton(onClick = onRemove, Modifier.fillMaxWidth()) { Text("REMOVE SELECTED", color = MaterialTheme.colorScheme.error) }
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("LOCAL WI-FI", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    edited?.let { device ->
+                        Text(device.name, fontWeight = FontWeight.SemiBold)
+                        OutlinedTextField(host, { host = it.take(64) }, label = { Text("IP address or host") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(token, { token = it.take(96) }, label = { Text("API token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Button(
+                            onClick = { onSave(device.copy(host = host.trim(), token = token.trim())) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("SAVE CONNECTION") }
+                        TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
+                            Text("REMOVE SELECTED", color = MaterialTheme.colorScheme.error)
+                        }
+                    } ?: Text("Scan and securely pair a coroNET to begin.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
@@ -501,53 +348,11 @@ private fun DeviceManager(
 }
 
 @Composable
-private fun PageColumn(content: @Composable ColumnScope.() -> Unit) = Column(
-    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp), content = content,
-)
-
-@Composable
-private fun PageTitle(title: String, subtitle: String) = Column {
-    Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Light)
-    Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-}
-
-@Composable
-private fun SectionCard(content: @Composable ColumnScope.() -> Unit) = Surface(
-    shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
-    tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth(),
-) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
-
-@Composable
-private fun Metric(label: String, value: String, modifier: Modifier = Modifier) = Surface(
-    modifier, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface,
-) { Column(Modifier.padding(12.dp)) { Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(value, fontWeight = FontWeight.SemiBold) } }
-
-@Composable
-private fun SettingSwitch(label: String, checked: Boolean, changed: (Boolean) -> Unit) = Row(
-    Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-) { Text(label, Modifier.weight(1f)); Switch(checked, changed) }
-
-@Composable
-private fun ChoiceRow(label: String, value: String, clicked: () -> Unit) = Row(
-    Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-) { Text(label, Modifier.weight(1f)); OutlinedButton(onClick = clicked) { Text(value) } }
-
-@Composable
-private fun ValueSlider(label: String, value: Int, range: IntRange, suffix: String, changed: (Int) -> Unit) {
-    var local by remember(value) { mutableFloatStateOf(value.toFloat()) }
-    Column {
-        Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text("${local.roundToInt()}$suffix", color = MaterialTheme.colorScheme.primary) }
-        Slider(
-            value = local, onValueChange = { local = it },
-            onValueChangeFinished = { changed(local.roundToInt()) },
-            valueRange = range.first.toFloat()..range.last.toFloat(),
-        )
+private fun connectionColor(connection: ConnectionKind): Color {
+    val palette = LocalCoronetPalette.current
+    return when (connection) {
+        ConnectionKind.Wifi -> palette.green
+        ConnectionKind.Ble -> palette.accent
+        ConnectionKind.Offline -> palette.red
     }
-}
-
-private fun json(key: String, value: Any): String = JSONObject().put(key, value).toString()
-private fun connectionColor(kind: ConnectionKind) = if (kind == ConnectionKind.Offline) Color(0xFFFF8A80) else Color(0xFF42E19B)
-private fun stateColor(state: String) = when (state) {
-    "error" -> Color(0xFFFF5C62); "complete" -> Color(0xFF42E19B); "paused" -> Color(0xFFFFB323); else -> Color(0xFF16C7E8)
 }

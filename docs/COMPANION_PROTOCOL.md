@@ -129,6 +129,18 @@ Clock presentation and the POSIX time-zone rule use the same patch command:
 
 The same field names are accepted by `POST /api/settings`. BLE accepts appearance, screen saver, quiet mode, LED brightness/policy, sound volume, local vent calibration, and Panda mode controls. Larger configuration changes should be split into small patches so each command remains below the 384-byte command limit.
 
+The phone can start the firmware's real ten-second LED preview without simulating frames locally:
+
+```json
+{"cmd":"previewLed","category":1,"animation":14,"durationMs":10000}
+```
+
+Physical color calibration is similarly controlled with `calibrateLed`. The `color` index is `0..7` for red, orange, yellow, green, cyan, blue, violet, and magenta. Always send `active:false` when the calibration UI closes.
+
+```json
+{"cmd":"calibrateLed","active":true,"color":0}
+```
+
 ## Secure Companion Pairing
 
 Pairing must be started physically from **Settings > Companion connection > Pair phone** on coroNET. Starting the wizard immediately revokes the previous phone relationship, rotates the random 128-bit API token, and opens a two-minute pairing session. The old token cannot be restored by cancelling the wizard.
@@ -171,6 +183,8 @@ The API is available in `auto` and `wifi` modes while the device has a WiFi conn
 - `GET /api/state`;
 - `GET /api/settings`;
 - `POST /api/settings`;
+- `POST /api/led/preview`;
+- `POST /api/led/calibration`;
 - `POST /api/printer/test`;
 - `POST /api/ota/check`;
 - `POST /api/ota/install`;
@@ -194,6 +208,8 @@ X-coroNET-Token: <32-character-token>
 Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 4096 bytes. The firmware intentionally does not publish a wildcard CORS origin; the Android app uses its native HTTP client. Secrets are never returned by settings endpoints, only `wifiPasswordSet` and `printerApiKeySet` flags.
 
 Settings are applied to active services immediately. NVS persistence is debounced for 1.5 seconds and forced after at most 5 seconds to prevent slider controls from wearing flash.
+
+`POST /api/led/preview` accepts `category`, `animation`, and optional `durationMs` (`1000..30000`). `POST /api/led/calibration` accepts `active` and, when active, `color`. These routes call the same LED engine used by the touchscreen and do not stream or duplicate animation frames in the client.
 
 `GET /api/settings` returns `settingsRevision`, and every BLE settings group includes the same value as `sr`. The revision changes whenever firmware accepts a settings mutation. Clients must ignore older revisions, keep locally pending fields during an optimistic update, and replace them with the device-confirmed value after acknowledgement. Concurrent edits to different fields therefore merge; concurrent edits to the same field settle on the latest value accepted by coroNET.
 
