@@ -171,45 +171,13 @@ RgbwColor blend(const RgbwColor& a, const RgbwColor& b, uint8_t amount) {
         static_cast<uint8_t>((static_cast<uint16_t>(a.w) * inverse + static_cast<uint16_t>(b.w) * amount + 127U) / 255U));
 }
 
-uint8_t approachChannel(uint8_t current, uint8_t target, uint8_t amount) {
-    if (current == target || amount == 255U) return target;
-
-    const uint8_t distance = current > target ? current - target : target - current;
-    const uint8_t step = max<uint8_t>(
-        1U, static_cast<uint8_t>((static_cast<uint16_t>(distance) * amount + 127U) / 255U));
+uint8_t smoothStepChannel(uint8_t current, uint8_t target, uint8_t step) {
+    if (current == target) return target;
     if (current < target) {
-        return static_cast<uint8_t>(current + min<uint8_t>(distance, step));
+        const uint16_t next = static_cast<uint16_t>(current) + step;
+        return next > target ? target : static_cast<uint8_t>(next);
     }
-    return static_cast<uint8_t>(current - min<uint8_t>(distance, step));
-}
-
-RgbwColor approach(const RgbwColor& current, const RgbwColor& target, uint8_t amount) {
-    const uint8_t peak = max(target.r, max(target.g, target.b));
-    const uint8_t low = min(target.r, min(target.g, target.b));
-    const uint8_t saturation = peak
-        ? static_cast<uint8_t>(static_cast<uint16_t>(peak - low) * 255U / peak)
-        : 0U;
-    const bool saturatedTarget = peak > 0U && saturation >= 120U;
-    const bool darkTarget = peak <= 16U && target.w <= 16U;
-    const uint8_t lowChannelLimit = static_cast<uint8_t>(peak / 3U);
-    const uint8_t fastRgbAmount = max<uint8_t>(amount, 224U);
-    const uint8_t fastWhiteAmount = max<uint8_t>(amount, 240U);
-
-    auto channelAmount = [&](uint8_t now, uint8_t next) -> uint8_t {
-        return (darkTarget && next < now) ||
-                   (saturatedTarget && next < now && next <= lowChannelLimit)
-            ? fastRgbAmount : amount;
-    };
-
-    // A regular RGB crossfade retains obsolete channels long enough to turn
-    // moving saturated colors pastel. Clear those channels, and any obsolete W,
-    // quickly while keeping the intended target color and ordinary fades intact.
-    return RgbwColor(
-        approachChannel(current.r, target.r, channelAmount(current.r, target.r)),
-        approachChannel(current.g, target.g, channelAmount(current.g, target.g)),
-        approachChannel(current.b, target.b, channelAmount(current.b, target.b)),
-        approachChannel(current.w, target.w,
-                        saturatedTarget && target.w < current.w ? fastWhiteAmount : amount));
+    return current - target <= step ? target : static_cast<uint8_t>(current - step);
 }
 
 RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
@@ -7309,10 +7277,31 @@ void LedService::applyOutputPolicies() {
 
 bool LedService::smoothAndShow(bool immediate) {
     bool dirty = false;
-    const uint8_t blendAmount = immediate ? 255U : 96U;
+    uint8_t step = 18U;
+    const LedCategory activeCategory = bootActive_ ? LedCategory::Idle
+        : (previewActive_ ? previewCategory_
+            : (snakeFinishActive_ ? LedCategory::Print
+                : (settingsService().settings().ledOtherMode
+                    ? LedCategory::Other : categoryForState(state()))));
+    if (activeCategory == LedCategory::Error) {
+        step = 3U;
+    } else if (activeCategory == LedCategory::Print ||
+               activeCategory == LedCategory::Pause ||
+               activeCategory == LedCategory::Finish) {
+        step = 10U;
+    }
+
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
-        const RgbwColor next = approach(currentFrame_[i], targetFrame_[i], blendAmount);
+        // coroNET 1 calibrated every target into its final physical RGBW/gamma
+        // representation before smoothing. Interpolating raw RGB first creates
+        // temporary low-saturation mixtures that look pastel on moving pixels.
+        const RgbwColor target = gamma2Output(targetFrame_[i]);
+        const RgbwColor next = immediate ? target : RgbwColor(
+            smoothStepChannel(currentFrame_[i].r, target.r, step),
+            smoothStepChannel(currentFrame_[i].g, target.g, step),
+            smoothStepChannel(currentFrame_[i].b, target.b, step),
+            smoothStepChannel(currentFrame_[i].w, target.w, step));
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;
@@ -7352,7 +7341,7 @@ void LedService::encodeFrame() {
         txBuffer_[output++] = NibbleLutLo[low];
     };
     for (uint16_t outputIndex = 0; outputIndex < hw::LedCount; ++outputIndex) {
-        const RgbwColor color = gamma2Output(currentFrame_[outputIndex]);
+        const RgbwColor& color = currentFrame_[outputIndex];
         append(color.g);
         append(color.r);
         append(color.b);
