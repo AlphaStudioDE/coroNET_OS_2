@@ -748,25 +748,24 @@ void SettingsScreen::showTimeZonePicker() {
         lv_obj_add_event_cb(button, timeZoneEvent, LV_EVENT_CLICKED, &timeZoneBindings_[slot]);
     }
 
-    lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18, 231, 130, nullptr);
-    lv_obj_t* label = lv_label_create(button);
-    styleText(label, ui::ColorText, &lv_font_montserrat_12);
+    lv_obj_t* label = nullptr;
+    lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18, 231, 130, &label);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_label_set_text(label, LV_SYMBOL_LEFT " PREV");
     lv_obj_center(label);
     actionBindings_[25] = {this, Action::TimeZonePrevious};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[25]);
 
-    button = makeActionButton(timeZoneOverlay_, 166, 231, 130, nullptr);
-    label = lv_label_create(button);
-    styleText(label, ui::ColorText, &lv_font_montserrat_12);
+    button = makeActionButton(timeZoneOverlay_, 166, 231, 130, &label);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_label_set_text(label, "NEXT " LV_SYMBOL_RIGHT);
     lv_obj_center(label);
     actionBindings_[26] = {this, Action::TimeZoneNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[26]);
 
-    button = makeActionButton(timeZoneOverlay_, 314, 231, 148, nullptr);
-    label = lv_label_create(button);
-    styleText(label, ui::ColorCyan, &lv_font_montserrat_12);
+    button = makeActionButton(timeZoneOverlay_, 314, 231, 148, &label);
+    lv_obj_set_style_text_color(label, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_label_set_text(label, "CLOSE");
     lv_obj_center(label);
     actionBindings_[27] = {this, Action::TimeZoneClose};
