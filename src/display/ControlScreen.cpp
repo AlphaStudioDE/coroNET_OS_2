@@ -185,6 +185,20 @@ lv_obj_t* ControlScreen::makeButton(lv_obj_t* parent, int x, int y, int width, i
     lv_obj_t* button = lv_btn_create(parent);
     lv_obj_set_size(button, width, height);
     lv_obj_set_pos(button, x, y);
+    switch (action) {
+        case Action::CategoryPrev:
+        case Action::CategoryNext:
+        case Action::AnimationPrev:
+        case Action::AnimationNext:
+        case Action::SoundPrev:
+        case Action::SoundNext:
+        case Action::SoundBrowserPrev:
+        case Action::SoundBrowserNext:
+            lv_obj_set_ext_click_area(button, 8);
+            break;
+        default:
+            break;
+    }
     styleButton(button);
     lv_obj_t* label = lv_label_create(button);
     styleText(label, ui::ColorText, &lv_font_montserrat_12);
