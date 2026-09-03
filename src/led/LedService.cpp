@@ -1650,29 +1650,17 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::LampGlow: {
-            constexpr LedSection sections[3] = {
-                LedSection::Left, LedSection::Center, LedSection::Right,
-            };
-            const uint8_t breath = static_cast<uint8_t>(78U + wave8(now / 122U) / 7U);
-            for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
-                const LedSection section = sections[sectionIndex];
-                const uint16_t count = sectionCount(section);
-                const uint16_t middle = (count - 1U) / 2U;
-                for (uint16_t i = 0; i < count; ++i) {
-                    const uint16_t distance = i > middle ? i - middle : middle - i;
-                    const uint8_t shape = static_cast<uint8_t>(max<int>(28,
-                        255 - static_cast<int>(distance) * (section == LedSection::Center ? 22 : 35)));
-                    const uint8_t value = static_cast<uint8_t>(
-                        static_cast<uint16_t>(shape) * breath / 255U);
-                    // Direct RGB reproduces the warm tungsten-like palette
-                    // proven on the physical SK6812 RGBNW strip in coroNET 1.
-                    setSection(section, i, RgbwColor(
-                        value,
-                        static_cast<uint8_t>(static_cast<uint16_t>(value) * 5U / 7U),
-                        static_cast<uint8_t>(static_cast<uint16_t>(value) * 18U /
-                                             max<uint8_t>(1U, breath))));
-                }
-            }
+            // Keep the exact warm RGB ratios and section levels proven on the
+            // physical RGBNW strip in coroNET 1. Scaling a spatial bell per
+            // pixel altered the blue/green ratio in its dim edges and made the
+            // lamp read as lemon-white through the diffuser.
+            const uint8_t core = static_cast<uint8_t>(78U + wave8(now / 122U) / 7U);
+            fillSection(LedSection::Center,
+                        RgbwColor(core, static_cast<uint8_t>(core * 5U / 7U), 18U));
+            const RgbwColor side(static_cast<uint8_t>(core / 3U),
+                                 static_cast<uint8_t>(core / 5U), 6U);
+            fillSection(LedSection::Left, side);
+            fillSection(LedSection::Right, side);
             break;
         }
         case IdleAnimation::CloudDrift: {
@@ -7356,7 +7344,11 @@ bool LedService::smoothAndShow(bool immediate) {
             ? static_cast<uint8_t>(static_cast<uint16_t>(targetPeak - targetLow) * 255U /
                                    targetPeak)
             : 0U;
-        const bool saturatedTarget = targetPeak > 16U && targetSaturation >= 120U;
+        // Gamma can reduce a deliberately dim but fully saturated target to
+        // only a few PWM steps. Treat it as chromatic at every non-zero output
+        // level; the former >16 threshold sent dark tails through independent
+        // channel ramps and left visible pastel RGB residue.
+        const bool saturatedTarget = targetPeak > 0U && targetSaturation >= 120U;
         const uint8_t fastWhiteStep = static_cast<uint8_t>(min<uint16_t>(
             255U, max<uint16_t>(96U, static_cast<uint16_t>(step) * 6U)));
         const bool insideWhite = forceInsideWhite && i >= hw::InsideStart;
@@ -7380,6 +7372,23 @@ bool LedService::smoothAndShow(bool immediate) {
             };
             next = RgbwColor(atPeak(target.r), atPeak(target.g), atPeak(target.b),
                              target.w);
+        } else if (!insideWhite && targetPeak == 0U) {
+            // Fade a chromatic pixel to black by its common peak. Independent
+            // channel subtraction changes hue as weaker channels hit zero and
+            // can leave a coloured three-channel haze at the end of a trail.
+            const uint8_t currentPeak = max(currentFrame_[i].r,
+                                            max(currentFrame_[i].g, currentFrame_[i].b));
+            const uint8_t nextPeak = smoothStepChannel(currentPeak, 0U, step);
+            auto atCurrentPeak = [&](uint8_t channel) -> uint8_t {
+                if (currentPeak == 0U) return 0U;
+                return static_cast<uint8_t>(
+                    (static_cast<uint16_t>(channel) * nextPeak + currentPeak / 2U) /
+                    currentPeak);
+            };
+            next = RgbwColor(atCurrentPeak(currentFrame_[i].r),
+                             atCurrentPeak(currentFrame_[i].g),
+                             atCurrentPeak(currentFrame_[i].b),
+                             smoothStepChannel(currentFrame_[i].w, target.w, fastWhiteStep));
         } else {
             next = RgbwColor(
                 insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r, step),
