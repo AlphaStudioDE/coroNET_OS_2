@@ -18,7 +18,7 @@ Status meanings:
 | CORE-03 | First-run Wi-Fi and printer setup wizard | OS2 | Implemented with validation and discovery. |
 | CORE-04 | Activation screen, device ID, license file, and manual activation key | OMIT | OS 2 is MIT licensed and does not use product activation. |
 | CORE-05 | Persistent NVS settings and migrations | OS2 | Implemented as versioned settings. |
-| CORE-06 | Top status rail for Wi-Fi, printer, ventilation, sound, and overall health | REDESIGN | Retain the information in a lighter shared status header. |
+| CORE-06 | Top status rail for Wi-Fi, printer, ventilation, sound, and overall health | OS2 | Implemented as a compact Wi-Fi, BLE companion, and printer connection header. Ventilation and audio details remain on their relevant screens instead of crowding the global header. |
 | CORE-07 | Bottom navigation: Home, LED, Heat/Vent, Sound, Settings | OS2 | Lightweight one-screen-at-a-time router is implemented. |
 | CORE-08 | Touch activity tracking and global screen wake | OS2 | Foundation exists; saver behavior remains to be implemented. |
 | CORE-09 | Touch anywhere to stop active status audio | REDESIGN | Retain and coordinate the stop state with phone/app control. |
