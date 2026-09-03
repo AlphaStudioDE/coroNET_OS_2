@@ -199,10 +199,10 @@ RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
 }
 
 uint8_t gamma2Channel(uint8_t value) {
-    if (value == 0U) return 0U;
-    const uint16_t corrected = static_cast<uint16_t>(
-        (static_cast<uint32_t>(value) * value + 127U) / 255U);
-    return static_cast<uint8_t>(max<uint16_t>(1U, corrected));
+    // SK6812 has only 8-bit PWM. Do not promote a sub-LSB result to 1:
+    // its first physical step is visibly brighter than an intended near-black.
+    return static_cast<uint8_t>(
+        (static_cast<uint32_t>(value) * value) / 255U);
 }
 
 RgbwColor gamma2Output(const RgbwColor& color) {
