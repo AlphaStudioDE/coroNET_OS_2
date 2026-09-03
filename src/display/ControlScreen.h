@@ -35,7 +35,7 @@ private:
         SoundRescan, SoundBrowserPrev, SoundBrowserNext,
         SoundBrowserFolderPrev, SoundBrowserFolderNext,
         SoundBrowserClose, SoundBrowserRow0, SoundBrowserRow1, SoundBrowserRow2,
-        SoundBrowserRow3, SoundBrowserRow4,
+        SoundBrowserRow3, SoundBrowserRow4, SoundBrowserRow5,
     };
 
     struct Binding { ControlScreen* owner = nullptr; Action action = Action::Preview; };
@@ -128,10 +128,10 @@ private:
     lv_obj_t* soundRuntimeLabel_ = nullptr;
     lv_obj_t* soundStorageLabel_ = nullptr;
     lv_obj_t* soundBrowserOverlay_ = nullptr;
-    lv_obj_t* soundBrowserScenarioLabel_ = nullptr;
+    lv_obj_t* soundBrowserTitleLabel_ = nullptr;
     lv_obj_t* soundBrowserFolderLabel_ = nullptr;
     lv_obj_t* soundBrowserPageLabel_ = nullptr;
-    lv_obj_t* soundBrowserRowLabels_[5] = {};
+    lv_obj_t* soundBrowserRowLabels_[6] = {};
     Binding bindings_[48] = {};
     uint8_t bindingCount_ = 0;
     uint8_t selectedCategory_ = 0;
