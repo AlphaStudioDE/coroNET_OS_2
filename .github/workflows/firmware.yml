@@ -102,8 +102,7 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
             gh release create "${GITHUB_REF_NAME}" \
               --title "coroNET OS 2 ${{ steps.version.outputs.version }}" \
-              --notes-file dist/RELEASE_NOTES.md \
-              --generate-notes
+              --notes-file dist/RELEASE_NOTES.md
           gh release upload "${GITHUB_REF_NAME}" \
             dist/coronet_os2.bin \
             dist/coronet_os2.bin.md5 \
