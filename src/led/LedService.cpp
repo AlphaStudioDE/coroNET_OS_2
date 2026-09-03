@@ -101,11 +101,11 @@ RgbwColor hsv(uint8_t hue, uint8_t saturation, uint8_t value) {
     if (saturation == 0) return RgbwColor(value, value, value, 0);
     const uint8_t region = hue / 43U;
     const uint8_t remainder = static_cast<uint8_t>((hue - region * 43U) * 6U);
-    const uint8_t p = static_cast<uint8_t>((static_cast<uint16_t>(value) * (255U - saturation)) >> 8U);
+    const uint8_t p = static_cast<uint8_t>(static_cast<uint16_t>(value) * (255U - saturation) / 255U);
     const uint8_t q = static_cast<uint8_t>((static_cast<uint16_t>(value) *
-                                            (255U - ((static_cast<uint16_t>(saturation) * remainder) >> 8U))) >> 8U);
+                                            (255U - (static_cast<uint16_t>(saturation) * remainder / 255U))) / 255U);
     const uint8_t t = static_cast<uint8_t>((static_cast<uint16_t>(value) *
-                                            (255U - ((static_cast<uint16_t>(saturation) * (255U - remainder)) >> 8U))) >> 8U);
+                                            (255U - (static_cast<uint16_t>(saturation) * (255U - remainder) / 255U))) / 255U);
     switch (region) {
         case 0: return RgbwColor(value, t, p);
         case 1: return RgbwColor(q, value, p);
@@ -165,10 +165,10 @@ uint8_t progressCoverage(uint8_t progress, uint16_t count, uint16_t index) {
 RgbwColor blend(const RgbwColor& a, const RgbwColor& b, uint8_t amount) {
     const uint16_t inverse = 255U - amount;
     return RgbwColor(
-        static_cast<uint8_t>((static_cast<uint16_t>(a.r) * inverse + static_cast<uint16_t>(b.r) * amount + 127U) / 255U),
-        static_cast<uint8_t>((static_cast<uint16_t>(a.g) * inverse + static_cast<uint16_t>(b.g) * amount + 127U) / 255U),
-        static_cast<uint8_t>((static_cast<uint16_t>(a.b) * inverse + static_cast<uint16_t>(b.b) * amount + 127U) / 255U),
-        static_cast<uint8_t>((static_cast<uint16_t>(a.w) * inverse + static_cast<uint16_t>(b.w) * amount + 127U) / 255U));
+        static_cast<uint8_t>((static_cast<uint16_t>(a.r) * inverse + static_cast<uint16_t>(b.r) * amount) / 255U),
+        static_cast<uint8_t>((static_cast<uint16_t>(a.g) * inverse + static_cast<uint16_t>(b.g) * amount) / 255U),
+        static_cast<uint8_t>((static_cast<uint16_t>(a.b) * inverse + static_cast<uint16_t>(b.b) * amount) / 255U),
+        static_cast<uint8_t>((static_cast<uint16_t>(a.w) * inverse + static_cast<uint16_t>(b.w) * amount) / 255U));
 }
 
 uint8_t smoothStepChannel(uint8_t current, uint8_t target, uint8_t step) {
@@ -182,17 +182,34 @@ uint8_t smoothStepChannel(uint8_t current, uint8_t target, uint8_t step) {
 
 RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
     return RgbwColor(
-        static_cast<uint8_t>((static_cast<uint16_t>(color.r) * scale + 127U) / 255U),
-        static_cast<uint8_t>((static_cast<uint16_t>(color.g) * scale + 127U) / 255U),
-        static_cast<uint8_t>((static_cast<uint16_t>(color.b) * scale + 127U) / 255U),
-        static_cast<uint8_t>((static_cast<uint16_t>(color.w) * scale + 127U) / 255U));
+        static_cast<uint8_t>(static_cast<uint16_t>(color.r) * scale / 255U),
+        static_cast<uint8_t>(static_cast<uint16_t>(color.g) * scale / 255U),
+        static_cast<uint8_t>(static_cast<uint16_t>(color.b) * scale / 255U),
+        static_cast<uint8_t>(static_cast<uint16_t>(color.w) * scale / 255U));
 }
 
 uint8_t gamma2Channel(uint8_t value) {
     // SK6812 has only 8-bit PWM. Do not promote a sub-LSB result to 1:
     // its first physical step is visibly brighter than an intended near-black.
     return static_cast<uint8_t>(
-        (static_cast<uint32_t>(value) * value) / 255U);
+        (static_cast<uint32_t>(value) * value) >> 8U);
+}
+
+uint8_t effectiveSectionBrightnessPercent(const AppSettings& settings,
+                                          const SystemState& system,
+                                          LedSection section,
+                                          uint32_t now) {
+    const uint8_t index = static_cast<uint8_t>(section);
+    const uint32_t activityBase = system.lastTouchMs ? system.lastTouchMs : system.bootMs;
+    const bool inactive = now - activityBase >= 5UL * 60UL * 1000UL;
+    const bool dimmed = system.printerState != PrinterState::Error && inactive &&
+                        settings.ledDimmEnabled[index];
+    return dimmed ? settings.ledDimmPercent[index] : settings.ledBrightness[index];
+}
+
+uint8_t brightnessPercentToScale(uint8_t percent) {
+    return static_cast<uint8_t>(static_cast<uint16_t>(min<uint8_t>(percent, 100U)) *
+                                255U / 100U);
 }
 
 RgbwColor gamma2Output(const RgbwColor& color) {
@@ -7189,6 +7206,8 @@ void LedService::applyInsidePolicy() {
         return;
     }
 
+    const SystemState& system = state();
+    const uint32_t now = millis();
     for (uint16_t i = 0; i < hw::InsideCount; ++i) {
         const uint16_t outerCenter = static_cast<uint16_t>(i * (hw::OuterCount - 1U) / (hw::InsideCount - 1U));
         uint32_t r = 0, g = 0, b = 0, w = 0, total = 0;
@@ -7199,16 +7218,28 @@ void LedService::applyInsidePolicy() {
             if (path < 0) path = 0;
             if (path >= static_cast<int16_t>(hw::OuterCount)) path = hw::OuterCount - 1U;
             RgbwColor color;
-            if (path < hw::RightCount) color = targetFrame_[sectionPhysicalIndex(LedSection::Right, path)];
-            else if (path < hw::RightCount + hw::CenterCount) {
+            LedSection sourceSection;
+            if (path < hw::RightCount) {
+                sourceSection = LedSection::Right;
+                color = targetFrame_[sectionPhysicalIndex(sourceSection, path)];
+            } else if (path < hw::RightCount + hw::CenterCount) {
+                sourceSection = LedSection::Center;
                 const uint16_t centerFromRight = path - hw::RightCount;
-                color = targetFrame_[sectionPhysicalIndex(LedSection::Center,
+                color = targetFrame_[sectionPhysicalIndex(sourceSection,
                     hw::CenterCount - 1U - centerFromRight)];
             } else {
+                sourceSection = LedSection::Left;
                 const uint16_t leftFromBottom = path - hw::RightCount - hw::CenterCount;
-                color = targetFrame_[sectionPhysicalIndex(LedSection::Left,
+                color = targetFrame_[sectionPhysicalIndex(sourceSection,
                     hw::LeftCount - 1U - leftFromBottom)];
             }
+            // coroNET 1 sampled the already brightness-scaled outer frame and
+            // de-gammaed it before building the ambient aura. This engine keeps
+            // its target frame linear, so apply the source section brightness
+            // here before averaging and let the inside brightness be applied
+            // later by applyOutputPolicies().
+            color = scaled(color, brightnessPercentToScale(
+                effectiveSectionBrightnessPercent(settings, system, sourceSection, now)));
             const uint8_t weight = Weights[sample];
             r += static_cast<uint32_t>(color.r) * weight;
             g += static_cast<uint32_t>(color.g) * weight;
@@ -7256,21 +7287,19 @@ void LedService::applyOutputPolicies() {
         return;
     }
 
-    const bool dimmAllowed = state().printerState != PrinterState::Error;
-    const uint32_t activityBase = state().lastTouchMs ? state().lastTouchMs : state().bootMs;
-    const bool inactive = millis() - activityBase >= 5UL * 60UL * 1000UL;
+    const SystemState& system = state();
+    const uint32_t now = millis();
     for (uint8_t sectionIndex = 0; sectionIndex < enumCount(LedSection{}); ++sectionIndex) {
-        const bool dimmed = dimmAllowed && inactive && settings.ledDimmEnabled[sectionIndex];
-        const uint8_t percent = dimmed ? settings.ledDimmPercent[sectionIndex]
-                                       : settings.ledBrightness[sectionIndex];
+        const LedSection section = static_cast<LedSection>(sectionIndex);
+        const uint8_t percent = effectiveSectionBrightnessPercent(
+            settings, system, section, now);
         // Percentages describe perceived brightness. The common gamma 2.0
         // conversion is applied once, immediately before SPI encoding.
-        const uint32_t scaleValue = static_cast<uint32_t>(percent) * 255U / 100U;
-        const LedSection section = static_cast<LedSection>(sectionIndex);
+        const uint8_t scaleValue = brightnessPercentToScale(percent);
         const uint16_t count = sectionCount(section);
         for (uint16_t i = 0; i < count; ++i) {
             const uint16_t physical = sectionPhysicalIndex(section, i);
-            targetFrame_[physical] = scaled(targetFrame_[physical], static_cast<uint8_t>(scaleValue));
+            targetFrame_[physical] = scaled(targetFrame_[physical], scaleValue);
         }
     }
 }
@@ -7291,17 +7320,45 @@ bool LedService::smoothAndShow(bool immediate) {
         step = 10U;
     }
 
+    const bool forceInsideWhite = !bootActive_ &&
+        settingsService().settings().insideColorStyle == InsideColorStyle::White;
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
         // coroNET 1 calibrated every target into its final physical RGBW/gamma
         // representation before smoothing. Interpolating raw RGB first creates
         // temporary low-saturation mixtures that look pastel on moving pixels.
         const RgbwColor target = gamma2Output(targetFrame_[i]);
-        const RgbwColor next = immediate ? target : RgbwColor(
-            smoothStepChannel(currentFrame_[i].r, target.r, step),
-            smoothStepChannel(currentFrame_[i].g, target.g, step),
-            smoothStepChannel(currentFrame_[i].b, target.b, step),
-            smoothStepChannel(currentFrame_[i].w, target.w, step));
+        const uint8_t targetPeak = max(target.r, max(target.g, target.b));
+        const uint8_t targetLow = min(target.r, min(target.g, target.b));
+        const uint8_t targetSaturation = targetPeak
+            ? static_cast<uint8_t>(static_cast<uint16_t>(targetPeak - targetLow) * 255U /
+                                   targetPeak)
+            : 0U;
+        const bool saturatedTarget = targetPeak > 16U && targetSaturation >= 120U;
+        const uint8_t lowChannelLimit = static_cast<uint8_t>(targetPeak / 3U);
+        const uint8_t fastRgbStep = static_cast<uint8_t>(min<uint16_t>(
+            255U, max<uint16_t>(48U, static_cast<uint16_t>(step) * 4U)));
+        const uint8_t fastWhiteStep = static_cast<uint8_t>(min<uint16_t>(
+            255U, max<uint16_t>(96U, static_cast<uint16_t>(step) * 6U)));
+
+        auto rgbStep = [&](uint8_t current, uint8_t desired) -> uint8_t {
+            return saturatedTarget && desired < current && desired <= lowChannelLimit
+                ? fastRgbStep : step;
+        };
+        const bool insideWhite = forceInsideWhite && i >= hw::InsideStart;
+        const RgbwColor next = immediate ? RgbwColor(
+            insideWhite ? 0U : target.r,
+            insideWhite ? 0U : target.g,
+            insideWhite ? 0U : target.b,
+            target.w) : RgbwColor(
+            insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r,
+                                                  rgbStep(currentFrame_[i].r, target.r)),
+            insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g,
+                                                  rgbStep(currentFrame_[i].g, target.g)),
+            insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b,
+                                                  rgbStep(currentFrame_[i].b, target.b)),
+            smoothStepChannel(currentFrame_[i].w, target.w,
+                saturatedTarget && target.w < currentFrame_[i].w ? fastWhiteStep : step));
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;
