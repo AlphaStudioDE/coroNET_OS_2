@@ -2526,7 +2526,7 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 const uint8_t fold = wave8(static_cast<uint8_t>(now / 38U + i * 28U));
                 const uint8_t value = open ? 20U
                     : static_cast<uint8_t>(95U + fold * 125U / 255U);
-                const RgbwColor curtain = decorativeHsv(LedCategory::Print, 248U, 245U, value);
+                const RgbwColor curtain = decorativeHsv(LedCategory::Print, 1U, 250U, value);
                 setSection(LedSection::Left, i, curtain);
                 setSection(LedSection::Right, hw::RightCount - 1U - i, curtain);
             }
@@ -5687,7 +5687,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     RgbwColor sky = blend(low, high, position);
                     const uint16_t distance = i > sun ? i - sun : sun - i;
                     if (distance <= 2U) sky = blend(sky,
-                        decorativeHsv(LedCategory::Other, 32U, 120U, 235U),
+                        decorativeHsv(LedCategory::Other, 28U, 215U, 235U),
                         static_cast<uint8_t>(195U - distance * 60U));
                     setSection(section, i, sky);
                 }
@@ -5757,7 +5757,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 if (distanceA <= 1U || distanceB <= 1U) value = distanceA == 0U || distanceB == 0U ? 3U : 18U;
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(250U + vein / 18U), 255U, value));
+                        static_cast<uint8_t>(vein * 6U / 255U), 255U, value));
             }
             break;
         }
@@ -6298,7 +6298,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 if (distance <= 7U) value = static_cast<uint8_t>(220U - distance * 28U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
-                        static_cast<uint8_t>(246U + facet / 38U), 255U, value));
+                        static_cast<uint8_t>(facet / 64U), 255U, value));
             }
             break;
         }
@@ -6449,7 +6449,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         ? static_cast<uint8_t>(sparkPhase * 255U / 120U)
                         : static_cast<uint8_t>((360U - sparkPhase) * 255U / 240U);
                     color = blend(color,
-                        decorativeHsv(LedCategory::Other, 31U, 145U, 225U), peak);
+                        decorativeHsv(LedCategory::Other, 27U, 225U, 225U), peak);
                 }
                 setOuterVisualPathPixel(path, color);
             }
@@ -6485,7 +6485,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         }
         case OtherAnimation::CandyStripe: {
             const uint16_t shift = static_cast<uint16_t>(now / 92U);
-            const RgbwColor cherry = decorativeHsv(LedCategory::Other, 250U, 250U, 220U);
+            const RgbwColor cherry = decorativeHsv(LedCategory::Other, 0U, 250U, 220U);
             const RgbwColor cream(225U, 190U, 145U);
             const RgbwColor mint = decorativeHsv(LedCategory::Other, 91U, 235U, 155U);
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
