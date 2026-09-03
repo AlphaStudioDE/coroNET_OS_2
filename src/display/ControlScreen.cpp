@@ -86,13 +86,22 @@ uint8_t previewDegamma(uint8_t value) {
     return Lut[value];
 }
 
-uint32_t rgbwHex(const RgbwColor& color) {
-    const uint8_t r = previewDegamma(static_cast<uint8_t>(
-        min(255U, static_cast<unsigned>(color.r) + color.w)));
-    const uint8_t g = previewDegamma(static_cast<uint8_t>(
-        min(255U, static_cast<unsigned>(color.g) + color.w)));
-    const uint8_t b = previewDegamma(static_cast<uint8_t>(
-        min(255U, static_cast<unsigned>(color.b) + color.w)));
+uint32_t rgbwHex(const RgbwColor& color, bool linearWhite = false) {
+    // Physical output applies gamma to RGB luminance while preserving channel
+    // ratios. Undoing gamma per channel would lift weaker channels too much and
+    // make saturated colours look pastel in the LCD preview.
+    const uint8_t peak = max(color.r, max(color.g, color.b));
+    const uint8_t linearPeak = previewDegamma(peak);
+    const uint8_t rgbR = peak ? static_cast<uint8_t>(
+        (static_cast<uint16_t>(color.r) * linearPeak + peak / 2U) / peak) : 0U;
+    const uint8_t rgbG = peak ? static_cast<uint8_t>(
+        (static_cast<uint16_t>(color.g) * linearPeak + peak / 2U) / peak) : 0U;
+    const uint8_t rgbB = peak ? static_cast<uint8_t>(
+        (static_cast<uint16_t>(color.b) * linearPeak + peak / 2U) / peak) : 0U;
+    const uint8_t white = linearWhite ? color.w : previewDegamma(color.w);
+    const uint8_t r = static_cast<uint8_t>(min<uint16_t>(255U, rgbR + white));
+    const uint8_t g = static_cast<uint8_t>(min<uint16_t>(255U, rgbG + white));
+    const uint8_t b = static_cast<uint8_t>(min<uint16_t>(255U, rgbB + white));
     return (static_cast<uint32_t>(r) << 16U) | (static_cast<uint32_t>(g) << 8U) | b;
 }
 
@@ -350,8 +359,11 @@ void ControlScreen::refreshLedCanvas() {
     for (uint16_t i = 0; i < hw::OuterCount; ++i) {
         draw(2 + i * 10, 4, 8, 8, rgbwHex(frame[hw::OuterEnd - i]));
     }
+    const bool linearInsideWhite =
+        settingsService().settings().insideColorStyle == InsideColorStyle::White;
     for (uint16_t i = 0; i < hw::InsideCount; ++i) {
-        draw(2 + i * 23, 25, 18, 8, rgbwHex(frame[hw::InsideStart + i]));
+        draw(2 + i * 23, 25, 18, 8,
+             rgbwHex(frame[hw::InsideStart + i], linearInsideWhite));
     }
     lv_obj_invalidate(previewCanvas_);
 }
