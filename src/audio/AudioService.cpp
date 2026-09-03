@@ -89,7 +89,12 @@ void AudioService::begin() {
         MaxIndexedFiles, 65, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     folderQueue_ = static_cast<FolderScanEntry*>(heap_caps_calloc(
         MaxScanFolders, sizeof(FolderScanEntry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!pcmBuffer_ || !rawBuffer_ || !fileIndex_ || !folderQueue_) {
+    libraryFolderNames_ = static_cast<char (*)[33]>(heap_caps_calloc(
+        MaxLibraryFolders, 33, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    fileFolderIds_ = static_cast<uint8_t*>(heap_caps_calloc(
+        MaxIndexedFiles, sizeof(uint8_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pcmBuffer_ || !rawBuffer_ || !fileIndex_ || !folderQueue_ ||
+        !libraryFolderNames_ || !fileFolderIds_) {
         Serial.println("[audio] PSRAM buffer allocation failed");
         strlcpy(state().audioStatusText, "Audio memory allocation failed", sizeof(state().audioStatusText));
         return;
@@ -162,6 +167,42 @@ const char* AudioService::filePath(uint8_t index) const {
     return fileIndex_ && !indexingFiles_ && index < fileCount_ ? fileIndex_[index] : nullptr;
 }
 
+const char* AudioService::folderName(uint8_t folder) const {
+    return libraryFolderNames_ && !indexingFiles_ && folder < libraryFolderCount_
+               ? libraryFolderNames_[folder]
+               : nullptr;
+}
+
+uint8_t AudioService::folderFileCount(uint8_t folder) const {
+    if (indexingFiles_ || !fileFolderIds_ || folder >= libraryFolderCount_) return 0;
+    uint8_t count = 0;
+    for (uint8_t index = 0; index < fileCount_; ++index) {
+        if (fileFolderIds_[index] == folder) ++count;
+    }
+    return count;
+}
+
+const char* AudioService::folderFilePath(uint8_t folder, uint8_t index) const {
+    if (indexingFiles_ || !fileIndex_ || !fileFolderIds_ ||
+        folder >= libraryFolderCount_) {
+        return nullptr;
+    }
+    uint8_t position = 0;
+    for (uint8_t file = 0; file < fileCount_; ++file) {
+        if (fileFolderIds_[file] != folder) continue;
+        if (position++ == index) return fileIndex_[file];
+    }
+    return nullptr;
+}
+
+uint8_t AudioService::folderForPath(const char* path) const {
+    if (indexingFiles_ || !fileIndex_ || !fileFolderIds_ || !path || !path[0]) return UINT8_MAX;
+    for (uint8_t index = 0; index < fileCount_; ++index) {
+        if (strcasecmp(fileIndex_[index], path) == 0) return fileFolderIds_[index];
+    }
+    return UINT8_MAX;
+}
+
 bool AudioService::pathAvailable(const char* path) const {
     if (!storageReady_ || indexingFiles_ || !fileIndex_ || !path || path[0] != '/') return false;
     for (uint8_t index = 0; index < fileCount_; ++index) {
@@ -184,25 +225,30 @@ bool AudioService::refreshFileIndex() {
     fileCount_ = 0;
     folderQueueCount_ = 0;
     folderQueueRead_ = 0;
+    libraryFolderCount_ = 0;
     memset(fileIndex_, 0, MaxIndexedFiles * 65U);
     memset(folderQueue_, 0, MaxScanFolders * sizeof(FolderScanEntry));
-    // Root WAV files stay convenient for small cards. Subfolders are scanned
-    // only below /sounds so unrelated SD content cannot make startup unbounded.
-    indexDirectory("/", 0U, false);
+    memset(libraryFolderNames_, 0, MaxLibraryFolders * 33U);
+    memset(fileFolderIds_, 0, MaxIndexedFiles * sizeof(uint8_t));
+    // The organized /sounds library has priority. Root WAV files are retained
+    // only as a compatibility fallback when the bounded index still has room.
     enqueueDirectory("/sounds", 0U);
     while (folderQueueRead_ < folderQueueCount_ && fileCount_ < MaxIndexedFiles) {
         const FolderScanEntry folder = folderQueue_[folderQueueRead_++];
         indexDirectory(folder.path, folder.depth, true);
     }
+    indexDirectory("/", 0U, false);
     sortFileIndex();
+    buildLibraryFolders();
     indexingFiles_ = false;
     state().audioFileCount = fileCount_;
     validateAssets();
     snprintf(state().audioStatusText, sizeof(state().audioStatusText),
              "%u status WAV file%s ready", static_cast<unsigned>(fileCount_),
              fileCount_ == 1U ? "" : "s");
-    Serial.printf("[audio] indexed %u WAV files; assets=%s\n",
-                  static_cast<unsigned>(fileCount_), state().audioAssetStatus);
+    Serial.printf("[audio] indexed %u WAV files in %u folders; assets=%s\n",
+                  static_cast<unsigned>(fileCount_),
+                  static_cast<unsigned>(libraryFolderCount_), state().audioAssetStatus);
     return true;
 }
 
@@ -278,6 +324,43 @@ void AudioService::sortFileIndex() {
             --position;
         }
         strlcpy(fileIndex_[position], temporary, 65);
+    }
+}
+
+void AudioService::buildLibraryFolders() {
+    libraryFolderCount_ = 0;
+    for (uint8_t file = 0; file < fileCount_; ++file) {
+        const char* path = fileIndex_[file];
+        char folderName[33] = "SD ROOT";
+        if (strncasecmp(path, "/sounds/", 8U) == 0) {
+            const char* relative = path + 8U;
+            const char* separator = strchr(relative, '/');
+            if (separator && separator > relative) {
+                const size_t length = min<size_t>(32U, static_cast<size_t>(separator - relative));
+                memcpy(folderName, relative, length);
+                folderName[length] = '\0';
+            } else {
+                strlcpy(folderName, "GENERAL", sizeof(folderName));
+            }
+        }
+
+        uint8_t folder = 0;
+        bool found = false;
+        for (; folder < libraryFolderCount_; ++folder) {
+            if (strcasecmp(libraryFolderNames_[folder], folderName) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (libraryFolderCount_ >= MaxLibraryFolders) {
+                fileFolderIds_[file] = 0;
+                continue;
+            }
+            folder = libraryFolderCount_++;
+            strlcpy(libraryFolderNames_[folder], folderName, 33);
+        }
+        fileFolderIds_[file] = folder;
     }
 }
 
@@ -375,11 +458,12 @@ bool AudioService::setSampleRate(uint32_t sampleRate) {
 void AudioService::logStatus() const {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
     Serial.printf(
-        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu indexed=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
+        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu indexed=%u folders=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
         driverReady_ ? 1U : 0U, storageReady_ ? 1U : 0U, playing_ ? 1U : 0U,
         bootAudioActive_ ? 1U : 0U, profileName(profile_), static_cast<unsigned long>(sampleRate_),
         static_cast<unsigned>(dmaBufferCount_), static_cast<unsigned>(BufferFrames),
         static_cast<unsigned long>(writeFailures_), static_cast<unsigned>(fileCount_),
+        static_cast<unsigned>(libraryFolderCount_),
         static_cast<unsigned long>(completedFiles_),
         static_cast<unsigned>(stackHeadroom),
         state().audioStatusText,

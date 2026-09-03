@@ -29,6 +29,11 @@ public:
     bool requestStorageRefresh();
     uint8_t fileCount() const { return indexingFiles_ ? 0 : fileCount_; }
     const char* filePath(uint8_t index) const;
+    uint8_t folderCount() const { return indexingFiles_ ? 0 : libraryFolderCount_; }
+    const char* folderName(uint8_t folder) const;
+    uint8_t folderFileCount(uint8_t folder) const;
+    const char* folderFilePath(uint8_t folder, uint8_t index) const;
+    uint8_t folderForPath(const char* path) const;
     bool pathAvailable(const char* path) const;
     bool resolveScenarioPath(SoundScenario scenario, char path[65]) const;
     bool bootAudioActive() const { return bootAudioActive_; }
@@ -64,6 +69,7 @@ private:
     static constexpr BaseType_t TaskCore = 0;
     static constexpr uint8_t MaxIndexedFiles = 64;
     static constexpr uint8_t MaxScanFolders = 24;
+    static constexpr uint8_t MaxLibraryFolders = 26;
 
     static void taskEntry(void* context);
     void taskLoop();
@@ -90,6 +96,7 @@ private:
     bool enqueueDirectory(const char* path, uint8_t depth);
     bool addIndexedFile(const char* path);
     void sortFileIndex();
+    void buildLibraryFolders();
     void validateAssets();
 
     TaskHandle_t task_ = nullptr;
@@ -98,9 +105,12 @@ private:
     uint8_t* rawBuffer_ = nullptr;
     char (*fileIndex_)[65] = nullptr;
     FolderScanEntry* folderQueue_ = nullptr;
+    char (*libraryFolderNames_)[33] = nullptr;
+    uint8_t* fileFolderIds_ = nullptr;
     uint8_t fileCount_ = 0;
     uint8_t folderQueueCount_ = 0;
     uint8_t folderQueueRead_ = 0;
+    uint8_t libraryFolderCount_ = 0;
     volatile bool indexingFiles_ = false;
     File wavFile_;
     WavInfo wav_;
