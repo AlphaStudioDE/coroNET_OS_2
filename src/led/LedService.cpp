@@ -286,6 +286,33 @@ RgbwColor gamma2Output(const RgbwColor& color) {
         outputRed, outputGreen, outputBlue, outputWhite);
 }
 
+RgbwColor calibratePhysicalChroma(const RgbwColor& color) {
+    const uint8_t peak = max(color.r, max(color.g, color.b));
+    if (peak == 0U) return color;
+
+    const uint8_t low = min(color.r, min(color.g, color.b));
+    const uint8_t saturation = static_cast<uint8_t>(
+        static_cast<uint16_t>(peak - low) * 255U / peak);
+    if (saturation < 96U) return color;
+
+    // The physical RGBNW strip and diffuser make weaker colour dies appear
+    // stronger than their numeric RGB ratios: orange drifts toward yellow and
+    // green toward cyan. Blend each secondary channel halfway toward a squared
+    // peak-relative ratio. Unlike per-channel brightness gamma, this ratio is
+    // independent of intensity, so dimming cannot turn orange into red.
+    constexpr uint8_t ChromaCorrection = 128U;
+    auto corrected = [&](uint8_t channel) -> uint8_t {
+        if (channel == 0U || channel == peak) return channel;
+        const uint8_t squaredRatio = static_cast<uint8_t>(
+            (static_cast<uint32_t>(channel) * channel + peak / 2U) / peak);
+        return static_cast<uint8_t>(
+            (static_cast<uint16_t>(channel) * (255U - ChromaCorrection) +
+             static_cast<uint16_t>(squaredRatio) * ChromaCorrection + 127U) / 255U);
+    };
+    return RgbwColor(corrected(color.r), corrected(color.g),
+                     corrected(color.b), color.w);
+}
+
 uint8_t temperaturePercent(float temperature, float minimum, float maximum,
                            uint8_t fallback) {
     if (isnan(temperature) || maximum <= minimum) return fallback;
@@ -7436,7 +7463,9 @@ void LedService::encodeFrame() {
         txBuffer_[output++] = NibbleLutLo[low];
     };
     for (uint16_t outputIndex = 0; outputIndex < hw::LedCount; ++outputIndex) {
-        const RgbwColor& color = currentFrame_[outputIndex];
+        // Keep currentFrame_ in calibrated logical/gamma space for an accurate
+        // LCD preview; compensate the physical strip only at the SPI boundary.
+        const RgbwColor color = calibratePhysicalChroma(currentFrame_[outputIndex]);
         append(color.g);
         append(color.r);
         append(color.b);
