@@ -4,22 +4,53 @@
 
 ## 0.2.2
 
-### Ventilation And Chamber Control
+### Ventilation Hardware Control
+- Kept the proven MCPWM servo-flap control path and completed the local flap calibration workflow.
+- Kept the 25 kHz PWM fan-control path with manual and automatic ventilation behavior.
+- Preserved hardware-safe output states while settings and connected services initialize.
 
-- Kept the proven MCPWM servo-flap and 25 kHz fan-control path while completing the new VENT integration.
+### DIY Chamber Heater Integration
 - Added optional DIY chamber-heater control as a persisted GPIO46 active-HIGH 3.3 V logic output for external driver hardware.
 - Added startup and OTA safety handling that forces the optional heater-control output LOW.
-- Synchronized the heater output setting across the touchscreen, authenticated WiFi API, BLE, and Android companion app.
-- Added on-device Panda Breath discovery through mDNS plus a lightweight manual host editor in the Android companion app.
+- Exposed the heater setting without placing mains or heater current directly on the ESP32-S3 output.
+
+### Panda Breath Integration
+- Added on-device Panda Breath discovery through mDNS before falling back to manual configuration.
+- Added a lightweight manual Panda Breath host editor in the Android companion app.
+- Integrated Panda configuration with the shared coroNET settings model.
+
+### Control Synchronization
+- Synchronized ventilation and heater settings across the touchscreen, authenticated WiFi API, BLE, and Android companion app.
+- Kept local hardware control functional independently of the companion connection.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.2.2_Flash_Tool.zip` from the assets below and follow the included instructions.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.2.1...v0.2.2
 
 ## 0.2.1
 
-### Status Sound Library
+### SD Sound Library
+- Added a PSRAM-backed SD sound index grouped by folders under `/sounds`.
+- Added `GENERAL` and `SD ROOT` compatibility groups for shared and root-level WAV files.
+- Kept `/boot.wav` reserved for the boot experience instead of exposing it as a status sound.
 
-- Added a PSRAM-backed SD sound index grouped by folders under `/sounds`, with `GENERAL` and `SD ROOT` compatibility groups.
-- Added a compact folder-and-file browser that shows filenames without full SD paths and keeps six sound choices visible at once.
-- Added per-status sound selection, volume, repeat, playback, stop, and rescan controls without scanning the SD card during routine UI refreshes.
-- Enlarged navigation touch targets and simplified the sound picker with one status-aware title.
+### Status Sound Selection
+- Added separate sound selection for Print Start, Print Finish, Error, Pause, and Idle.
+- Added per-status volume, repeat, playback, stop, and manual rescan controls.
+- Added a compact folder-and-file browser that shows filenames without unnecessary full SD paths and keeps six choices visible at once.
+
+### Interface And Runtime Efficiency
+- Enlarged arrow-button touch targets and replaced redundant labels with one status-aware selector title.
+- Avoided rescanning the SD card during routine UI refreshes.
+- Moved manual sound-library rescanning onto the audio worker so card access does not freeze LVGL or the touchscreen.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.2.1_Flash_Tool.zip` from the assets below and follow the included instructions.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.2.0...v0.2.1
 
 ## 2026-09-03
 

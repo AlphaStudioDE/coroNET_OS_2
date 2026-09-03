@@ -21,6 +21,17 @@ def release_section(document: str, version: str) -> str:
     notes = "\n".join(lines[start:end]).strip()
     if not notes:
         raise SystemExit(f"release notes section is empty: {heading}")
+
+    required_markers = (
+        "### ",
+        "### Installation",
+        "**Full changelog:**",
+    )
+    for marker in required_markers:
+        if marker not in notes:
+            raise SystemExit(
+                f"release notes section {heading} is missing required marker: {marker}"
+            )
     return notes + "\n"
 
 
