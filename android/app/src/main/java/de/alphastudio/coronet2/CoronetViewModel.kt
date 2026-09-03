@@ -12,6 +12,7 @@ import de.alphastudio.coronet2.model.*
 import de.alphastudio.coronet2.transport.CoronetBleManager
 import de.alphastudio.coronet2.transport.CoronetWifiClient
 import de.alphastudio.coronet2.transport.parseSettings
+import de.alphastudio.coronet2.transport.parseSoundLibrary
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +37,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     val snapshot: StateFlow<DeviceSnapshot> = _snapshot
     private val _settings = MutableStateFlow(DeviceSettings())
     val settings: StateFlow<DeviceSettings> = _settings
+    private val _soundLibrary = MutableStateFlow(SoundLibrarySnapshot())
+    val soundLibrary: StateFlow<SoundLibrarySnapshot> = _soundLibrary
     private val _selectedId = MutableStateFlow(_devices.value.firstOrNull()?.id)
     val selectedId: StateFlow<String?> = _selectedId
     private val _scanning = MutableStateFlow(false)
@@ -48,6 +51,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private var pendingPairingId: String? = null
     private var scanJob: Job? = null
     private var pollingJob: Job? = null
+    private var connectionWatchdogJob: Job? = null
     private var bleSettingsRefreshJob: Job? = null
     private var pairingChallengeJob: Job? = null
     private val settingsMutationMutex = Mutex()
@@ -57,10 +61,14 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private val pendingSettings = mutableMapOf<String, PendingSetting>()
     private val lastCacheWriteMs = ConcurrentHashMap<String, Long>()
     @Volatile private var settingsRevisionSeen = 0L
-    private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings,
+    private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings, ::onBleSoundLibrary,
         ::onPairingChallenge, ::onPairingResult, ::onEvent)
 
-    init { createNotificationChannel(); select(_selectedId.value) }
+    init {
+        createNotificationChannel()
+        select(_selectedId.value)
+        startConnectionWatchdog()
+    }
 
     fun startScan() {
         scanJob?.cancel()
@@ -105,6 +113,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         _selectedId.value = device.id
         _snapshot.value = DeviceSnapshot(device = device)
         _settings.value = DeviceSettings()
+        _soundLibrary.value = SoundLibrarySnapshot()
         ble.connect(device)
         startPairingChallengeRequests()
     }
@@ -121,6 +130,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         val cached = device?.let(store::loadCache)
         _snapshot.value = cached?.snapshot ?: DeviceSnapshot(device = device)
         _settings.value = cached?.settings ?: DeviceSettings()
+        _soundLibrary.value = SoundLibrarySnapshot()
         settingsRevisionSeen = 0L
         if (device == null) return
         if (device.address.isNotBlank()) ble.connect(device)
@@ -212,6 +222,47 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setDeviceName(name: String) {
+        val device = _snapshot.value.device ?: return
+        val cleanName = name.trim().take(24)
+        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+            sendSettings(JSONObject().put("deviceName", cleanName).toString())
+            return
+        }
+        if (_snapshot.value.connection != ConnectionKind.Ble) return
+        val command = JSONObject().put("cmd", "setDeviceName").put("name", cleanName)
+        if (!ble.send(command.toString())) {
+            _snapshot.update { it.copy(error = "Device name could not be delivered") }
+            return
+        }
+        val renamed = device.copy(name = cleanName.ifBlank { device.name })
+        _snapshot.update { it.copy(device = renamed) }
+        rememberResolvedDevice(renamed)
+    }
+
+    fun setCompanionTransport(mode: Int) {
+        val selected = mode.coerceIn(0, 2)
+        val device = _snapshot.value.device ?: return
+        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+            sendSettings(JSONObject().put("companionTransport", selected).toString())
+            return
+        }
+        if (_snapshot.value.connection != ConnectionKind.Ble) return
+        val names = arrayOf("auto", "ble", "wifi")
+        val command = JSONObject().put("cmd", "setCompanionTransport").put("mode", names[selected])
+        if (!ble.send(command.toString())) {
+            _snapshot.update { it.copy(error = "Connection preference could not be delivered") }
+            return
+        }
+        _settings.update { it.copy(companionTransport = selected) }
+        persistCurrentState(true)
+        bleSettingsRefreshJob?.cancel()
+        bleSettingsRefreshJob = viewModelScope.launch {
+            delay(600)
+            requestBleSettings()
+        }
+    }
+
     fun sendOtaAction(action: String) {
         val device = _snapshot.value.device ?: return
         val path = when (action) {
@@ -275,6 +326,71 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun loadSoundLibrary(folder: Int = 0, page: Int = 0) {
+        val device = _snapshot.value.device ?: return
+        _soundLibrary.update { it.copy(loading = true, error = null) }
+        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val loaded = wifi.fetchSoundLibrary(device, folder, page)
+                if (_selectedId.value != device.id) return@launch
+                _soundLibrary.value = loaded ?: _soundLibrary.value.copy(
+                    loading = false,
+                    error = "Sound library could not be loaded",
+                )
+            }
+        } else if (_snapshot.value.connection == ConnectionKind.Ble) {
+            val command = JSONObject().put("cmd", "getSoundLibrary").put("folder", folder).put("page", page)
+            if (!ble.send(command.toString())) {
+                _soundLibrary.update { it.copy(loading = false, error = "Sound library request could not be delivered") }
+            }
+        } else {
+            _soundLibrary.update { it.copy(loading = false, error = "Connect to coroNET to browse sounds") }
+        }
+    }
+
+    fun playSound(scenario: Int) = sendAudioCommand(
+        wifiPath = "/api/audio/play",
+        wifiBody = JSONObject().put("scenario", scenario.coerceIn(0, 4)).toString(),
+        bleBody = JSONObject().put("cmd", "playSound").put("scenario", scenario.coerceIn(0, 4)).toString(),
+        failure = "Sound could not be played",
+    )
+
+    fun stopSound() = sendAudioCommand(
+        wifiPath = "/api/audio/stop",
+        bleBody = "{\"cmd\":\"stopSound\"}",
+        failure = "Sound could not be stopped",
+    )
+
+    fun rescanSounds() {
+        sendAudioCommand(
+            wifiPath = "/api/audio/rescan",
+            bleBody = "{\"cmd\":\"rescanSounds\"}",
+            failure = "Sound library could not be rescanned",
+        )
+        viewModelScope.launch {
+            delay(1500)
+            loadSoundLibrary(_soundLibrary.value.folder, 0)
+        }
+    }
+
+    private fun sendAudioCommand(
+        wifiPath: String,
+        wifiBody: String = "{}",
+        bleBody: String,
+        failure: String,
+    ) {
+        val device = _snapshot.value.device ?: return
+        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                if (!wifi.post(device, wifiPath, wifiBody)) _snapshot.update { it.copy(error = failure) }
+            }
+        } else if (_snapshot.value.connection == ConnectionKind.Ble) {
+            if (!ble.send(bleBody)) _snapshot.update { it.copy(error = failure) }
+        } else {
+            _snapshot.update { it.copy(error = "Connect to coroNET first") }
+        }
+    }
+
     fun requestBleSettings() { ble.send("{\"cmd\":\"getSettings\"}") }
 
     fun confirmPairingCodesMatch() {
@@ -314,10 +430,6 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         val effective = when {
             value.connection == ConnectionKind.Ble -> value.copy(
                 firmware = current.firmware,
-                fanPercent = current.fanPercent,
-                flapPercent = current.flapPercent,
-                audioPlaying = current.audioPlaying,
-                quietActive = current.quietActive,
                 ota = current.ota,
             )
             current.ota.busy && value.connection != ConnectionKind.Wifi -> value.copy(ota = current.ota)
@@ -347,6 +459,10 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         if (incomingRevision > 0L && incomingRevision < settingsRevisionSeen) return
         acknowledgeMatchingPendingSettings(json)
         acceptRemoteSettings(parseSettings(json, _settings.value))
+    }
+
+    private fun onBleSoundLibrary(json: JSONObject) {
+        _soundLibrary.value = parseSoundLibrary(json)
     }
 
     private fun acceptRemoteSettings(remote: DeviceSettings) {
@@ -500,6 +616,25 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun startConnectionWatchdog() {
+        connectionWatchdogJob?.cancel()
+        connectionWatchdogJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                val current = _snapshot.value
+                val staleForMs = System.currentTimeMillis() - current.updatedAtEpochMs
+                if (current.connection == ConnectionKind.Ble && current.updatedAtEpochMs > 0L && staleForMs > 5000L) {
+                    settingsRevisionSeen = 0L
+                    _snapshot.value = current.copy(
+                        connection = ConnectionKind.Offline,
+                        error = "Bluetooth link timed out",
+                        cached = true,
+                    )
+                }
+            }
+        }
+    }
+
     private fun createNotificationChannel() {
         val manager = getApplication<Application>().getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("printer-events", "Printer events", NotificationManager.IMPORTANCE_HIGH))
@@ -520,9 +655,10 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     override fun onCleared() {
         scanJob?.cancel()
         pollingJob?.cancel()
+        connectionWatchdogJob?.cancel()
         bleSettingsRefreshJob?.cancel()
         pairingChallengeJob?.cancel()
-        ble.disconnect()
+        ble.close()
         super.onCleared()
     }
 

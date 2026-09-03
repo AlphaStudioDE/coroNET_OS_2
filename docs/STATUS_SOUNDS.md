@@ -46,6 +46,8 @@ The default option resolves `/sounds/start.wav`, `/sounds/finish.wav`, `/sounds/
 
 Use **Rescan** after inserting a card or changing its files while coroNET is running. Scanning runs in the audio worker rather than the display task, so the interface remains responsive.
 
+The Android companion exposes the same five scenarios and the same indexed folder library. Open **Sound**, choose a scenario, tap **Sound file**, and select a folder and filename without entering an SD path manually. **Play**, **Stop**, and **Rescan** operate on the coroNET audio engine over authenticated local WiFi or BLE, so assignments made on either screen remain synchronized.
+
 ## Runtime Behavior
 
 - Printer transitions are consumed from the shared, revisioned event stream; reconnecting establishes a baseline and does not generate a false status sound.

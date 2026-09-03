@@ -34,6 +34,10 @@ private:
     void handleUpdateSettings();
     void handleLedPreview();
     void handleLedCalibration();
+    void handleAudioLibrary();
+    void handleAudioPlay();
+    void handleAudioStop();
+    void handleAudioRescan();
     void handlePrinterTest();
     void handleOtaCheck();
     void handleOtaInstall(bool reinstall);

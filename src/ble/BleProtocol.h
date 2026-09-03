@@ -29,6 +29,11 @@ enum StateFlag : uint16_t {
     PrinterTelemetryValid = 1U << 10,
 };
 
+enum RuntimeFlag : uint8_t {
+    AudioPlaying = 1U << 0,
+    QuietActive = 1U << 1,
+};
+
 #pragma pack(push, 1)
 struct FrameHeader {
     uint8_t version;
@@ -49,7 +54,7 @@ struct StateSnapshotV2 {
     uint8_t printerState;
     uint8_t printProgress;
     uint8_t activeTool;
-    uint8_t reserved;
+    uint8_t runtimeFlags;
     int16_t activeToolTempTenths;
     int16_t bedTempTenths;
     int16_t chamberTempTenths;
@@ -61,11 +66,13 @@ struct StateSnapshotV2 {
     uint32_t printerStateEventSequence;
     uint8_t printerEventFrom;
     uint8_t printerEventTo;
+    uint8_t fanPercent;
+    uint8_t flapPercent;
 };
 #pragma pack(pop)
 
 static_assert(sizeof(FrameHeader) == 8, "BLE frame header layout changed");
-static_assert(sizeof(StateSnapshotV2) == 185, "BLE V2 state snapshot layout changed");
+static_assert(sizeof(StateSnapshotV2) == 187, "BLE V2 state snapshot layout changed");
 static_assert(sizeof(StateSnapshotV2) <= 236, "BLE state snapshot no longer fits one preferred-MTU frame");
 
 }

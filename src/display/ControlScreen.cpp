@@ -266,7 +266,7 @@ void ControlScreen::buildLedPage() {
     dimmSlider_ = makeSlider(control, 286, 120, 148, 0, 100, 20, Action::DimmPercent);
     makeButton(control, 14, 164, 126, 36, "DEFAULT", Action::RemixDefault);
     remixLabel_ = makeLabel(control, "COLOR REMIX 0", ui::ColorMuted, &lv_font_montserrat_10, 150, 172, 130);
-    remixSlider_ = makeSlider(control, 286, 168, 148, 0, 359, 0, Action::Remix);
+    remixSlider_ = makeSlider(control, 286, 168, 148, -180, 180, 0, Action::Remix);
     makeLabel(control, "Remix changes decorative hues only; data colors keep their meaning.",
               ui::ColorMuted, &lv_font_montserrat_10, 14, 216, 420);
 

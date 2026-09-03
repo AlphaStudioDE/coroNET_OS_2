@@ -5,7 +5,10 @@ import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
@@ -24,6 +27,7 @@ class CoronetBleManager(
     private val onFound: (CoronetDevice) -> Unit,
     private val onSnapshot: (DeviceSnapshot) -> Unit,
     private val onSettings: (JSONObject) -> Unit,
+    private val onSoundLibrary: (JSONObject) -> Unit,
     private val onPairingChallenge: (PairingChallenge) -> Unit,
     private val onPairingResult: (String, String, String, Long) -> Boolean,
     private val onEvent: (String, String) -> Unit,
@@ -35,7 +39,8 @@ class CoronetBleManager(
         private val EventUuid = UUID.fromString("7b7e0004-9f2a-4f3c-8d2a-c0a0e7c0ffee")
         private val Cccd = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private const val ProtocolVersion = 2
-        private const val StateSnapshotBytes = 185
+        private const val StateSnapshotBaseBytes = 185
+        private const val StateSnapshotExtendedBytes = 187
         private const val MaxCommandBytes = 384
         private const val MaxPendingCommands = 16
     }
@@ -54,11 +59,57 @@ class CoronetBleManager(
     @Volatile private var subscriptionsReady = false
     @Volatile private var serviceDiscoveryStarted = false
     private val serviceDiscoveryFallback = Runnable { gatt?.let(::discoverServicesOnce) }
+    private val serviceDiscoveryTimeout = Runnable {
+        val currentGatt = gatt
+        if (currentGatt != null && !subscriptionsReady) {
+            failAndReconnect(currentGatt, "service discovery timed out")
+        }
+    }
     @Volatile private var reconnectEnabled = false
     private var reconnectAttempt = 0
     private val reconnectRunnable = Runnable {
         val device = activeDevice
         if (reconnectEnabled && device != null && gatt == null) connectGatt(device)
+    }
+    private var adapterReceiverRegistered = false
+    private val adapterStateReceiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        override fun onReceive(receiverContext: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
+                    mainHandler.removeCallbacks(serviceDiscoveryFallback)
+                    mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+                    mainHandler.removeCallbacks(reconnectRunnable)
+                    command = null
+                    subscriptionsReady = false
+                    serviceDiscoveryStarted = false
+                    synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
+                    descriptorWrites.clear()
+                    synchronized(assemblies) { assemblies.clear() }
+                    gatt?.close()
+                    gatt = null
+                    activeDevice?.let { onSnapshot(DeviceSnapshot(device = it)) }
+                }
+                BluetoothAdapter.STATE_ON -> {
+                    if (reconnectEnabled && activeDevice != null) {
+                        reconnectAttempt = 0
+                        mainHandler.removeCallbacks(reconnectRunnable)
+                        mainHandler.postDelayed(reconnectRunnable, 1000)
+                    }
+                }
+            }
+        }
+    }
+
+    init {
+        ContextCompat.registerReceiver(
+            context,
+            adapterStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        adapterReceiverRegistered = true
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -113,6 +164,7 @@ class CoronetBleManager(
     @SuppressLint("MissingPermission")
     fun disconnect() {
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
+        mainHandler.removeCallbacks(serviceDiscoveryTimeout)
         mainHandler.removeCallbacks(reconnectRunnable)
         reconnectEnabled = false
         gatt?.disconnect()
@@ -123,6 +175,14 @@ class CoronetBleManager(
         subscriptionsReady = false
         serviceDiscoveryStarted = false
         synchronized(assemblies) { assemblies.clear() }
+    }
+
+    fun close() {
+        disconnect()
+        if (adapterReceiverRegistered) {
+            runCatching { context.unregisterReceiver(adapterStateReceiver) }
+            adapterReceiverRegistered = false
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -190,6 +250,7 @@ class CoronetBleManager(
                 else discoverServicesOnce(gatt)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 mainHandler.removeCallbacks(serviceDiscoveryFallback)
+                mainHandler.removeCallbacks(serviceDiscoveryTimeout)
                 command = null
                 subscriptionsReady = false
                 serviceDiscoveryStarted = false
@@ -209,6 +270,7 @@ class CoronetBleManager(
 
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            mainHandler.removeCallbacks(serviceDiscoveryTimeout)
             Log.i("coroNET-BLE", "services status=$status service=${gatt.getService(ServiceUuid) != null}")
             if (gatt !== this@CoronetBleManager.gatt) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -242,6 +304,7 @@ class CoronetBleManager(
         private fun writeNextDescriptor(gatt: BluetoothGatt) {
             val descriptor = descriptorWrites.firstOrNull()
             if (descriptor == null) {
+                mainHandler.removeCallbacks(serviceDiscoveryTimeout)
                 subscriptionsReady = true
                 activeDevice?.token?.takeIf { it.length == 32 }?.let { token ->
                     send(JSONObject().put("cmd", "authenticate").put("token", token).toString())
@@ -302,7 +365,12 @@ class CoronetBleManager(
     private fun discoverServicesOnce(targetGatt: BluetoothGatt) {
         if (targetGatt !== gatt || serviceDiscoveryStarted) return
         serviceDiscoveryStarted = targetGatt.discoverServices()
-        if (!serviceDiscoveryStarted) failAndReconnect(targetGatt, "service discovery did not start")
+        if (!serviceDiscoveryStarted) {
+            failAndReconnect(targetGatt, "service discovery did not start")
+        } else {
+            mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+            mainHandler.postDelayed(serviceDiscoveryTimeout, 5000)
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -310,6 +378,7 @@ class CoronetBleManager(
         if (targetGatt !== gatt) return
         Log.w("coroNET-BLE", "$reason; reconnecting")
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
+        mainHandler.removeCallbacks(serviceDiscoveryTimeout)
         command = null
         subscriptionsReady = false
         serviceDiscoveryStarted = false
@@ -374,17 +443,18 @@ class CoronetBleManager(
     }
 
     private fun parseSnapshot(bytes: ByteArray) {
-        if (bytes.size != StateSnapshotBytes || (bytes[0].toInt() and 0xff) != ProtocolVersion ||
+        if ((bytes.size != StateSnapshotBaseBytes && bytes.size != StateSnapshotExtendedBytes) ||
+            (bytes[0].toInt() and 0xff) != ProtocolVersion ||
             (bytes[1].toInt() and 0xff) != 1) return
         val b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         b.get(); b.get()
-        if ((b.short.toInt() and 0xffff) != StateSnapshotBytes) return
+        if ((b.short.toInt() and 0xffff) != bytes.size) return
         b.int; b.int
         val flags = b.short.toInt() and 0xffff
         val stateValue = b.get().toInt() and 0xff
         val progress = b.get().toInt() and 0xff
         val tool = b.get().toInt() and 0xff
-        b.get()
+        val runtimeFlags = b.get().toInt() and 0xff
         val toolTemp = b.short.toInt().toTemperature()
         val bedTemp = b.short.toInt().toTemperature()
         val chamberTemp = b.short.toInt().toTemperature()
@@ -396,9 +466,18 @@ class CoronetBleManager(
         val eventSequence = if (b.remaining() >= 4) b.int.toLong() and 0xffffffffL else 0L
         val eventFromValue = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
         val eventToValue = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
+        val fanPercent = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
+        val flapPercent = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
         val device = (activeDevice ?: CoronetDevice(id, name)).copy(id = id, name = name)
         val states = arrayOf("unknown", "idle", "printing", "paused", "error", "complete")
-        onSnapshot(DeviceSnapshot(device, ConnectionKind.Ble, printer = PrinterSnapshot(
+        onSnapshot(DeviceSnapshot(
+            device = device,
+            connection = ConnectionKind.Ble,
+            fanPercent = fanPercent.coerceIn(0, 100),
+            flapPercent = flapPercent.coerceIn(0, 100),
+            audioPlaying = runtimeFlags and 1 != 0,
+            quietActive = runtimeFlags and 2 != 0,
+            printer = PrinterSnapshot(
             connected = flags and (1 shl 7) != 0, state = states.getOrElse(stateValue) { "unknown" },
             status = status, filename = filename, progress = progress, tool = tool,
             toolTemp = toolTemp, bedTemp = bedTemp, chamberTemp = chamberTemp,
@@ -413,6 +492,7 @@ class CoronetBleManager(
         when (json.optString("t")) {
             "e" -> onEvent(json.optString("type"), json.optString("msg"))
             "settings" -> onSettings(json)
+            "sound_library" -> onSoundLibrary(json)
             "pairing_challenge" -> {
                 val id = json.optString("id")
                 val session = json.optLong("session")

@@ -4,6 +4,7 @@
 #include <WiFi.h>
 
 #include "../config/AppConfig.h"
+#include "../audio/AudioService.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
@@ -209,6 +210,10 @@ void WebControlService::registerRoutes() {
     server_.on("/api/settings", HTTP_POST, [this]() { if (authorizeRequest()) handleUpdateSettings(); });
     server_.on("/api/led/preview", HTTP_POST, [this]() { if (authorizeRequest()) handleLedPreview(); });
     server_.on("/api/led/calibration", HTTP_POST, [this]() { if (authorizeRequest()) handleLedCalibration(); });
+    server_.on("/api/audio/library", HTTP_GET, [this]() { if (authorizeRequest()) handleAudioLibrary(); });
+    server_.on("/api/audio/play", HTTP_POST, [this]() { if (authorizeRequest()) handleAudioPlay(); });
+    server_.on("/api/audio/stop", HTTP_POST, [this]() { if (authorizeRequest()) handleAudioStop(); });
+    server_.on("/api/audio/rescan", HTTP_POST, [this]() { if (authorizeRequest()) handleAudioRescan(); });
     server_.on("/api/printer/test", HTTP_POST, [this]() { if (authorizeRequest()) handlePrinterTest(); });
     server_.on("/api/ota/check", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaCheck(); });
     server_.on("/api/ota/install", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaInstall(false); });
@@ -218,6 +223,10 @@ void WebControlService::registerRoutes() {
     server_.on("/api/settings", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/preview", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/calibration", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/audio/library", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/audio/play", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/audio/stop", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/audio/rescan", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/printer/test", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/check", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/install", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -317,6 +326,9 @@ void WebControlService::handleRoot() {
     doc["settings"] = "/api/settings";
     doc["ledPreview"] = "/api/led/preview";
     doc["ledCalibration"] = "/api/led/calibration";
+    doc["audioLibrary"] = "/api/audio/library";
+    doc["audioPlay"] = "/api/audio/play";
+    doc["audioStop"] = "/api/audio/stop";
     doc["printerTest"] = "/api/printer/test";
     doc["otaCheck"] = "/api/ota/check";
     doc["otaInstall"] = "/api/ota/install";
@@ -518,11 +530,11 @@ void WebControlService::handleUpdateSettings() {
     }
     if (doc["ledCalibrationHue"].is<JsonArrayConst>()) {
         JsonArrayConst values = doc["ledCalibrationHue"].as<JsonArrayConst>();
-        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationHue[i] = constrain(values[i].as<int>(), -30, 30);
+        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationHue[i] = constrain(values[i].as<int>(), -45, 45);
     }
     if (doc["ledCalibrationSaturation"].is<JsonArrayConst>()) {
         JsonArrayConst values = doc["ledCalibrationSaturation"].as<JsonArrayConst>();
-        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationSaturation[i] = constrain(values[i].as<int>(), 50, 180);
+        for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationSaturation[i] = constrain(values[i].as<int>(), 50, 150);
     }
     if (doc["ledCalibrationBrightness"].is<JsonArrayConst>()) {
         JsonArrayConst values = doc["ledCalibrationBrightness"].as<JsonArrayConst>();
@@ -560,8 +572,8 @@ void WebControlService::handleUpdateSettings() {
     if (doc["pandaPrintTargetTempC"].is<int>()) cfg.pandaPrintTargetTempC = constrain(doc["pandaPrintTargetTempC"].as<int>(), 30, 60);
     if (doc["pandaDryPreset"].is<int>()) cfg.pandaDryPreset = static_cast<PandaDryPreset>(constrain(doc["pandaDryPreset"].as<int>(), 0, static_cast<int>(PandaDryPreset::Count) - 1));
     if (doc["pandaDryHours"].is<int>()) cfg.pandaDryHours = constrain(doc["pandaDryHours"].as<int>(), 1, 24);
-    if (doc["pandaPreheatHoldMinutes"].is<int>()) cfg.pandaPreheatHoldMinutes = constrain(doc["pandaPreheatHoldMinutes"].as<int>(), 1, 120);
-    if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 240);
+    if (doc["pandaPreheatHoldMinutes"].is<int>()) cfg.pandaPreheatHoldMinutes = constrain(doc["pandaPreheatHoldMinutes"].as<int>(), 1, 180);
+    if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 180);
     if (doc["pandaTemperingEndTempC"].is<int>()) cfg.pandaTemperingEndTempC = constrain(doc["pandaTemperingEndTempC"].as<int>(), 0, 60);
     if (doc["pandaTemperingAfterPrint"].is<bool>()) cfg.pandaTemperingAfterPrint = doc["pandaTemperingAfterPrint"].as<bool>();
     if (doc["wifiSsid"].is<const char*>()) {
@@ -657,6 +669,70 @@ void WebControlService::handleLedCalibration() {
     }
     const bool started = ledService().startColorCalibration(static_cast<LedCalibrationColor>(color));
     sendJson(started ? 200 : 409, started ? "{\"ok\":true,\"calibration\":true}" : "{\"ok\":false,\"error\":\"led_unavailable\"}");
+}
+
+void WebControlService::handleAudioLibrary() {
+    constexpr uint8_t PageSize = 8;
+    const uint8_t folderCount = audioService().folderCount();
+    const int requestedFolder = server_.hasArg("folder") ? server_.arg("folder").toInt() : 0;
+    const uint8_t folder = folderCount == 0U
+        ? 0U
+        : static_cast<uint8_t>(constrain(requestedFolder, 0, static_cast<int>(folderCount) - 1));
+    const uint8_t fileCount = folderCount == 0U ? 0U : audioService().folderFileCount(folder);
+    const uint8_t pageCount = max<uint8_t>(1U, static_cast<uint8_t>((fileCount + PageSize - 1U) / PageSize));
+    const int requestedPage = server_.hasArg("page") ? server_.arg("page").toInt() : 0;
+    const uint8_t page = static_cast<uint8_t>(constrain(requestedPage, 0, static_cast<int>(pageCount) - 1));
+    const uint8_t first = static_cast<uint8_t>(page * PageSize);
+
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["sdReady"] = state().sdReady;
+    doc["folder"] = folder;
+    doc["folderCount"] = folderCount;
+    doc["folderName"] = folderCount ? audioService().folderName(folder) : "";
+    doc["page"] = page;
+    doc["pageCount"] = pageCount;
+    doc["fileCount"] = fileCount;
+    JsonArray files = doc["files"].to<JsonArray>();
+    for (uint8_t index = first; index < fileCount && index < first + PageSize; ++index) {
+        const char* path = audioService().folderFilePath(folder, index);
+        if (!path) continue;
+        JsonObject item = files.add<JsonObject>();
+        item["path"] = path;
+        const char* slash = strrchr(path, '/');
+        item["name"] = slash ? slash + 1 : path;
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+    sendJson(200, payload);
+}
+
+void WebControlService::handleAudioPlay() {
+    JsonDocument doc;
+    if (deserializeJson(doc, server_.arg("plain")) || !doc["scenario"].is<int>()) {
+        sendJson(400, "{\"ok\":false,\"error\":\"invalid_audio_scenario\"}");
+        return;
+    }
+    const int scenario = doc["scenario"].as<int>();
+    if (scenario < 0 || scenario >= static_cast<int>(SoundScenario::Count)) {
+        sendJson(400, "{\"ok\":false,\"error\":\"audio_scenario_out_of_range\"}");
+        return;
+    }
+    const bool started = audioService().playScenario(static_cast<SoundScenario>(scenario));
+    sendJson(started ? 202 : 409,
+             started ? "{\"ok\":true,\"playing\":true}" : "{\"ok\":false,\"error\":\"audio_unavailable\"}");
+}
+
+void WebControlService::handleAudioStop() {
+    audioService().stop();
+    sendJson(200, "{\"ok\":true,\"playing\":false}");
+}
+
+void WebControlService::handleAudioRescan() {
+    const bool queued = audioService().requestStorageRefresh();
+    sendJson(queued ? 202 : 409,
+             queued ? "{\"ok\":true,\"queued\":true}" : "{\"ok\":false,\"error\":\"audio_busy\"}");
 }
 
 void WebControlService::handleOtaCheck() {

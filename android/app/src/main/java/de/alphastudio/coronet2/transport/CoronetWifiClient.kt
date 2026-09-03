@@ -80,6 +80,26 @@ class CoronetWifiClient {
         return null
     }
 
+    fun fetchSoundLibrary(device: CoronetDevice, folder: Int, page: Int): SoundLibrarySnapshot? {
+        if (device.token.isBlank()) return null
+        hostCandidates(device).forEach { host ->
+            val connection = URL("http://$host/api/audio/library?folder=$folder&page=$page").openConnection() as HttpURLConnection
+            connection.connectTimeout = 1500
+            connection.readTimeout = 2500
+            connection.setRequestProperty("X-coroNET-Token", device.token)
+            try {
+                if (connection.responseCode == 200) {
+                    return parseSoundLibrary(JSONObject(connection.inputStream.bufferedReader().use { it.readText() }))
+                }
+            } catch (_: Exception) {
+                // Try the next saved IP or mDNS hostname.
+            } finally {
+                connection.disconnect()
+            }
+        }
+        return null
+    }
+
     fun post(device: CoronetDevice, path: String, body: String = "{}"): Boolean {
         for (host in hostCandidates(device)) {
             val ok = runCatching {
@@ -108,6 +128,25 @@ class CoronetWifiClient {
             .orEmpty()
         return listOf(device.host, mdns).filter { it.isNotBlank() }.distinct()
     }
+}
+
+fun parseSoundLibrary(json: JSONObject): SoundLibrarySnapshot {
+    val filesJson = json.optJSONArray("files")
+    val files = if (filesJson == null) emptyList() else List(filesJson.length()) { index ->
+        val item = filesJson.optJSONObject(index) ?: JSONObject()
+        SoundFileEntry(item.optString("name"), item.optString("path"))
+    }.filter { it.name.isNotBlank() && it.path.isNotBlank() }
+    return SoundLibrarySnapshot(
+        loaded = true,
+        sdReady = json.optBoolean("sdReady"),
+        folder = json.optInt("folder").coerceAtLeast(0),
+        folderCount = json.optInt("folderCount").coerceAtLeast(0),
+        folderName = json.optString("folderName"),
+        page = json.optInt("page").coerceAtLeast(0),
+        pageCount = json.optInt("pageCount", 1).coerceAtLeast(1),
+        fileCount = json.optInt("fileCount").coerceAtLeast(0),
+        files = files,
+    )
 }
 
 fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings()): DeviceSettings = previous.copy(

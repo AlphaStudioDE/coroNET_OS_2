@@ -14,6 +14,8 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 - Home, LED, Vent, Sound, and Settings screens;
 - adaptive landscape console UI matching the touchscreen's information hierarchy while using the phone's wider canvas;
 - real firmware-driven LED animation previews and physical color calibration over BLE or WiFi;
+- browsable microSD sound folders, per-status sound assignment, playback, stop, and library rescan over BLE or WiFi;
+- synchronized device naming and companion transport selection;
 - revisioned printer Error and Finish notifications without reconnect duplicates;
 - Android 8.0 (API 26) and newer.
 

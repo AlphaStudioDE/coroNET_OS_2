@@ -83,6 +83,7 @@ fun CoronetApp(model: CoronetViewModel) {
     val selectedId by model.selectedId.collectAsState()
     val snapshot by model.snapshot.collectAsState()
     val settings by model.settings.collectAsState()
+    val soundLibrary by model.soundLibrary.collectAsState()
     val discovered by model.discovered.collectAsState()
     val scanning by model.scanning.collectAsState()
     val pairingChallenge by model.pairingChallenge.collectAsState()
@@ -113,8 +114,14 @@ fun CoronetApp(model: CoronetViewModel) {
                     AppPage.Home -> HomePage(snapshot)
                     AppPage.Led -> LedPage(settings, snapshot, model::sendSettings, model::previewLed, model::calibrateLed)
                     AppPage.Vent -> VentPage(settings, snapshot, model::sendSettings)
-                    AppPage.Sound -> SoundPage(settings, snapshot, model::sendSettings)
-                    AppPage.Settings -> SettingsPage(settings, snapshot, model::sendSettings, model::sendOtaAction)
+                    AppPage.Sound -> SoundPage(
+                        settings, snapshot, soundLibrary, model::sendSettings, model::loadSoundLibrary,
+                        model::playSound, model::stopSound, model::rescanSounds,
+                    )
+                    AppPage.Settings -> SettingsPage(
+                        settings, snapshot, model::sendSettings, model::sendOtaAction,
+                        model::setDeviceName, model::setCompanionTransport,
+                    )
                 }
             }
         }

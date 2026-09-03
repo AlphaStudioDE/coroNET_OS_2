@@ -8,6 +8,7 @@
 
 #include "BleProtocol.h"
 #include "../companion/PairingService.h"
+#include "../audio/AudioService.h"
 #include "../config/AppConfig.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemHealth.h"
@@ -512,6 +513,31 @@ void BleService::handleCommand(const char* command, size_t length) {
         publishEvent("ack", "settings");
         return;
     }
+    if (strcmp(cmd, "getSoundLibrary") == 0) {
+        publishSoundLibrary(static_cast<uint8_t>(constrain(doc["folder"] | 0, 0, 255)),
+                            static_cast<uint8_t>(constrain(doc["page"] | 0, 0, 255)));
+        return;
+    }
+    if (strcmp(cmd, "playSound") == 0) {
+        const int scenario = doc["scenario"] | -1;
+        if (scenario < 0 || scenario >= static_cast<int>(SoundScenario::Count)) {
+            publishEvent("error", "audio_scenario_invalid");
+            return;
+        }
+        const bool started = audioService().playScenario(static_cast<SoundScenario>(scenario));
+        publishEvent(started ? "ack" : "error", started ? "audio_started" : "audio_unavailable");
+        return;
+    }
+    if (strcmp(cmd, "stopSound") == 0) {
+        audioService().stop();
+        publishEvent("ack", "audio_stopped");
+        return;
+    }
+    if (strcmp(cmd, "rescanSounds") == 0) {
+        const bool queued = audioService().requestStorageRefresh();
+        publishEvent(queued ? "ack" : "error", queued ? "audio_rescan_queued" : "audio_busy");
+        return;
+    }
     if (strcmp(cmd, "previewLed") == 0) {
         const int category = doc["category"] | -1;
         const int animation = doc["animation"] | -1;
@@ -719,11 +745,11 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         if (doc["ledCalibrationHue"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["ledCalibrationHue"].as<JsonArrayConst>();
-            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationHue[i] = constrain(values[i].as<int>(), -30, 30);
+            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationHue[i] = constrain(values[i].as<int>(), -45, 45);
         }
         if (doc["ledCalibrationSaturation"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["ledCalibrationSaturation"].as<JsonArrayConst>();
-            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationSaturation[i] = constrain(values[i].as<int>(), 50, 180);
+            for (uint8_t i = 0; i < 8 && i < values.size(); ++i) cfg.ledCalibrationSaturation[i] = constrain(values[i].as<int>(), 50, 150);
         }
         if (doc["ledCalibrationBrightness"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["ledCalibrationBrightness"].as<JsonArrayConst>();
@@ -764,8 +790,8 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["pandaPrintTargetTempC"].is<int>()) cfg.pandaPrintTargetTempC = constrain(doc["pandaPrintTargetTempC"].as<int>(), 30, 60);
         if (doc["pandaDryPreset"].is<int>()) cfg.pandaDryPreset = static_cast<PandaDryPreset>(constrain(doc["pandaDryPreset"].as<int>(), 0, static_cast<int>(PandaDryPreset::Count) - 1));
         if (doc["pandaDryHours"].is<int>()) cfg.pandaDryHours = constrain(doc["pandaDryHours"].as<int>(), 1, 24);
-        if (doc["pandaPreheatHoldMinutes"].is<int>()) cfg.pandaPreheatHoldMinutes = constrain(doc["pandaPreheatHoldMinutes"].as<int>(), 1, 120);
-        if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 240);
+        if (doc["pandaPreheatHoldMinutes"].is<int>()) cfg.pandaPreheatHoldMinutes = constrain(doc["pandaPreheatHoldMinutes"].as<int>(), 1, 180);
+        if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 180);
         if (doc["pandaTemperingEndTempC"].is<int>()) cfg.pandaTemperingEndTempC = constrain(doc["pandaTemperingEndTempC"].as<int>(), 0, 60);
         if (doc["pandaTemperingAfterPrint"].is<bool>()) cfg.pandaTemperingAfterPrint = doc["pandaTemperingAfterPrint"].as<bool>();
         settingsService().save();
@@ -805,6 +831,46 @@ void BleService::publishEvent(const char* type, const char* message) {
                static_cast<uint8_t>(bleprotocol::MessageType::EventJson),
                reinterpret_cast<const uint8_t*>(payload),
                static_cast<size_t>(written));
+}
+
+void BleService::publishSoundLibrary(uint8_t requestedFolder, uint8_t requestedPage) {
+    if (!gEventChr || !isConnected()) return;
+    constexpr uint8_t PageSize = 8;
+    const uint8_t folderCount = audioService().folderCount();
+    const uint8_t folder = folderCount == 0U ? 0U : min<uint8_t>(requestedFolder, folderCount - 1U);
+    const uint8_t fileCount = folderCount == 0U ? 0U : audioService().folderFileCount(folder);
+    const uint8_t pageCount = max<uint8_t>(1U, static_cast<uint8_t>((fileCount + PageSize - 1U) / PageSize));
+    const uint8_t page = min<uint8_t>(requestedPage, pageCount - 1U);
+    const uint8_t first = static_cast<uint8_t>(page * PageSize);
+
+    JsonDocument doc;
+    doc["v"] = bleprotocol::Version;
+    doc["t"] = "sound_library";
+    doc["sdReady"] = state().sdReady;
+    doc["folder"] = folder;
+    doc["folderCount"] = folderCount;
+    doc["folderName"] = folderCount ? audioService().folderName(folder) : "";
+    doc["page"] = page;
+    doc["pageCount"] = pageCount;
+    doc["fileCount"] = fileCount;
+    JsonArray files = doc["files"].to<JsonArray>();
+    for (uint8_t index = first; index < fileCount && index < first + PageSize; ++index) {
+        const char* path = audioService().folderFilePath(folder, index);
+        if (!path) continue;
+        JsonObject item = files.add<JsonObject>();
+        item["path"] = path;
+        const char* slash = strrchr(path, '/');
+        item["name"] = slash ? slash + 1 : path;
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+    if (payload.length() > 4096U ||
+        !sendFramed(gEventChr,
+                    static_cast<uint8_t>(bleprotocol::MessageType::EventJson),
+                    reinterpret_cast<const uint8_t*>(payload.c_str()), payload.length())) {
+        publishEvent("error", "audio_library_too_large");
+    }
 }
 
 void BleService::publishSettings() {
@@ -1033,6 +1099,8 @@ void BleService::publishState(bool force) {
     snapshot.printerState = static_cast<uint8_t>(s.printerState);
     snapshot.printProgress = s.printProgress;
     snapshot.activeTool = s.activeTool;
+    if (s.audioPlaying) snapshot.runtimeFlags |= bleprotocol::AudioPlaying;
+    if (s.quietActive) snapshot.runtimeFlags |= bleprotocol::QuietActive;
     snapshot.activeToolTempTenths = tempToTenths(s.activeToolTempC);
     snapshot.bedTempTenths = tempToTenths(s.bedTempC);
     snapshot.chamberTempTenths = tempToTenths(s.chamberTempC);
@@ -1044,6 +1112,8 @@ void BleService::publishState(bool force) {
     snapshot.printerStateEventSequence = s.printerStateEventSequence;
     snapshot.printerEventFrom = static_cast<uint8_t>(s.printerEventFrom);
     snapshot.printerEventTo = static_cast<uint8_t>(s.printerEventTo);
+    snapshot.fanPercent = s.fanPercent;
+    snapshot.flapPercent = s.flapPercent;
 
     if (sendFramed(gStateChr,
                    static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot),

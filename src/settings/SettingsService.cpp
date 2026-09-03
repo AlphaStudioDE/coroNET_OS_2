@@ -183,8 +183,10 @@ void SettingsService::load() {
     for (uint8_t index = 0; index < enumCount(LedCategory{}); ++index) {
         const LedCategory category = static_cast<LedCategory>(index);
         settings_.ledAnimation[index] = normalizeLedAnimation(category, settings_.ledAnimation[index]);
-        settings_.ledColorRemixDegrees[index] = clampValue<int16_t>(
-            settings_.ledColorRemixDegrees[index], -359, 359);
+        int16_t remix = settings_.ledColorRemixDegrees[index] % 360;
+        if (remix > 180) remix -= 360;
+        if (remix < -180) remix += 360;
+        settings_.ledColorRemixDegrees[index] = remix;
     }
     for (uint8_t index = 0; index < 8U; ++index) {
         settings_.ledCalibrationHue[index] = clampValue<int8_t>(

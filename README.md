@@ -67,7 +67,7 @@ The current public firmware release is **coroNET OS 2 0.3.0**. The repository re
 | Settings and one-screen-at-a-time UI navigation | Working on reference hardware |
 | LED, ventilation, and sound tabs | Working on reference hardware |
 | Four UI skins, dark/light modes, clocks, and screen saver | Working on reference hardware |
-| Android companion app for OS 2 | Working over BLE and local WiFi with reconnect, offline cache, and conflict handling |
+| Android companion app for OS 2 | Working over BLE and local WiFi with reconnect, offline cache, conflict handling, SD sound browsing, and shared device controls |
 | Layered RGBW LED engine | Working with ambient, dimming, mirror, calibration, and previews |
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |

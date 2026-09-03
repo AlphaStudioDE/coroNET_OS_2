@@ -46,6 +46,25 @@ data class OtaSnapshot(
     val busy: Boolean get() = state == 1 || state in 4..6
 }
 
+data class SoundFileEntry(
+    val name: String,
+    val path: String,
+)
+
+data class SoundLibrarySnapshot(
+    val loaded: Boolean = false,
+    val loading: Boolean = false,
+    val sdReady: Boolean = false,
+    val folder: Int = 0,
+    val folderCount: Int = 0,
+    val folderName: String = "",
+    val page: Int = 0,
+    val pageCount: Int = 1,
+    val fileCount: Int = 0,
+    val files: List<SoundFileEntry> = emptyList(),
+    val error: String? = null,
+)
+
 data class DeviceSnapshot(
     val device: CoronetDevice? = null,
     val connection: ConnectionKind = ConnectionKind.Offline,

@@ -51,8 +51,8 @@ internal fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: 
                 ValueSlider("Failsafe flap", settings.failsafeFlapPercent, 0..100, "%") { send(jsonSetting("failsafeFlapPercent", it)) }
             }
             SectionPanel("Flap servo") {
-                ValueSlider("Closed pulse", settings.servoClosedUs, 500..2480, " us") { send(jsonSetting("servoClosedUs", it)) }
-                ValueSlider("Open pulse", settings.servoOpenUs, 500..2480, " us") { send(jsonSetting("servoOpenUs", it)) }
+                ValueSlider("Closed pulse", settings.servoClosedUs, 500..2500, " us") { send(jsonSetting("servoClosedUs", it)) }
+                ValueSlider("Open pulse", settings.servoOpenUs, 500..2500, " us") { send(jsonSetting("servoOpenUs", it)) }
                 SettingSwitch("Reverse direction", settings.servoReverse) { send(jsonSetting("servoReverse", it)) }
             }
         },
@@ -76,9 +76,9 @@ internal fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: 
                 }
                 ValueSlider("Auto target", settings.pandaTargetTempC, 30..60, " C") { send(jsonSetting("pandaTargetTempC", it)) }
                 ValueSlider("Print target", settings.pandaPrintTargetTempC, 30..60, " C") { send(jsonSetting("pandaPrintTargetTempC", it)) }
-                ValueSlider("Preheat hold", settings.pandaPreheatHoldMinutes, 0..120, " min") { send(jsonSetting("pandaPreheatHoldMinutes", it)) }
-                ValueSlider("Tempering time", settings.pandaTemperingDurationMinutes, 0..240, " min") { send(jsonSetting("pandaTemperingDurationMinutes", it)) }
-                ValueSlider("Tempering end", settings.pandaTemperingEndTempC, 0..80, " C") { send(jsonSetting("pandaTemperingEndTempC", it)) }
+                ValueSlider("Preheat hold", settings.pandaPreheatHoldMinutes, 1..180, " min") { send(jsonSetting("pandaPreheatHoldMinutes", it)) }
+                ValueSlider("Tempering time", settings.pandaTemperingDurationMinutes, 1..180, " min") { send(jsonSetting("pandaTemperingDurationMinutes", it)) }
+                ValueSlider("Tempering end", settings.pandaTemperingEndTempC, 0..60, " C") { send(jsonSetting("pandaTemperingEndTempC", it)) }
                 SettingSwitch("Temper after print", settings.pandaTemperingAfterPrint) { send(jsonSetting("pandaTemperingAfterPrint", it)) }
             }
             SectionPanel("Drying") {

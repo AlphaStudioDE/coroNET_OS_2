@@ -60,7 +60,7 @@ Message type `1` contains this packed payload in order:
 | `uint8` | printer state enum |
 | `uint8` | print progress, `0..100` |
 | `uint8` | active tool, `0..3` |
-| `uint8` | reserved |
+| `uint8` | runtime flags |
 | `int16` | active tool temperature in tenths of a degree |
 | `int16` | bed temperature in tenths of a degree |
 | `int16` | chamber temperature in tenths of a degree |
@@ -72,10 +72,14 @@ Message type `1` contains this packed payload in order:
 | `uint32` | printer state-event sequence |
 | `uint8` | previous printer state for the latest event |
 | `uint8` | destination printer state for the latest event |
+| `uint8` | live fan output, `0..100` |
+| `uint8` | live flap position, `0..100` |
 
-The V2 snapshot is 185 bytes. Its first 175 bytes retain the V1 field order. Temperature value `-32768` means unavailable.
+The extended V2 snapshot is 187 bytes. Clients may also accept the original 185-byte V2 snapshot, treating unavailable fan and flap values as zero. Its first 175 bytes retain the V1 field order. Temperature value `-32768` means unavailable.
 
 Flag bits are: setup done `0`, WiFi connected `1`, web API ready `2`, BLE connected `3`, display ready `4`, touch ready `5`, printer configured `6`, printer connected `7`, audio ready `8`, temporary BLE fallback active `9`, and valid printer telemetry `10`.
+
+Runtime flag bits are: audio playing `0` and quiet mode active `1`.
 
 Printer state values follow firmware enum order: unknown `0`, idle `1`, printing `2`, paused `3`, error `4`, and complete `5`.
 
@@ -141,6 +145,26 @@ Physical color calibration is similarly controlled with `calibrateLed`. The `col
 {"cmd":"calibrateLed","active":true,"color":0}
 ```
 
+The microSD sound catalog and playback use the same indexed library as the touchscreen. Folder and page indices are zero-based, and each response contains at most eight files:
+
+```json
+{"cmd":"getSoundLibrary","folder":0,"page":0}
+```
+
+```json
+{"cmd":"playSound","scenario":0}
+```
+
+```json
+{"cmd":"stopSound"}
+```
+
+```json
+{"cmd":"rescanSounds"}
+```
+
+The library response is an event JSON message with `t="sound_library"`, `sdReady`, folder metadata, page metadata, and `files` entries containing a display `name` and full assignment `path`. Scenario values are print start `0`, finish `1`, error `2`, pause `3`, and idle `4`.
+
 ## Secure Companion Pairing
 
 Pairing must be started physically from **Settings > Companion connection > Pair phone** on coroNET. Starting the wizard immediately revokes the previous phone relationship, rotates the random 128-bit API token, and opens a two-minute pairing session. The old token cannot be restored by cancelling the wizard.
@@ -185,6 +209,10 @@ The API is available in `auto` and `wifi` modes while the device has a WiFi conn
 - `POST /api/settings`;
 - `POST /api/led/preview`;
 - `POST /api/led/calibration`;
+- `GET /api/audio/library?folder=0&page=0`;
+- `POST /api/audio/play`;
+- `POST /api/audio/stop`;
+- `POST /api/audio/rescan`;
 - `POST /api/printer/test`;
 - `POST /api/ota/check`;
 - `POST /api/ota/install`;

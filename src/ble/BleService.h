@@ -62,6 +62,7 @@ private:
     void handleCommand(const char* command, size_t length);
     void publishState(bool force);
     void publishSettings();
+    void publishSoundLibrary(uint8_t folder, uint8_t page);
     void publishPairingChallenge();
     void publishPairingResult();
     void refreshAdvertisedName();

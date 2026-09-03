@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -73,9 +74,14 @@ internal fun SettingsPage(
     snapshot: DeviceSnapshot,
     send: (String) -> Unit,
     sendOta: (String) -> Unit,
+    setDeviceName: (String) -> Unit,
+    setTransport: (Int) -> Unit,
 ) {
     var showZones by remember { mutableStateOf(false) }
     var pendingOta by remember { mutableStateOf<String?>(null) }
+    var deviceName by remember(snapshot.device?.id, snapshot.device?.name) {
+        mutableStateOf(snapshot.device?.name.orEmpty())
+    }
     AdaptivePage(
         title = "Settings",
         subtitle = "Display, behavior and system",
@@ -110,7 +116,7 @@ internal fun SettingsPage(
                 CompactChoices(listOf("OFF", "SOUND", "LEDS", "BOTH"), settings.quietTarget.coerceIn(0, 3)) {
                     send(jsonSetting("quietTarget", it))
                 }
-                ValueSlider("Duration", settings.quietDurationMinutes.coerceIn(1, 240), 1..240, " min") { send(jsonSetting("quietDurationMinutes", it)) }
+                ValueSlider("Duration", settings.quietDurationMinutes.coerceIn(5, 240), 5..240, " min") { send(jsonSetting("quietDurationMinutes", it)) }
                 SettingSwitch(
                     "Errors bypass quiet mode",
                     settings.quietErrorsBypass,
@@ -118,6 +124,26 @@ internal fun SettingsPage(
                 ) { send(jsonSetting("quietErrorsBypass", it)) }
             }
             SectionPanel("Connections") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = deviceName,
+                        onValueChange = { deviceName = it.take(24) },
+                        label = { Text("Device name") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = { setDeviceName(deviceName) },
+                        enabled = snapshot.connection != ConnectionKind.Offline,
+                        modifier = Modifier.height(56.dp),
+                    ) { Text("SAVE") }
+                }
+                Text("COMPANION CONNECTION", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                CompactChoices(
+                    listOf("AUTO", "BLE", "WI-FI"),
+                    settings.companionTransport.coerceIn(0, 2),
+                    setTransport,
+                )
                 SettingsInfo("Phone link", when (snapshot.connection) {
                     ConnectionKind.Wifi -> "Local Wi-Fi"
                     ConnectionKind.Ble -> "Bluetooth LE"
@@ -220,4 +246,3 @@ private fun otaStatusColor(state: Int): Color = when (state) {
     8 -> MaterialTheme.colorScheme.error
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
-

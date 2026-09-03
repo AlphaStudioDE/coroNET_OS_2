@@ -191,10 +191,10 @@ private fun LedCalibrationDialog(
                 CompactChoices(calibrationColorNames.take(4), if (color < 4) color else -1) { color = it; calibrate(true, color) }
                 CompactChoices(calibrationColorNames.drop(4), if (color >= 4) color - 4 else -1) { color = it + 4; calibrate(true, color) }
                 Text(calibrationColorNames[color], color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                ValueSlider("Hue correction", settings.ledCalibrationHue.getOrElse(color) { 0 }, -30..30, " deg") {
+                ValueSlider("Hue correction", settings.ledCalibrationHue.getOrElse(color) { 0 }, -45..45, " deg") {
                     send(intArraySetting("ledCalibrationHue", settings.ledCalibrationHue, 8, color, it, 0))
                 }
-                ValueSlider("Saturation", settings.ledCalibrationSaturation.getOrElse(color) { 100 }, 50..180, "%") {
+                ValueSlider("Saturation", settings.ledCalibrationSaturation.getOrElse(color) { 100 }, 50..150, "%") {
                     send(intArraySetting("ledCalibrationSaturation", settings.ledCalibrationSaturation, 8, color, it, 100))
                 }
                 ValueSlider("Brightness", settings.ledCalibrationBrightness.getOrElse(color) { 100 }, 50..150, "%") {
