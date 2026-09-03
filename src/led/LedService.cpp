@@ -7,6 +7,7 @@
 #include "../boot/BootExperience.h"
 #include "../core/SystemState.h"
 #include "../settings/SettingsService.h"
+#include "LedBrightnessCurve.h"
 
 namespace coronet {
 
@@ -200,13 +201,6 @@ RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
         static_cast<uint8_t>(static_cast<uint16_t>(color.w) * scale / 255U));
 }
 
-uint8_t gamma2Channel(uint8_t value) {
-    // SK6812 has only 8-bit PWM. Do not promote a sub-LSB result to 1:
-    // its first physical step is visibly brighter than an intended near-black.
-    return static_cast<uint8_t>(
-        (static_cast<uint32_t>(value) * value) >> 8U);
-}
-
 uint8_t effectiveSectionBrightnessPercent(const AppSettings& settings,
                                           const SystemState& system,
                                           LedSection section,
@@ -224,7 +218,7 @@ uint8_t brightnessPercentToScale(uint8_t percent) {
                                 255U / 100U);
 }
 
-RgbwColor gamma2Output(const RgbwColor& color) {
+RgbwColor perceptualOutput(const RgbwColor& color) {
     uint8_t red = color.r;
     uint8_t green = color.g;
     uint8_t blue = color.b;
@@ -265,7 +259,7 @@ RgbwColor gamma2Output(const RgbwColor& color) {
     if (remainingPeak > 0U) {
         // Apply gamma to luminance and retain RGB ratios. Per-channel gamma
         // would shift dim orange toward red and dim cyan toward blue.
-        const uint8_t correctedPeak = gamma2Channel(remainingPeak);
+        const uint8_t correctedPeak = ledcurve::encode(remainingPeak);
         outputRed = static_cast<uint8_t>(
             (static_cast<uint16_t>(red) * correctedPeak + remainingPeak / 2U) /
             remainingPeak);
@@ -281,7 +275,7 @@ RgbwColor gamma2Output(const RgbwColor& color) {
     // preserves the user's inside brightness. Only W extracted from RGB needs
     // gamma because it originated in the linear RGB animation space.
     const uint8_t outputWhite = static_cast<uint8_t>(min<uint16_t>(
-        255U, static_cast<uint16_t>(color.w) + gamma2Channel(extractedWhite)));
+        255U, static_cast<uint16_t>(color.w) + ledcurve::encode(extractedWhite)));
     return RgbwColor(
         outputRed, outputGreen, outputBlue, outputWhite);
 }
@@ -7330,7 +7324,7 @@ void LedService::applyOutputPolicies() {
         const LedSection section = static_cast<LedSection>(sectionIndex);
         const uint8_t percent = effectiveSectionBrightnessPercent(
             settings, system, section, now);
-        // Percentages describe perceived brightness. The common gamma 2.0
+        // Percentages describe perceived brightness. The shared gamma 2.3
         // conversion is applied once, immediately before SPI encoding.
         const uint8_t scaleValue = brightnessPercentToScale(percent);
         const uint16_t count = sectionCount(section);
@@ -7364,7 +7358,7 @@ bool LedService::smoothAndShow(bool immediate) {
         // coroNET 1 calibrated every target into its final physical RGBW/gamma
         // representation before smoothing. Interpolating raw RGB first creates
         // temporary low-saturation mixtures that look pastel on moving pixels.
-        const RgbwColor target = gamma2Output(targetFrame_[i]);
+        const RgbwColor target = perceptualOutput(targetFrame_[i]);
         const uint8_t targetPeak = max(target.r, max(target.g, target.b));
         const uint8_t targetLow = min(target.r, min(target.g, target.b));
         const uint8_t targetSaturation = targetPeak
@@ -7391,7 +7385,13 @@ bool LedService::smoothAndShow(bool immediate) {
             // green behind a moving red and visibly turns it pink/pastel.
             const uint8_t currentPeak = max(currentFrame_[i].r,
                                             max(currentFrame_[i].g, currentFrame_[i].b));
-            const uint8_t nextPeak = smoothStepChannel(currentPeak, targetPeak, step);
+            // A moving dark detail may occupy a pixel for only one frame.
+            // Delaying a downward change made it almost as bright as its
+            // surroundings. Follow non-zero dark targets immediately, while
+            // retaining the gentle rise and the separate fade-to-black path.
+            const uint8_t nextPeak = targetPeak < currentPeak
+                ? targetPeak
+                : smoothStepChannel(currentPeak, targetPeak, step);
             auto atPeak = [&](uint8_t channel) -> uint8_t {
                 return static_cast<uint8_t>(
                     (static_cast<uint16_t>(channel) * nextPeak + targetPeak / 2U) /
