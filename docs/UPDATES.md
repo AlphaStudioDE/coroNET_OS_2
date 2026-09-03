@@ -1,5 +1,14 @@
 # Development Updates
 
+## 0.2.1
+
+### Status Sound Library
+
+- Added a PSRAM-backed SD sound index grouped by folders under `/sounds`, with `GENERAL` and `SD ROOT` compatibility groups.
+- Added a compact folder-and-file browser that shows filenames without full SD paths and keeps six sound choices visible at once.
+- Added per-status sound selection, volume, repeat, playback, stop, and rescan controls without scanning the SD card during routine UI refreshes.
+- Enlarged navigation touch targets and simplified the sound picker with one status-aware title.
+
 ## 2026-09-03
 
 ### Status Sound Library
