@@ -116,6 +116,18 @@ RgbwColor hsv(uint8_t hue, uint8_t saturation, uint8_t value) {
     }
 }
 
+uint8_t vividSpectrumHue(uint8_t phase) {
+    // A narrow pure-red plateau keeps red visibly red after neighbouring LEDs
+    // mix under the status-bar diffuser. The rest of the wheel remains smooth.
+    constexpr uint8_t RedPlateau = 12U;
+    if (phase <= RedPlateau || phase >= 255U - RedPlateau) return 0U;
+
+    const uint16_t activeSpan = 255U - 2U * RedPlateau;
+    return static_cast<uint8_t>(1U +
+        (static_cast<uint16_t>(phase - RedPlateau) * 253U + activeSpan / 2U) /
+            activeSpan);
+}
+
 RgbwColor fromRgb(uint32_t rgb) {
     return RgbwColor(static_cast<uint8_t>(rgb >> 16U),
                      static_cast<uint8_t>(rgb >> 8U),
@@ -857,12 +869,12 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
     switch (static_cast<IdleAnimation>(animation)) {
         case IdleAnimation::Rainbow: {
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t hue = static_cast<uint8_t>(now / 34U +
-                    path * 256U / hw::OuterCount);
+                const uint8_t hue = vividSpectrumHue(static_cast<uint8_t>(now / 34U +
+                    path * 256U / hw::OuterCount));
                 const uint8_t value = static_cast<uint8_t>(105U +
                     wave8(static_cast<uint8_t>(now / 61U + path * 7U)) / 4U);
                 setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 240U, value));
+                    decorativeHsv(LedCategory::Idle, hue, 255U, value));
             }
             break;
         }
@@ -968,10 +980,13 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t flowB = wave8(static_cast<uint8_t>(now / 103U - path * 11U + 49U));
                 const uint8_t molten = static_cast<uint8_t>(
                     (static_cast<uint16_t>(flowA) + flowB) / 2U);
-                const uint8_t hue = static_cast<uint8_t>(248U + molten * 42U / 255U);
                 const uint8_t value = static_cast<uint8_t>(35U + molten * 155U / 255U);
-                setOuterVisualPathPixel(path,
-                    decorativeHsv(LedCategory::Idle, hue, 255U, value));
+                // Keep lava on the physically convincing heat path: dark
+                // crimson -> red -> orange. The previous 248..34 hue sweep
+                // crossed magenta and made its red regions look pink.
+                const uint8_t green = static_cast<uint8_t>(
+                    static_cast<uint16_t>(value) * molten * 54U / 65025U);
+                setOuterVisualPathPixel(path, RgbwColor(value, green, 0U));
             }
             break;
         }
@@ -1180,9 +1195,9 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
         case IdleAnimation::RainbowGlitter: {
             const uint32_t frame = now / 95U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t hue = static_cast<uint8_t>(now / 45U +
-                    path * 256U / hw::OuterCount);
-                RgbwColor color = decorativeHsv(LedCategory::Idle, hue, 235U, 82U);
+                const uint8_t hue = vividSpectrumHue(static_cast<uint8_t>(now / 45U +
+                    path * 256U / hw::OuterCount));
+                RgbwColor color = decorativeHsv(LedCategory::Idle, hue, 255U, 82U);
                 const uint8_t glitter = hash8(frame * 149U + path * 83U);
                 if (glitter > 244U) {
                     color = blend(color, RgbwColor(255U, 255U, 245U),
@@ -1638,7 +1653,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             constexpr LedSection sections[3] = {
                 LedSection::Left, LedSection::Center, LedSection::Right,
             };
-            const uint8_t breath = static_cast<uint8_t>(168U + wave8(now / 122U) / 8U);
+            const uint8_t breath = static_cast<uint8_t>(78U + wave8(now / 122U) / 7U);
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = sections[sectionIndex];
                 const uint16_t count = sectionCount(section);
@@ -1649,8 +1664,13 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                         255 - static_cast<int>(distance) * (section == LedSection::Center ? 22 : 35)));
                     const uint8_t value = static_cast<uint8_t>(
                         static_cast<uint16_t>(shape) * breath / 255U);
-                    setSection(section, i,
-                        decorativeHsv(LedCategory::Idle, 26U, 238U, value));
+                    // Direct RGB reproduces the warm tungsten-like palette
+                    // proven on the physical SK6812 RGBNW strip in coroNET 1.
+                    setSection(section, i, RgbwColor(
+                        value,
+                        static_cast<uint8_t>(static_cast<uint16_t>(value) * 5U / 7U),
+                        static_cast<uint8_t>(static_cast<uint16_t>(value) * 18U /
+                                             max<uint8_t>(1U, breath))));
                 }
             }
             break;
@@ -2826,7 +2846,8 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t coverage = progressCoverage(progress, hw::OuterCount, path);
                 if (!coverage) continue;
-                const uint8_t hue = static_cast<uint8_t>(path * 256U / hw::OuterCount + now / 70U);
+                const uint8_t hue = vividSpectrumHue(static_cast<uint8_t>(
+                    path * 256U / hw::OuterCount + now / 70U));
                 setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Print, hue, 255U,
                     static_cast<uint8_t>(static_cast<uint16_t>(coverage) * 225U / 255U)));
             }
@@ -4615,12 +4636,12 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t hue = static_cast<uint8_t>(now / 16U +
-                        static_cast<uint32_t>(i) * 256U / count + sectionIndex * 9U);
+                    const uint8_t hue = vividSpectrumHue(static_cast<uint8_t>(now / 16U +
+                        static_cast<uint32_t>(i) * 256U / count + sectionIndex * 9U));
                     const uint8_t value = static_cast<uint8_t>(130U +
                         wave8(static_cast<uint8_t>(now / 25U + i * 13U)) / 3U);
                     setSection(section, i,
-                               decorativeHsv(LedCategory::Finish, hue, 245U, value));
+                               decorativeHsv(LedCategory::Finish, hue, 255U, value));
                 }
             }
             break;
@@ -4773,7 +4794,8 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     ? static_cast<uint8_t>(fade * (5U - wake) / 5U)
                     : static_cast<uint8_t>(fade / 5U);
                 setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
-                    static_cast<uint8_t>(distance * 17U + now / 32U), 245U, value));
+                    vividSpectrumHue(static_cast<uint8_t>(distance * 17U + now / 32U)),
+                    255U, value));
             }
             break;
         }
@@ -5569,10 +5591,10 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t hue = static_cast<uint8_t>(
-                        i * 255U / max<uint16_t>(1U, count - 1U));
+                    const uint8_t hue = vividSpectrumHue(static_cast<uint8_t>(
+                        i * 255U / max<uint16_t>(1U, count - 1U)));
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 245U, 175U));
+                        decorativeHsv(LedCategory::Other, hue, 255U, 175U));
                 }
             }
             break;
@@ -6036,11 +6058,11 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t hue = static_cast<uint8_t>(now / 92U +
-                        i * 255U / max<uint16_t>(1U, count - 1U));
+                    const uint8_t hue = vividSpectrumHue(static_cast<uint8_t>(now / 92U +
+                        i * 255U / max<uint16_t>(1U, count - 1U)));
                     const uint8_t local = wave8(static_cast<uint8_t>(now / 74U + i * 6U));
                     setSection(section, i,
-                        decorativeHsv(LedCategory::Other, hue, 240U,
+                        decorativeHsv(LedCategory::Other, hue, 255U,
                             static_cast<uint8_t>(static_cast<uint16_t>(pulse) *
                                 (190U + local / 4U) / 255U)));
                 }
@@ -7335,30 +7357,37 @@ bool LedService::smoothAndShow(bool immediate) {
                                    targetPeak)
             : 0U;
         const bool saturatedTarget = targetPeak > 16U && targetSaturation >= 120U;
-        const uint8_t lowChannelLimit = static_cast<uint8_t>(targetPeak / 3U);
-        const uint8_t fastRgbStep = static_cast<uint8_t>(min<uint16_t>(
-            255U, max<uint16_t>(48U, static_cast<uint16_t>(step) * 4U)));
         const uint8_t fastWhiteStep = static_cast<uint8_t>(min<uint16_t>(
             255U, max<uint16_t>(96U, static_cast<uint16_t>(step) * 6U)));
-
-        auto rgbStep = [&](uint8_t current, uint8_t desired) -> uint8_t {
-            return saturatedTarget && desired < current && desired <= lowChannelLimit
-                ? fastRgbStep : step;
-        };
         const bool insideWhite = forceInsideWhite && i >= hw::InsideStart;
-        const RgbwColor next = immediate ? RgbwColor(
-            insideWhite ? 0U : target.r,
-            insideWhite ? 0U : target.g,
-            insideWhite ? 0U : target.b,
-            target.w) : RgbwColor(
-            insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r,
-                                                  rgbStep(currentFrame_[i].r, target.r)),
-            insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g,
-                                                  rgbStep(currentFrame_[i].g, target.g)),
-            insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b,
-                                                  rgbStep(currentFrame_[i].b, target.b)),
-            smoothStepChannel(currentFrame_[i].w, target.w,
-                saturatedTarget && target.w < currentFrame_[i].w ? fastWhiteStep : step));
+        RgbwColor next;
+        if (immediate) {
+            next = RgbwColor(insideWhite ? 0U : target.r,
+                             insideWhite ? 0U : target.g,
+                             insideWhite ? 0U : target.b,
+                             target.w);
+        } else if (!insideWhite && saturatedTarget) {
+            // Smooth luminance, but take chromatic ratios from the current
+            // target immediately. Per-channel smoothing leaves stale blue or
+            // green behind a moving red and visibly turns it pink/pastel.
+            const uint8_t currentPeak = max(currentFrame_[i].r,
+                                            max(currentFrame_[i].g, currentFrame_[i].b));
+            const uint8_t nextPeak = smoothStepChannel(currentPeak, targetPeak, step);
+            auto atPeak = [&](uint8_t channel) -> uint8_t {
+                return static_cast<uint8_t>(
+                    (static_cast<uint16_t>(channel) * nextPeak + targetPeak / 2U) /
+                    targetPeak);
+            };
+            next = RgbwColor(atPeak(target.r), atPeak(target.g), atPeak(target.b),
+                             target.w);
+        } else {
+            next = RgbwColor(
+                insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r, step),
+                insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g, step),
+                insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b, step),
+                smoothStepChannel(currentFrame_[i].w, target.w,
+                    saturatedTarget && target.w < currentFrame_[i].w ? fastWhiteStep : step));
+        }
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;

@@ -216,14 +216,14 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 
 | # | Animation | What it shows |
 | ---: | --- | --- |
-| 1 | Rainbow | A complete, slowly rotating spectrum follows the full visual OUTER route with a restrained spatial shimmer. |
+| 1 | Rainbow | A complete, slowly rotating and fully saturated spectrum follows the full visual OUTER route; a short pure-red plateau keeps red distinct through the physical diffuser. |
 | 2 | Fireplace | Independent layered flames move through both sides while Center holds a lower amber ember bed. |
 | 3 | Ocean | Two differently paced cyan and blue wave fields combine into broad swells and smaller surface ripples. |
 | 4 | Star Pulse | A softly shaped star-like field breathes from Center while its color advances only once per long cycle. |
 | 5 | Meteor | A saturated meteor with a long fading tail crosses the complete OUTER path, rests in darkness, and returns in a new hue. |
 | 6 | Twinkle | Sparse warm-white stars appear and decay deterministically over darkness without a retained particle buffer. |
 | 7 | Larson | A classic saturated red scanner bounces end to end across all 42 OUTER LEDs with a long directional tail. |
-| 8 | Lava | Two slow opposing flow fields form moving hot orange, red, and magenta molten regions. |
+| 8 | Lava | Two slow opposing flow fields form moving deep-crimson, red, and hot-orange molten regions without crossing into magenta. |
 | 9 | Gradient | A broad two-color gradient spans the complete outer path while both endpoint hues drift together. |
 | 10 | Plasma | Two faster interference fields drive both hue and brightness, creating a continuous energetic plasma surface. |
 | 11 | Section Breathe | Left, Center, and Right breathe in a slow three-phase amber sequence instead of changing together. |
