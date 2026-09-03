@@ -126,7 +126,7 @@ Status meanings:
 | SYS-01 | GitHub OTA check, install, and same-version reinstall | OS2 | Required before public release with a new implementation. |
 | SYS-02 | OTA resource preparation and suspension of unnecessary services | OS2 | Retain as part of the OTA state machine. |
 | SYS-03 | SD-card recovery update | OS2 | Retain as the recovery path. |
-| SYS-04 | What's New popup | OS2 | Retain when versioned OS 2 releases begin. |
+| SYS-04 | What's New popup | OMIT | Release notes remain on GitHub; the on-device popup is excluded to reduce UI, firmware, and maintenance cost. |
 | SYS-05 | Reopen setup without erasing unrelated preferences | OS2 | Implemented from Settings. |
 | SYS-06 | Full factory reset | OS2 | Retain with MIT-era semantics and no activation state. |
 | SYS-07 | Runtime heap, DMA, largest-block, PSRAM, and service diagnostics | OS2 | Implemented through `SystemHealth` and Serial. |
@@ -141,4 +141,5 @@ The following OS 1 systems must not be implemented in coroNET OS 2 unless this d
 2. External lighting-provider integrations for Philips Hue, WLED, Home Assistant, Nanoleaf, and Shelly (`LED-15`).
 3. The disabled MIDI synthesizer/player (`SOUND-10`).
 4. Product activation, license files, and manual activation keys (`CORE-04`).
+5. The on-device What's New popup (`SYS-04`); versioned release notes remain available on GitHub.
 6. Any runtime printer simulator, demo state, fake progress source, or mock telemetry override. OS 2 consumes only telemetry from the configured real printer.
