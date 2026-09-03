@@ -57,10 +57,13 @@ data class DeviceSnapshot(
     val quietActive: Boolean = false,
     val ota: OtaSnapshot = OtaSnapshot(),
     val error: String? = null,
+    val updatedAtEpochMs: Long = 0,
+    val cached: Boolean = false,
 )
 
 data class DeviceSettings(
     val loaded: Boolean = false,
+    val revision: Long = 0,
     val displayBrightness: Int = 80,
     val uiSkin: Int = 0,
     val uiColorMode: Int = 0,

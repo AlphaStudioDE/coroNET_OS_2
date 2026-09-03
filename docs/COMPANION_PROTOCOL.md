@@ -195,6 +195,10 @@ Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 409
 
 Settings are applied to active services immediately. NVS persistence is debounced for 1.5 seconds and forced after at most 5 seconds to prevent slider controls from wearing flash.
 
+`GET /api/settings` returns `settingsRevision`, and every BLE settings group includes the same value as `sr`. The revision changes whenever firmware accepts a settings mutation. Clients must ignore older revisions, keep locally pending fields during an optimistic update, and replace them with the device-confirmed value after acknowledgement. Concurrent edits to different fields therefore merge; concurrent edits to the same field settle on the latest value accepted by coroNET.
+
+The Android client keeps the most recent valid snapshot and settings for each device in encrypted preferences. When both transports are unavailable, it presents that data explicitly as cached instead of replacing the interface with zero or placeholder values. WiFi recovery first retries the last successful address and then the stable `coronet-xxxx.local` hostname, while BLE service-discovery, subscription, and write failures enter the bounded reconnect backoff.
+
 ## Android Reference Client
 
-The native reference application lives in [`android/`](../android). It queues GATT descriptor and characteristic operations, reconstructs framed notifications, stores per-device API tokens in encrypted preferences backed by Android Keystore, remembers multiple devices, prefers the authenticated WiFi API after pairing, and posts local notifications for printer Error and Finish transitions.
+The native reference application lives in [`android/`](../android). It queues GATT descriptor and characteristic operations, reconstructs framed notifications, stores per-device API tokens and cached state in encrypted preferences backed by Android Keystore, remembers multiple devices, prefers the authenticated WiFi API after pairing, reconnects automatically, resolves concurrent settings through firmware revisions, and posts local notifications for printer Error and Finish transitions.

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Companion Resilience
+- Added bounded BLE recovery for failed service discovery, notification subscription, and command writes.
+- Added WiFi recovery through the stable coroNET mDNS hostname when the previously saved IP address changes.
+- Kept the last valid device state and settings in encrypted per-device storage and clearly identified cached data while offline.
+- Added shared firmware settings revisions and field-level conflict handling so touchscreen and phone changes converge without unrelated controls overwriting each other.
+
+### Time Zone Accuracy
+- Split locations that share an offset but use different daylight-saving rules, including Adelaide/Darwin, Denver/Phoenix, Chicago/Mexico City, Auckland/Fiji, and Cairo/Helsinki.
+- Corrected Almaty to UTC+5 and removed misleading location groupings from both the touchscreen and Android catalogs.
+
+### Audio Output Polish
+- Preloaded the I2S DMA ring with silence before enabling output.
+- Added a controlled silence drain before I2S shutdown and sample-rate reconfiguration to reduce speaker clicks without consuming additional DMA memory.
+
 ### Clock And Time Zone Controls
 - Added complete 12-hour and 24-hour clock selection on the touchscreen and in the Android companion app.
 - Added a lightweight paged time-zone selector on the device and a matching scrollable list in the app.

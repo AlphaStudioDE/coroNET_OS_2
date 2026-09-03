@@ -638,6 +638,7 @@ bool AudioService::installDriver(uint16_t dmaBufferCount) {
         },
     };
     result = i2s_channel_init_std_mode(txChannel_, &standardConfig);
+    if (result == ESP_OK && !preloadSilence()) result = ESP_FAIL;
     if (result == ESP_OK) result = i2s_channel_enable(txChannel_);
     if (result != ESP_OK) {
         i2s_del_channel(txChannel_);
@@ -652,6 +653,7 @@ bool AudioService::installDriver(uint16_t dmaBufferCount) {
 
 void AudioService::uninstallDriver() {
     if (!driverReady_ || !txChannel_) return;
+    settleToSilence();
     i2s_channel_disable(txChannel_);
     i2s_del_channel(txChannel_);
     txChannel_ = nullptr;
@@ -662,13 +664,16 @@ void AudioService::uninstallDriver() {
 bool AudioService::reconfigureClock(uint32_t sampleRate) {
     if (!driverReady_ || !txChannel_ || sampleRate < 8000U || sampleRate > 48000U) return false;
     if (sampleRate_ == sampleRate) return true;
+    settleToSilence();
     esp_err_t result = i2s_channel_disable(txChannel_);
     i2s_std_clk_config_t clockConfig = I2S_STD_CLK_DEFAULT_CONFIG(sampleRate);
     if (result == ESP_OK) result = i2s_channel_reconfig_std_clock(txChannel_, &clockConfig);
+    if (result == ESP_OK) {
+        sampleRate_ = sampleRate;
+        if (!preloadSilence()) result = ESP_FAIL;
+    }
     if (result == ESP_OK) result = i2s_channel_enable(txChannel_);
     if (result != ESP_OK) return false;
-    sampleRate_ = sampleRate;
-    primeSilence();
     return true;
 }
 
@@ -803,10 +808,36 @@ bool AudioService::writePcm(const int16_t* samples, size_t frameCount, uint32_t 
     return result == ESP_OK && written == frameCount * sizeof(int16_t);
 }
 
-void AudioService::primeSilence() {
+bool AudioService::preloadSilence(uint8_t bufferCount) {
+    if (!txChannel_ || !pcmBuffer_ || bufferCount == 0) return false;
+    memset(pcmBuffer_, 0, BufferFrames * sizeof(int16_t));
+    bool loadedAny = false;
+    for (uint8_t index = 0; index < bufferCount; ++index) {
+        size_t loaded = 0;
+        const esp_err_t result = i2s_channel_preload_data(
+            txChannel_, pcmBuffer_, BufferFrames * sizeof(int16_t), &loaded);
+        if (result != ESP_OK) return false;
+        loadedAny = loadedAny || loaded > 0;
+        if (loaded < BufferFrames * sizeof(int16_t)) break;
+    }
+    return loadedAny;
+}
+
+void AudioService::primeSilence(uint8_t bufferCount) {
     if (!driverReady_ || !pcmBuffer_) return;
     memset(pcmBuffer_, 0, BufferFrames * sizeof(int16_t));
-    writePcm(pcmBuffer_, BufferFrames, 100);
+    for (uint8_t index = 0; index < bufferCount; ++index) {
+        if (!writePcm(pcmBuffer_, BufferFrames, 100)) break;
+    }
+}
+
+void AudioService::settleToSilence() {
+    if (!driverReady_ || !txChannel_ || sampleRate_ == 0) return;
+    primeSilence();
+    const uint32_t drainMs =
+        (static_cast<uint32_t>(dmaBufferCount_ + 2U) * BufferFrames * 1000U + sampleRate_ - 1U) /
+        sampleRate_;
+    vTaskDelay(pdMS_TO_TICKS(drainMs + 2U));
 }
 
 void AudioService::finishPlayback(bool naturalEnd) {

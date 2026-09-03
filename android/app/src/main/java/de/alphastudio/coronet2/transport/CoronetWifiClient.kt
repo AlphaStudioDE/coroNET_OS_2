@@ -7,8 +7,18 @@ import java.net.URL
 
 class CoronetWifiClient {
     fun fetch(device: CoronetDevice): DeviceSnapshot {
-        if (device.host.isBlank() || device.token.isBlank()) return DeviceSnapshot(device = device)
-        val connection = URL("http://${device.host}/api/state").openConnection() as HttpURLConnection
+        if (device.token.isBlank()) return DeviceSnapshot(device = device)
+        var lastError: String? = null
+        for (host in hostCandidates(device)) {
+            val result = fetchFromHost(device, host)
+            if (result.connection == ConnectionKind.Wifi) return result
+            lastError = result.error
+        }
+        return DeviceSnapshot(device = device, error = lastError ?: "coroNET is offline")
+    }
+
+    private fun fetchFromHost(device: CoronetDevice, host: String): DeviceSnapshot {
+        val connection = URL("http://$host/api/state").openConnection() as HttpURLConnection
         connection.connectTimeout = 1500
         connection.readTimeout = 1800
         connection.setRequestProperty("X-coroNET-Token", device.token)
@@ -18,7 +28,7 @@ class CoronetWifiClient {
             val printer = json.optJSONObject("printer") ?: JSONObject()
             val ota = json.optJSONObject("ota") ?: JSONObject()
             DeviceSnapshot(
-                device = device.copy(name = json.optString("name", device.name)),
+                device = device.copy(name = json.optString("name", device.name), host = host),
                 connection = ConnectionKind.Wifi,
                 firmware = json.optString("firmware", "--"),
                 printer = PrinterSnapshot(
@@ -43,6 +53,7 @@ class CoronetWifiClient {
                     availableVersion = ota.optString("version", ""),
                     status = ota.optString("status", "Ready"),
                 ),
+                updatedAtEpochMs = System.currentTimeMillis(),
             )
         } catch (error: Exception) {
             DeviceSnapshot(device = device, error = error.message)
@@ -50,34 +61,62 @@ class CoronetWifiClient {
     }
 
     fun fetchSettings(device: CoronetDevice): DeviceSettings? {
-        if (device.host.isBlank() || device.token.isBlank()) return null
-        val connection = URL("http://${device.host}/api/settings").openConnection() as HttpURLConnection
-        connection.connectTimeout = 1500
-        connection.readTimeout = 2200
-        connection.setRequestProperty("X-coroNET-Token", device.token)
-        return try {
-            if (connection.responseCode != 200) return null
-            parseSettings(JSONObject(connection.inputStream.bufferedReader().use { it.readText() }))
-        } catch (_: Exception) { null } finally { connection.disconnect() }
+        if (device.token.isBlank()) return null
+        hostCandidates(device).forEach { host ->
+            val connection = URL("http://$host/api/settings").openConnection() as HttpURLConnection
+            connection.connectTimeout = 1500
+            connection.readTimeout = 2200
+            connection.setRequestProperty("X-coroNET-Token", device.token)
+            try {
+                if (connection.responseCode == 200) {
+                    return parseSettings(JSONObject(connection.inputStream.bufferedReader().use { it.readText() }))
+                }
+            } catch (_: Exception) {
+                // The saved IP may have changed; try the stable mDNS hostname next.
+            } finally {
+                connection.disconnect()
+            }
+        }
+        return null
     }
 
-    fun post(device: CoronetDevice, path: String, body: String = "{}"): Boolean = runCatching {
-        val connection = URL("http://${device.host}$path").openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.connectTimeout = 1500
-        connection.readTimeout = 2500
-        connection.doOutput = true
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.setRequestProperty("X-coroNET-Token", device.token)
-        connection.outputStream.use { it.write(body.toByteArray()) }
-        val ok = connection.responseCode in 200..299
-        connection.disconnect()
-        ok
-    }.getOrDefault(false)
+    fun post(device: CoronetDevice, path: String, body: String = "{}"): Boolean {
+        for (host in hostCandidates(device)) {
+            val ok = runCatching {
+                val connection = URL("http://$host$path").openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 1500
+                connection.readTimeout = 2500
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.setRequestProperty("X-coroNET-Token", device.token)
+                try {
+                    connection.outputStream.use { it.write(body.toByteArray()) }
+                    connection.responseCode in 200..299
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrDefault(false)
+            if (ok) return true
+        }
+        return false
+    }
+
+    private fun hostCandidates(device: CoronetDevice): List<String> {
+        val mdns = device.id.takeIf { it.isNotBlank() }
+            ?.let { "coronet-${it.takeLast(4).lowercase()}.local" }
+            .orEmpty()
+        return listOf(device.host, mdns).filter { it.isNotBlank() }.distinct()
+    }
 }
 
 fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings()): DeviceSettings = previous.copy(
     loaded = true,
+    revision = when {
+        json.has("settingsRevision") -> json.optLong("settingsRevision", previous.revision)
+        json.has("sr") -> json.optLong("sr", previous.revision)
+        else -> previous.revision
+    },
     displayBrightness = json.optInt("displayBrightness", json.optInt("brightness", previous.displayBrightness)),
     uiSkin = json.optInt("uiSkin", previous.uiSkin),
     uiColorMode = json.optInt("uiColorMode", json.optInt("uiColor", previous.uiColorMode)),

@@ -210,19 +210,32 @@ class CoronetBleManager(
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             Log.i("coroNET-BLE", "services status=$status service=${gatt.getService(ServiceUuid) != null}")
-            if (gatt !== this@CoronetBleManager.gatt || status != BluetoothGatt.GATT_SUCCESS) return
-            val service = gatt.getService(ServiceUuid) ?: return
+            if (gatt !== this@CoronetBleManager.gatt) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                failAndReconnect(gatt, "service discovery failed: $status")
+                return
+            }
+            val service = gatt.getService(ServiceUuid)
+            if (service == null) {
+                failAndReconnect(gatt, "coroNET service missing")
+                return
+            }
             command = service.getCharacteristic(CommandUuid)
-            queueNotify(gatt, service.getCharacteristic(StateUuid))
-            queueNotify(gatt, service.getCharacteristic(EventUuid))
+            if (command == null || !queueNotify(gatt, service.getCharacteristic(StateUuid)) ||
+                !queueNotify(gatt, service.getCharacteristic(EventUuid))) {
+                failAndReconnect(gatt, "required characteristic or notification descriptor missing")
+                return
+            }
             writeNextDescriptor(gatt)
         }
 
         @SuppressLint("MissingPermission")
-        private fun queueNotify(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic?) {
-            characteristic ?: return
-            gatt.setCharacteristicNotification(characteristic, true)
-            characteristic.getDescriptor(Cccd)?.let(descriptorWrites::addLast)
+        private fun queueNotify(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic?): Boolean {
+            characteristic ?: return false
+            if (!gatt.setCharacteristicNotification(characteristic, true)) return false
+            val descriptor = characteristic.getDescriptor(Cccd) ?: return false
+            descriptorWrites.addLast(descriptor)
+            return true
         }
 
         @SuppressLint("MissingPermission")
@@ -246,17 +259,25 @@ class CoronetBleManager(
                 @Suppress("DEPRECATION")
                 gatt.writeDescriptor(descriptor)
             }
-            if (!started) { descriptorWrites.removeFirst(); writeNextDescriptor(gatt) }
+            if (!started) failAndReconnect(gatt, "notification subscription did not start")
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (gatt !== this@CoronetBleManager.gatt) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                failAndReconnect(gatt, "notification subscription failed: $status")
+                return
+            }
             if (descriptorWrites.firstOrNull() == descriptor) descriptorWrites.removeFirst()
             writeNextDescriptor(gatt)
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             if (gatt !== this@CoronetBleManager.gatt) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                failAndReconnect(gatt, "command write failed: $status")
+                return
+            }
             synchronized(commandWrites) {
                 if (commandWrites.isNotEmpty()) commandWrites.removeFirst()
                 commandWriteInFlight = false
@@ -281,7 +302,25 @@ class CoronetBleManager(
     private fun discoverServicesOnce(targetGatt: BluetoothGatt) {
         if (targetGatt !== gatt || serviceDiscoveryStarted) return
         serviceDiscoveryStarted = targetGatt.discoverServices()
-        if (!serviceDiscoveryStarted) mainHandler.postDelayed(serviceDiscoveryFallback, 350)
+        if (!serviceDiscoveryStarted) failAndReconnect(targetGatt, "service discovery did not start")
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun failAndReconnect(targetGatt: BluetoothGatt, reason: String) {
+        if (targetGatt !== gatt) return
+        Log.w("coroNET-BLE", "$reason; reconnecting")
+        mainHandler.removeCallbacks(serviceDiscoveryFallback)
+        command = null
+        subscriptionsReady = false
+        serviceDiscoveryStarted = false
+        descriptorWrites.clear()
+        synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
+        synchronized(assemblies) { assemblies.clear() }
+        gatt = null
+        runCatching { targetGatt.disconnect() }
+        targetGatt.close()
+        activeDevice?.let { onSnapshot(DeviceSnapshot(device = it)) }
+        scheduleReconnect()
     }
 
     private fun scheduleReconnect() {

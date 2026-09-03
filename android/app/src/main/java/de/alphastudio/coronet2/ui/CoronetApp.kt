@@ -34,31 +34,35 @@ private data class TimeZoneChoice(val label: String, val offset: String, val spe
 
 private val timeZoneChoices = listOf(
     TimeZoneChoice("Apia / Nuku'alofa", "UTC+13", "<+13>-13"),
-    TimeZoneChoice("Auckland / Fiji", "UTC+12/+13", "NZST-12NZDT,M9.5.0,M4.1.0/3"),
+    TimeZoneChoice("Auckland", "UTC+12/+13", "NZST-12NZDT,M9.5.0,M4.1.0/3"),
+    TimeZoneChoice("Fiji", "UTC+12", "<+12>-12"),
     TimeZoneChoice("Honiara", "UTC+11", "<+11>-11"),
     TimeZoneChoice("Sydney / Melbourne", "UTC+10/+11", "AEST-10AEDT,M10.1.0,M4.1.0/3"),
-    TimeZoneChoice("Adelaide / Darwin", "UTC+9:30", "ACST-9:30ACDT,M10.1.0,M4.1.0/3"),
+    TimeZoneChoice("Adelaide", "UTC+9:30/+10:30", "ACST-9:30ACDT,M10.1.0,M4.1.0/3"),
+    TimeZoneChoice("Darwin", "UTC+9:30", "ACST-9:30"),
     TimeZoneChoice("Tokyo / Seoul", "UTC+9", "JST-9"),
     TimeZoneChoice("Shanghai / Singapore", "UTC+8", "CST-8"),
     TimeZoneChoice("Bangkok / Jakarta", "UTC+7", "<+07>-7"),
     TimeZoneChoice("Yangon", "UTC+6:30", "<+0630>-6:30"),
-    TimeZoneChoice("Dhaka / Almaty", "UTC+6", "<+06>-6"),
+    TimeZoneChoice("Dhaka", "UTC+6", "<+06>-6"),
     TimeZoneChoice("Kolkata / Mumbai", "UTC+5:30", "IST-5:30"),
-    TimeZoneChoice("Karachi / Tashkent", "UTC+5", "PKT-5"),
+    TimeZoneChoice("Almaty / Karachi / Tashkent", "UTC+5", "<+05>-5"),
     TimeZoneChoice("Dubai / Muscat", "UTC+4", "<+04>-4"),
     TimeZoneChoice("Moscow / Minsk", "UTC+3", "MSK-3"),
-    TimeZoneChoice("Cairo / Helsinki", "UTC+2/+3", "EET-2EEST,M4.5.5/0,M10.5.4/24"),
-    TimeZoneChoice("Athens / Kyiv", "UTC+2/+3", "EET-2EEST,M3.5.0/3,M10.5.0/4"),
+    TimeZoneChoice("Cairo", "UTC+2/+3", "EET-2EEST,M4.5.5/0,M10.5.4/24"),
+    TimeZoneChoice("Helsinki / Athens / Kyiv", "UTC+2/+3", "EET-2EEST,M3.5.0/3,M10.5.0/4"),
     TimeZoneChoice("Johannesburg", "UTC+2", "SAST-2"),
     TimeZoneChoice("Berlin / Warsaw", "UTC+1/+2", "CET-1CEST,M3.5.0,M10.5.0/3"),
     TimeZoneChoice("London / Dublin", "UTC+0/+1", "GMT0BST,M3.5.0/1,M10.5.0"),
     TimeZoneChoice("UTC / Reykjavik", "UTC+0", "UTC0"),
     TimeZoneChoice("Azores", "UTC-1/+0", "<-01>1<+00>,M3.5.0/0,M10.5.0/1"),
-    TimeZoneChoice("Sao Paulo / Santiago", "UTC-3", "BRT3"),
+    TimeZoneChoice("Sao Paulo", "UTC-3", "BRT3"),
     TimeZoneChoice("Buenos Aires", "UTC-3", "<-03>3"),
     TimeZoneChoice("New York / Toronto", "UTC-5/-4", "EST5EDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Chicago / Mexico City", "UTC-6/-5", "CST6CDT,M3.2.0,M11.1.0"),
-    TimeZoneChoice("Denver / Phoenix", "UTC-7/-6", "MST7MDT,M3.2.0,M11.1.0"),
+    TimeZoneChoice("Chicago", "UTC-6/-5", "CST6CDT,M3.2.0,M11.1.0"),
+    TimeZoneChoice("Mexico City", "UTC-6", "CST6"),
+    TimeZoneChoice("Denver", "UTC-7/-6", "MST7MDT,M3.2.0,M11.1.0"),
+    TimeZoneChoice("Phoenix", "UTC-7", "MST7"),
     TimeZoneChoice("Los Angeles / Vancouver", "UTC-8/-7", "PST8PDT,M3.2.0,M11.1.0"),
     TimeZoneChoice("Anchorage / Juneau", "UTC-9/-8", "AKST9AKDT,M3.2.0,M11.1.0"),
     TimeZoneChoice("Honolulu / Hawaii", "UTC-10", "HST10"),
@@ -193,7 +197,11 @@ private fun DeviceHeader(snapshot: DeviceSnapshot, onManage: () -> Unit) {
             Column {
                 Text(snapshot.device?.name ?: "coroNET", fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp)
                 Text(
-                    when (snapshot.connection) { ConnectionKind.Wifi -> "Connected via Wi-Fi"; ConnectionKind.Ble -> "Connected via BLE"; else -> "Offline" },
+                    when (snapshot.connection) {
+                        ConnectionKind.Wifi -> "Connected via Wi-Fi"
+                        ConnectionKind.Ble -> "Connected via BLE"
+                        ConnectionKind.Offline -> if (snapshot.cached) "Offline - showing saved data" else "Offline"
+                    },
                     fontSize = 12.sp, color = connectionColor(snapshot.connection), letterSpacing = 0.sp,
                 )
             }

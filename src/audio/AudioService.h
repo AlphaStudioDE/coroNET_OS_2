@@ -81,7 +81,9 @@ private:
     bool writeWavBuffer(uint8_t volumePercent);
     bool writeToneBuffer(uint32_t stopAtMs);
     bool writePcm(const int16_t* samples, size_t frameCount, uint32_t timeoutMs = 150);
-    void primeSilence();
+    bool preloadSilence(uint8_t bufferCount = 2);
+    void primeSilence(uint8_t bufferCount = 2);
+    void settleToSilence();
     void finishPlayback(bool naturalEnd);
     uint32_t submitRequest(RequestType type, const char* path, uint8_t volumePercent,
                            bool repeat, SoundScenario scenario, bool bootAudio,

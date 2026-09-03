@@ -731,6 +731,7 @@ void BleService::publishSettings() {
     if (!gEventChr || !isConnected()) return;
 
     const AppSettings& cfg = settingsService().settings();
+    const unsigned long settingsRevision = static_cast<unsigned long>(settingsService().revision());
     char safeName[64];
     char safeSsid[80];
     char safePrinterHost[80];
@@ -753,12 +754,13 @@ void BleService::publishSettings() {
     };
 
     int written = snprintf(payload, sizeof(payload),
-                                 "{\"v\":%u,\"t\":\"settings\",\"r\":%lu,\"id\":\"%s\",\"name\":\"%s\","
+                                 "{\"v\":%u,\"t\":\"settings\",\"r\":%lu,\"sr\":%lu,\"id\":\"%s\",\"name\":\"%s\","
                                  "\"setupDone\":%u,\"bleEnabled\":%u,\"apiPaired\":%u,\"transport\":%u,\"brightness\":%u,"
                                  "\"uiSkin\":%u,\"uiColor\":%u,\"wifiSsid\":\"%s\",\"wifiPasswordSet\":%u,"
                                  "\"printerHost\":\"%s\",\"printerPort\":%u,\"printerApiKeySet\":%u}",
                                  bleprotocol::Version,
                                  static_cast<unsigned long>(++revision_),
+                                 settingsRevision,
                                  deviceId_, safeName,
                                  cfg.setupDone ? 1 : 0,
                                  cfg.bleEnabled ? 1 : 0,
@@ -777,12 +779,12 @@ void BleService::publishSettings() {
     char safePandaHost[132];
     jsonStringCopy(cfg.pandaHost, safePandaHost, sizeof(safePandaHost));
     written = snprintf(payload, sizeof(payload),
-                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"appearance\",\"displayBrightness\":%u,"
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"appearance\",\"sr\":%lu,\"displayBrightness\":%u,"
                        "\"uiSkin\":%u,\"uiColorMode\":%u,\"accentHueDegrees\":%u,\"screenSaverMode\":%u,"
                        "\"screenSaverDelayMinutes\":%u,\"clockBrightness\":%u,\"clockStyle\":%u,"
                        "\"clock24Hour\":%s,\"timeZone\":\"%s\","
                        "\"quietTarget\":%u,\"quietDurationMinutes\":%u}",
-                       bleprotocol::Version, cfg.displayBrightness, static_cast<unsigned>(cfg.uiSkin),
+                       bleprotocol::Version, settingsRevision, cfg.displayBrightness, static_cast<unsigned>(cfg.uiSkin),
                        static_cast<unsigned>(cfg.uiColorMode), cfg.accentHueDegrees,
                        static_cast<unsigned>(cfg.screenSaverMode), cfg.screenSaverDelayMinutes,
                        cfg.clockBrightness, static_cast<unsigned>(cfg.clockStyle),
@@ -791,22 +793,22 @@ void BleService::publishSettings() {
     if (!sendPayload(written)) return;
 
     written = snprintf(payload, sizeof(payload),
-                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"led_sound\",\"ledEnabled\":%s,"
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"led_sound\",\"sr\":%lu,\"ledEnabled\":%s,"
                        "\"ledBrightness\":[%u,%u,%u,%u],\"insideColorStyle\":%u,\"mirrorLedLayout\":%s,"
                        "\"soundVolume\":[%u,%u,%u,%u,%u]}",
-                       bleprotocol::Version, cfg.ledEnabled ? "true" : "false",
+                       bleprotocol::Version, settingsRevision, cfg.ledEnabled ? "true" : "false",
                        cfg.ledBrightness[0], cfg.ledBrightness[1], cfg.ledBrightness[2], cfg.ledBrightness[3],
                        static_cast<unsigned>(cfg.insideColorStyle), cfg.mirrorLedLayout ? "true" : "false",
                        cfg.soundVolume[0], cfg.soundVolume[1], cfg.soundVolume[2], cfg.soundVolume[3], cfg.soundVolume[4]);
     if (!sendPayload(written)) return;
 
     written = snprintf(payload, sizeof(payload),
-                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"vent\",\"ventMode\":%u,"
+                       "{\"v\":%u,\"t\":\"settings\",\"group\":\"vent\",\"sr\":%lu,\"ventMode\":%u,"
                        "\"ventTargetTempC\":%u,\"manualFanPercent\":%u,\"manualFlapPercent\":%u,"
                        "\"servoClosedUs\":%u,\"servoOpenUs\":%u,\"servoReverse\":%s,"
                        "\"diyHeaterOutputHigh\":%s,"
                        "\"pandaEnabled\":%s,\"pandaHost\":\"%s\",\"pandaMode\":%u,\"pandaTargetTempC\":%u}",
-                       bleprotocol::Version, static_cast<unsigned>(cfg.ventMode), cfg.ventTargetTempC,
+                       bleprotocol::Version, settingsRevision, static_cast<unsigned>(cfg.ventMode), cfg.ventTargetTempC,
                        cfg.manualFanPercent, cfg.manualFlapPercent, cfg.servoClosedUs, cfg.servoOpenUs,
                        cfg.servoReverse ? "true" : "false", cfg.diyHeaterOutputHigh ? "true" : "false",
                        cfg.pandaEnabled ? "true" : "false", safePandaHost,

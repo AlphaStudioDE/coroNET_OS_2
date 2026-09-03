@@ -21,10 +21,11 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class CoronetViewModel(application: Application) : AndroidViewModel(application) {
+    private data class PendingSetting(val mutation: Long, val value: Any, val createdAtMs: Long)
+
     private val store = DeviceStore(application)
     private val wifi = CoronetWifiClient()
     private val _devices = MutableStateFlow(store.load())
@@ -51,9 +52,11 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private var pairingChallengeJob: Job? = null
     private val settingsMutationMutex = Mutex()
     private val settingsMutationRevision = AtomicLong(0)
-    private val pendingSettingsMutations = AtomicInteger(0)
     private val wifiReachable = AtomicBoolean(false)
-    @Volatile private var ignoreBleSettingsUntilMs = 0L
+    private val pendingSettingsLock = Any()
+    private val pendingSettings = mutableMapOf<String, PendingSetting>()
+    private val lastCacheWriteMs = ConcurrentHashMap<String, Long>()
+    @Volatile private var settingsRevisionSeen = 0L
     private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings,
         ::onPairingChallenge, ::onPairingResult, ::onEvent)
 
@@ -93,6 +96,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
 
         pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); pairingChallengeJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
+        clearAllPendingSettings()
+        settingsRevisionSeen = 0L
         wifiReachable.set(false)
         pendingPairingId = null
         _pairingChallenge.value = null
@@ -109,31 +114,30 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         scanJob?.cancel(); ble.stopScan(); _scanning.value = false
         pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); pairingChallengeJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
+        clearAllPendingSettings()
         wifiReachable.set(false)
-        ignoreBleSettingsUntilMs = 0L
         val device = _devices.value.firstOrNull { it.id == id }
         Log.i("coroNET", "select id=${device?.id.orEmpty()} ble=${device?.address.orEmpty()} wifi=${device?.host.orEmpty()}")
-        _snapshot.value = DeviceSnapshot(device = device)
-        _settings.value = DeviceSettings()
+        val cached = device?.let(store::loadCache)
+        _snapshot.value = cached?.snapshot ?: DeviceSnapshot(device = device)
+        _settings.value = cached?.settings ?: DeviceSettings()
+        settingsRevisionSeen = 0L
         if (device == null) return
         if (device.address.isNotBlank()) ble.connect(device)
-        if (device.host.isNotBlank() && device.token.isNotBlank()) {
+        if (device.token.isNotBlank()) {
             pollingJob = viewModelScope.launch(Dispatchers.IO) {
                 var settingsCountdown = 0
                 while (isActive) {
-                    val wifiSnapshot = wifi.fetch(device)
+                    val currentDevice = _devices.value.firstOrNull { it.id == device.id } ?: device
+                    val wifiSnapshot = wifi.fetch(currentDevice)
                     val reachable = wifiSnapshot.connection == ConnectionKind.Wifi
                     wifiReachable.set(reachable)
                     if (reachable || _snapshot.value.connection != ConnectionKind.Ble) {
                         onSnapshot(wifiSnapshot)
                     }
                     if (reachable && settingsCountdown-- <= 0) {
-                        val expectedRevision = settingsMutationRevision.get()
-                        val fetched = wifi.fetchSettings(device)
-                        if (fetched != null && pendingSettingsMutations.get() == 0 &&
-                            settingsMutationRevision.get() == expectedRevision) {
-                            _settings.value = fetched
-                        }
+                        val fetched = wifi.fetchSettings(currentDevice)
+                        if (fetched != null && _selectedId.value == device.id) acceptRemoteSettings(fetched)
                         settingsCountdown = 1
                     }
                     delay(1500)
@@ -158,6 +162,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         val removedId = _selectedId.value
         _devices.value = _devices.value.filterNot { it.id == removedId }
         store.save(_devices.value)
+        store.clearCache(removedId)
+        removedId?.let(lastCacheWriteMs::remove)
         select(_devices.value.firstOrNull()?.id)
     }
 
@@ -172,28 +178,29 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         when (connection) {
             ConnectionKind.Wifi -> {
                 val revision = settingsMutationRevision.incrementAndGet()
-                pendingSettingsMutations.incrementAndGet()
+                rememberPendingSettings(patch, revision)
                 _settings.update { parseSettings(patch, it) }
+                persistCurrentState(true)
                 viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        settingsMutationMutex.withLock {
-                            wifi.post(device, "/api/settings", json)
-                            val confirmed = wifi.fetchSettings(device)
-                            if (confirmed != null && settingsMutationRevision.get() == revision) {
-                                _settings.value = confirmed
-                            }
+                    settingsMutationMutex.withLock {
+                        val posted = wifi.post(device, "/api/settings", json)
+                        val confirmed = wifi.fetchSettings(device)
+                        clearPendingSettings(revision)
+                        if (_selectedId.value == device.id && confirmed != null) {
+                            acceptRemoteSettings(confirmed)
+                        } else if (!posted && _selectedId.value == device.id) {
+                            _snapshot.update { it.copy(error = "Setting change could not be delivered") }
                         }
-                    } finally {
-                        pendingSettingsMutations.decrementAndGet()
                     }
                 }
             }
             ConnectionKind.Ble -> {
-                patch.put("cmd", "setSettings")
-                if (ble.send(patch.toString())) {
-                    settingsMutationRevision.incrementAndGet()
+                val revision = settingsMutationRevision.incrementAndGet()
+                val command = JSONObject(patch.toString()).put("cmd", "setSettings")
+                if (ble.send(command.toString())) {
+                    rememberPendingSettings(patch, revision)
                     _settings.update { parseSettings(patch, it) }
-                    ignoreBleSettingsUntilMs = android.os.SystemClock.elapsedRealtime() + 350L
+                    persistCurrentState(true)
                     bleSettingsRefreshJob?.cancel()
                     bleSettingsRefreshJob = viewModelScope.launch {
                         delay(500)
@@ -261,24 +268,131 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         if (value.device?.id != _selectedId.value && value.device?.address != _snapshot.value.device?.address) return
         if (value.connection == ConnectionKind.Ble && wifiReachable.get()) return
         val current = _snapshot.value
-        val effective = if (current.ota.busy && value.connection != ConnectionKind.Wifi) {
-            value.copy(ota = current.ota)
-        } else value
-        val stateKey = effective.device?.id?.takeIf { it.isNotBlank() }
-            ?: effective.device?.address?.takeIf { it.isNotBlank() }
-            ?: return
-        val sequence = effective.printer.eventSequence
-        val previousSequence = previousPrinterEventSequences.put(stateKey, sequence)
-        if (effective.printer.telemetryValid && previousSequence != null && sequence != previousSequence &&
-            (effective.printer.eventTo == "error" || effective.printer.eventTo == "complete")) {
-            notifyPrinter(effective.printer.eventTo, effective.printer.filename)
+        if (value.connection == ConnectionKind.Offline) {
+            if (wifiReachable.get() && current.connection == ConnectionKind.Wifi) return
+            settingsRevisionSeen = 0L
+            _snapshot.value = current.copy(
+                connection = ConnectionKind.Offline,
+                error = value.error,
+                cached = current.updatedAtEpochMs > 0,
+            )
+            return
         }
-        _snapshot.value = effective
+        val effective = when {
+            value.connection == ConnectionKind.Ble -> value.copy(
+                firmware = current.firmware,
+                fanPercent = current.fanPercent,
+                flapPercent = current.flapPercent,
+                audioPlaying = current.audioPlaying,
+                quietActive = current.quietActive,
+                ota = current.ota,
+            )
+            current.ota.busy && value.connection != ConnectionKind.Wifi -> value.copy(ota = current.ota)
+            else -> value
+        }
+        val live = effective.copy(
+            updatedAtEpochMs = System.currentTimeMillis(),
+            cached = false,
+            error = null,
+        )
+        val stateKey = live.device?.id?.takeIf { it.isNotBlank() }
+            ?: live.device?.address?.takeIf { it.isNotBlank() }
+            ?: return
+        val sequence = live.printer.eventSequence
+        val previousSequence = previousPrinterEventSequences.put(stateKey, sequence)
+        if (live.printer.telemetryValid && previousSequence != null && sequence != previousSequence &&
+            (live.printer.eventTo == "error" || live.printer.eventTo == "complete")) {
+            notifyPrinter(live.printer.eventTo, live.printer.filename)
+        }
+        _snapshot.value = live
+        live.device?.let(::rememberResolvedDevice)
+        persistCurrentState()
     }
 
     private fun onBleSettings(json: JSONObject) {
-        if (android.os.SystemClock.elapsedRealtime() < ignoreBleSettingsUntilMs) return
-        _settings.update { parseSettings(json, it) }
+        val incomingRevision = json.optLong("sr", 0L)
+        if (incomingRevision > 0L && incomingRevision < settingsRevisionSeen) return
+        acknowledgeMatchingPendingSettings(json)
+        acceptRemoteSettings(parseSettings(json, _settings.value))
+    }
+
+    private fun acceptRemoteSettings(remote: DeviceSettings) {
+        if (remote.revision > 0L && remote.revision < settingsRevisionSeen) return
+        if (remote.revision > settingsRevisionSeen) settingsRevisionSeen = remote.revision
+        _settings.value = applyPendingSettings(remote)
+        persistCurrentState()
+    }
+
+    private fun rememberPendingSettings(patch: JSONObject, mutation: Long) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(pendingSettingsLock) {
+            patch.keys().forEach { key ->
+                if (key != "cmd") pendingSettings[key] = PendingSetting(mutation, cloneJsonValue(patch.opt(key)), now)
+            }
+        }
+    }
+
+    private fun acknowledgeMatchingPendingSettings(remote: JSONObject) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(pendingSettingsLock) {
+            pendingSettings.entries.removeAll { (key, pending) ->
+                now - pending.createdAtMs > 5000L ||
+                    (remote.has(key) && jsonValuesEqual(remote.opt(key), pending.value))
+            }
+        }
+    }
+
+    private fun clearPendingSettings(mutation: Long) {
+        synchronized(pendingSettingsLock) {
+            pendingSettings.entries.removeAll { it.value.mutation == mutation }
+        }
+    }
+
+    private fun clearAllPendingSettings() = synchronized(pendingSettingsLock) { pendingSettings.clear() }
+
+    private fun applyPendingSettings(remote: DeviceSettings): DeviceSettings {
+        val patch = JSONObject()
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(pendingSettingsLock) {
+            pendingSettings.entries.removeAll { now - it.value.createdAtMs > 5000L }
+            pendingSettings.forEach { (key, pending) -> patch.put(key, cloneJsonValue(pending.value)) }
+        }
+        return if (patch.length() == 0) remote else parseSettings(patch, remote)
+    }
+
+    private fun cloneJsonValue(value: Any?): Any = when (value) {
+        is org.json.JSONArray -> org.json.JSONArray(value.toString())
+        is JSONObject -> JSONObject(value.toString())
+        null -> JSONObject.NULL
+        else -> value
+    }
+
+    private fun jsonValuesEqual(left: Any?, right: Any?): Boolean = when {
+        left === JSONObject.NULL && right === JSONObject.NULL -> true
+        left is org.json.JSONArray && right is org.json.JSONArray -> left.toString() == right.toString()
+        left is JSONObject && right is JSONObject -> left.toString() == right.toString()
+        else -> left?.toString() == right?.toString()
+    }
+
+    private fun persistCurrentState(force: Boolean = false) {
+        val device = _snapshot.value.device ?: return
+        if (_snapshot.value.updatedAtEpochMs <= 0L) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val previous = lastCacheWriteMs[device.id] ?: 0L
+        if (!force && now - previous < 5000L) return
+        lastCacheWriteMs[device.id] = now
+        store.saveCache(device.id, _snapshot.value, _settings.value)
+    }
+
+    private fun rememberResolvedDevice(device: CoronetDevice) {
+        val index = _devices.value.indexOfFirst { it.id == device.id }
+        if (index < 0) return
+        val saved = _devices.value[index]
+        if (saved.host == device.host && saved.name == device.name) return
+        _devices.value = _devices.value.toMutableList().also {
+            it[index] = saved.copy(name = device.name, host = device.host)
+        }
+        store.save(_devices.value)
     }
 
     private fun onPairingChallenge(challenge: PairingChallenge) {

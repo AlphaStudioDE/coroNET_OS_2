@@ -358,6 +358,7 @@ void WebControlService::handleSettings() {
     doc["clockStyle"] = static_cast<uint8_t>(cfg.clockStyle);
     doc["clock24Hour"] = cfg.clock24Hour;
     doc["timeZone"] = cfg.timeZone;
+    doc["settingsRevision"] = settingsService().revision();
     doc["quietTarget"] = static_cast<uint8_t>(cfg.quietTarget);
     doc["quietDurationMinutes"] = cfg.quietDurationMinutes;
     doc["quietErrorsBypass"] = cfg.quietErrorsBypass;
@@ -572,6 +573,7 @@ void WebControlService::handleUpdateSettings() {
 
     JsonDocument reply;
     reply["ok"] = true;
+    reply["settingsRevision"] = settingsService().revision();
     reply["transport"] = transportName(cfg.companionTransport);
     reply["wifiReconnectMayFollow"] = doc["wifiSsid"].is<const char*>() || doc["wifiPassword"].is<const char*>();
 
