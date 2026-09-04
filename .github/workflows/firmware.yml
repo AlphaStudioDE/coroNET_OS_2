@@ -40,7 +40,7 @@ jobs:
               exit 1
             fi
           else
-            version="0.3.2-dev"
+            version="0.3.3-dev"
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -48,6 +48,9 @@ jobs:
         env:
           CORONET_FIRMWARE_VERSION: ${{ steps.version.outputs.version }}
         run: pio run
+
+      - name: Validate LED catalog
+        run: python scripts/validate_led_catalog.py
 
       - name: Validate release artifacts
         run: >-
@@ -80,7 +83,6 @@ jobs:
           dist/RELEASE_NOTES.md
 
       - name: Set up Java for Android release
-        if: github.ref_type == 'tag'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -89,6 +91,13 @@ jobs:
           cache-dependency-path: |
             android/*.gradle.kts
             android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Test Android companion
+        working-directory: android
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 
       - name: Restore Android release signing key
         if: github.ref_type == 'tag'
@@ -111,7 +120,7 @@ jobs:
         shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
+          ./gradlew --no-daemon assembleRelease
 
       - name: Prepare Android companion asset
         if: github.ref_type == 'tag'

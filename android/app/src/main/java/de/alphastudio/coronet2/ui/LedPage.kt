@@ -42,6 +42,7 @@ import de.alphastudio.coronet2.model.DeviceSnapshot
 internal fun LedPage(
     settings: DeviceSettings,
     snapshot: DeviceSnapshot,
+    deviceCatalog: List<List<String>>,
     send: (String) -> Unit,
     preview: (Int, Int) -> Unit,
     calibrate: (Boolean, Int) -> Unit,
@@ -49,7 +50,8 @@ internal fun LedPage(
     var category by rememberSaveable { mutableIntStateOf(categoryForState(snapshot.printer.state, settings.ledOtherMode)) }
     var section by rememberSaveable { mutableIntStateOf(1) }
     var showCalibration by remember { mutableStateOf(false) }
-    val animations = ledAnimationCatalog.getOrElse(category) { emptyList() }
+    val animations = deviceCatalog.getOrElse(category) { emptyList() }
+        .ifEmpty { fallbackLedAnimationCatalog.getOrElse(category) { emptyList() } }
     val animationIndex = settings.ledAnimation.getOrElse(category) { 0 }.coerceIn(0, (animations.size - 1).coerceAtLeast(0))
     val animationName = animationDisplayName(animations.getOrElse(animationIndex) { "None" })
 

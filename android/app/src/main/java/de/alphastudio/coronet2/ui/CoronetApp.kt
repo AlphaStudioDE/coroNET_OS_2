@@ -78,12 +78,18 @@ private enum class AppPage(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun CoronetApp(model: CoronetViewModel) {
+fun CoronetApp(
+    model: CoronetViewModel,
+    showBluetoothPermissionWarning: Boolean = false,
+    onRetryPermissions: () -> Unit = {},
+    onDismissPermissionWarning: () -> Unit = {},
+) {
     val devices by model.devices.collectAsState()
     val selectedId by model.selectedId.collectAsState()
     val snapshot by model.snapshot.collectAsState()
     val settings by model.settings.collectAsState()
     val soundLibrary by model.soundLibrary.collectAsState()
+    val ledCatalog by model.ledCatalog.collectAsState()
     val discovered by model.discovered.collectAsState()
     val scanning by model.scanning.collectAsState()
     val pairingChallenge by model.pairingChallenge.collectAsState()
@@ -112,7 +118,7 @@ fun CoronetApp(model: CoronetViewModel) {
             ) { selected ->
                 when (selected) {
                     AppPage.Home -> HomePage(snapshot)
-                    AppPage.Led -> LedPage(settings, snapshot, model::sendSettings, model::previewLed, model::calibrateLed)
+                    AppPage.Led -> LedPage(settings, snapshot, ledCatalog, model::sendSettings, model::previewLed, model::calibrateLed)
                     AppPage.Vent -> VentPage(settings, snapshot, model::sendSettings)
                     AppPage.Sound -> SoundPage(
                         settings, snapshot, soundLibrary, model::sendSettings, model::loadSoundLibrary,
@@ -138,6 +144,16 @@ fun CoronetApp(model: CoronetViewModel) {
                 onSave = model::saveDevice,
                 onRemove = model::removeSelected,
                 onDismiss = { manageDevices = false },
+            )
+        }
+
+        if (showBluetoothPermissionWarning) {
+            AlertDialog(
+                onDismissRequest = onDismissPermissionWarning,
+                title = { Text("Bluetooth permission required") },
+                text = { Text("Allow nearby-device access so coroNET can be discovered, paired and used as a recovery connection.") },
+                confirmButton = { TextButton(onClick = onRetryPermissions) { Text("TRY AGAIN") } },
+                dismissButton = { TextButton(onClick = onDismissPermissionWarning) { Text("NOT NOW") } },
             )
         }
         pairingChallenge?.let {

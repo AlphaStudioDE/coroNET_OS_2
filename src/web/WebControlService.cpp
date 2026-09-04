@@ -557,7 +557,7 @@ void WebControlService::handleUpdateSettings() {
         return;
     }
 
-    AppSettings& cfg = settingsService().mutableSettings();
+    AppSettings cfg = settingsService().snapshot();
 
     if (doc["deviceName"].is<const char*>()) {
         char cleanName[sizeof(cfg.deviceName)] = "";
@@ -569,7 +569,6 @@ void WebControlService::handleUpdateSettings() {
     }
     if (doc["setupDone"].is<bool>()) {
         cfg.setupDone = doc["setupDone"].as<bool>();
-        state().setupDone = cfg.setupDone;
     }
     if (doc["bleEnabled"].is<bool>()) {
         cfg.bleEnabled = doc["bleEnabled"].as<bool>();
@@ -580,7 +579,7 @@ void WebControlService::handleUpdateSettings() {
     }
     if (doc["displayBrightness"].is<uint8_t>() || doc["displayBrightness"].is<int>()) {
         const int value = doc["displayBrightness"].as<int>();
-        cfg.displayBrightness = static_cast<uint8_t>(constrain(value, 0, 100));
+        cfg.displayBrightness = static_cast<uint8_t>(constrain(value, 10, 100));
     }
     if (doc["uiSkin"].is<uint8_t>() || doc["uiSkin"].is<int>()) {
         const int value = doc["uiSkin"].as<int>();
@@ -626,7 +625,14 @@ void WebControlService::handleUpdateSettings() {
     }
     if (doc["ledAnimation"].is<JsonArrayConst>()) {
         JsonArrayConst values = doc["ledAnimation"].as<JsonArrayConst>();
-        for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) cfg.ledAnimation[i] = constrain(values[i].as<int>(), 0, 255);
+        for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) {
+            const int animation = values[i].as<int>();
+            if (animation < 0 || animation >= ledAnimationCount(static_cast<LedCategory>(i))) {
+                sendJson(400, "{\"ok\":false,\"error\":\"led_animation_invalid\"}");
+                return;
+            }
+            cfg.ledAnimation[i] = static_cast<uint8_t>(animation);
+        }
     }
     if (doc["ledColorRemixDegrees"].is<JsonArrayConst>()) {
         JsonArrayConst values = doc["ledColorRemixDegrees"].as<JsonArrayConst>();
@@ -659,8 +665,20 @@ void WebControlService::handleUpdateSettings() {
     if (doc["ventTargetTempC"].is<int>()) cfg.ventTargetTempC = constrain(doc["ventTargetTempC"].as<int>(), 20, 80);
     if (doc["manualFanPercent"].is<int>()) cfg.manualFanPercent = constrain(doc["manualFanPercent"].as<int>(), 0, 100);
     if (doc["manualFlapPercent"].is<int>()) cfg.manualFlapPercent = constrain(doc["manualFlapPercent"].as<int>(), 0, 100);
-    if (doc["fanMinPercent"].is<int>()) cfg.fanMinPercent = constrain(doc["fanMinPercent"].as<int>(), 0, cfg.fanMaxPercent);
-    if (doc["fanMaxPercent"].is<int>()) cfg.fanMaxPercent = constrain(doc["fanMaxPercent"].as<int>(), cfg.fanMinPercent, 100);
+    const bool hasFanMin = doc["fanMinPercent"].is<int>();
+    const bool hasFanMax = doc["fanMaxPercent"].is<int>();
+    const uint8_t requestedFanMin = hasFanMin
+                                        ? static_cast<uint8_t>(constrain(doc["fanMinPercent"].as<int>(), 0, 100))
+                                        : cfg.fanMinPercent;
+    const uint8_t requestedFanMax = hasFanMax
+                                        ? static_cast<uint8_t>(constrain(doc["fanMaxPercent"].as<int>(), 0, 100))
+                                        : cfg.fanMaxPercent;
+    if (hasFanMin && hasFanMax && requestedFanMin > requestedFanMax) {
+        sendJson(400, "{\"ok\":false,\"error\":\"fan_range_invalid\"}");
+        return;
+    }
+    if (hasFanMin) cfg.fanMinPercent = min(requestedFanMin, requestedFanMax);
+    if (hasFanMax) cfg.fanMaxPercent = max(requestedFanMax, cfg.fanMinPercent);
     if (doc["failsafeFanPercent"].is<int>()) cfg.failsafeFanPercent = constrain(doc["failsafeFanPercent"].as<int>(), 0, 100);
     if (doc["failsafeFlapPercent"].is<int>()) cfg.failsafeFlapPercent = constrain(doc["failsafeFlapPercent"].as<int>(), 0, 100);
     if (doc["servoClosedUs"].is<int>()) cfg.servoClosedUs = constrain(doc["servoClosedUs"].as<int>(), 500, 2500);
@@ -712,6 +730,8 @@ void WebControlService::handleUpdateSettings() {
         strlcpy(cfg.printerApiKey, doc["apiKey"].as<const char*>(), sizeof(cfg.printerApiKey));
     }
 
+    settingsService().replace(cfg);
+    state().setupDone = cfg.setupDone;
     settingsService().save();
 
     JsonDocument reply;
@@ -779,7 +799,8 @@ void WebControlService::handleLedPreview() {
     const int category = doc["category"].as<int>();
     const int animation = doc["animation"].as<int>();
     const uint32_t durationMs = constrain(doc["durationMs"] | 10000U, 1000U, 30000U);
-    if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 || animation > 255) {
+    if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 ||
+        animation >= ledAnimationCount(static_cast<LedCategory>(category))) {
         sendJson(400, "{\"ok\":false,\"error\":\"preview_out_of_range\"}");
         return;
     }

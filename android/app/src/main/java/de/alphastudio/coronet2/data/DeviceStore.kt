@@ -2,6 +2,7 @@ package de.alphastudio.coronet2.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import de.alphastudio.coronet2.model.*
@@ -11,14 +12,43 @@ import org.json.JSONObject
 data class CachedDeviceState(val snapshot: DeviceSnapshot, val settings: DeviceSettings)
 
 class DeviceStore(context: Context) {
-    private val prefs: SharedPreferences = runCatching {
+    private val legacyPrefs = context.getSharedPreferences("coronet_devices", Context.MODE_PRIVATE)
+    private val securePrefs = runCatching {
         val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
         EncryptedSharedPreferences.create(
             context, "coronet_devices_secure", masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
-    }.getOrElse { context.getSharedPreferences("coronet_devices", Context.MODE_PRIVATE) }
+    }
+    val secureStorageAvailable: Boolean = securePrefs.isSuccess
+    private val prefs: SharedPreferences = securePrefs.getOrElse {
+        Log.e("coroNET", "Encrypted device storage is unavailable; pairing tokens will not be persisted", it)
+        legacyPrefs
+    }
+
+    init {
+        if (secureStorageAvailable && !prefs.contains("devices") && legacyPrefs.contains("devices")) {
+            val editor = prefs.edit()
+            legacyPrefs.all.forEach { (key, value) ->
+                when (value) {
+                    is String -> editor.putString(key, value)
+                    is Boolean -> editor.putBoolean(key, value)
+                    is Int -> editor.putInt(key, value)
+                    is Long -> editor.putLong(key, value)
+                    is Float -> editor.putFloat(key, value)
+                }
+            }
+            editor.apply()
+            legacyPrefs.edit().clear().apply()
+        } else if (!secureStorageAvailable) {
+            runCatching {
+                val devices = JSONArray(legacyPrefs.getString("devices", "[]"))
+                for (index in 0 until devices.length()) devices.getJSONObject(index).put("token", "")
+                legacyPrefs.edit().putString("devices", devices.toString()).apply()
+            }
+        }
+    }
 
     fun load(): List<CoronetDevice> = runCatching {
         val array = JSONArray(prefs.getString("devices", "[]"))
@@ -26,7 +56,8 @@ class DeviceStore(context: Context) {
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
                 add(CoronetDevice(item.getString("id"), item.optString("name", item.getString("id")),
-                    item.optString("address"), item.optString("host"), item.optString("token")))
+                    item.optString("address"), item.optString("host"),
+                    item.optString("token").takeIf { secureStorageAvailable }.orEmpty()))
             }
         }
     }.getOrDefault(emptyList())
@@ -35,7 +66,8 @@ class DeviceStore(context: Context) {
         val array = JSONArray()
         devices.forEach { device ->
             array.put(JSONObject().put("id", device.id).put("name", device.name)
-                .put("address", device.address).put("host", device.host).put("token", device.token))
+                .put("address", device.address).put("host", device.host)
+                .put("token", device.token.takeIf { secureStorageAvailable }.orEmpty()))
         }
         prefs.edit().putString("devices", array.toString()).apply()
     }

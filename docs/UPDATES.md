@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.3.3
+
+### Cross-Project Reliability Audit
+- Completed a coordinated audit of the coroNET firmware, Android companion, and local browser panel before physical release-candidate testing.
+- Made settings updates from BLE and the browser transactional so rejected values cannot leave a partially applied configuration.
+- Added strict animation-index, fan-range, and display-brightness validation across remote control paths.
+- Stabilized the telemetry snapshot consumed by the LED task and reduced repeated settings copies inside each rendered frame.
+
+### LED Engine Integrity
+- Validated all 336 documented animations against their public names, enum entries, and renderer cases.
+- Added an automated catalog validator to CI so missing, duplicated, or unreachable animations block future releases.
+- Corrected the Print Running animation so its moving highlight remains inside the completed progress span.
+- Added complete cleanup for partial LED buffer, SPI, or task-start failures without increasing steady-state DMA use.
+
+### Android Companion Hardening
+- Fixed malformed or obsolete device addresses so they produce a recoverable offline state instead of escaping network error handling.
+- Loaded the LED animation catalog directly from the connected firmware, with the bundled catalog retained only as a compatibility fallback.
+- Prevented pairing tokens from falling back to unencrypted Android preferences when secure storage is unavailable.
+- Added clear recovery feedback when required Bluetooth permissions are denied.
+- Added unit coverage for malformed hosts, partial settings responses, and incomplete sound-library entries.
+
+### Security And Release Automation
+- Documented the trusted-local-network security boundary of the browser panel and the application-level nature of the displayed BLE pairing code.
+- Extended GitHub CI to test and lint Android on every change and validate the full LED catalog alongside the firmware build.
+- Established the public path from the `0.3.3` audit baseline through physical testing in `0.4.x`, final interface polish in `0.5.x`, and long-duration stability qualification for `1.0.0`.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.3.3_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.3.2...v0.3.3
+
 ## 0.3.2
 
 ### Local Browser Control

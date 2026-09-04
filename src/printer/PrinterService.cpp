@@ -731,7 +731,6 @@ void PrinterService::applyResult(const PollResult& result) {
     system.printerState = nextState;
     system.printerTelemetryValid = true;
     system.lastPrinterUpdateMs = now;
-    system.printerTelemetryRevision++;
     strlcpy(system.printFilename, result.filename, sizeof(system.printFilename));
     strlcpy(system.materialName, result.material, sizeof(system.materialName));
     strlcpy(system.printerStatusText, printerStateName(system.printerState), sizeof(system.printerStatusText));
@@ -743,6 +742,7 @@ void PrinterService::applyResult(const PollResult& result) {
         system.printerStateChangedMs = now;
         system.printerStateEventSequence++;
     }
+    system.printerTelemetryRevision++;
 }
 
 bool PrinterService::requestInfo(const PollRequest& request, PrinterTestResult* result) {

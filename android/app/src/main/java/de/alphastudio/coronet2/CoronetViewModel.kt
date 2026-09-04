@@ -39,6 +39,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     val settings: StateFlow<DeviceSettings> = _settings
     private val _soundLibrary = MutableStateFlow(SoundLibrarySnapshot())
     val soundLibrary: StateFlow<SoundLibrarySnapshot> = _soundLibrary
+    private val _ledCatalog = MutableStateFlow(List(6) { emptyList<String>() })
+    val ledCatalog: StateFlow<List<List<String>>> = _ledCatalog
     private val _selectedId = MutableStateFlow(_devices.value.firstOrNull()?.id)
     val selectedId: StateFlow<String?> = _selectedId
     private val _scanning = MutableStateFlow(false)
@@ -53,6 +55,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private var pollingJob: Job? = null
     private var connectionWatchdogJob: Job? = null
     private var bleSettingsRefreshJob: Job? = null
+    private var ledCatalogJob: Job? = null
     private var pairingChallengeJob: Job? = null
     private val settingsMutationMutex = Mutex()
     private val settingsMutationRevision = AtomicLong(0)
@@ -67,6 +70,9 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     init {
         createNotificationChannel()
         select(_selectedId.value)
+        if (!store.secureStorageAvailable) {
+            _snapshot.update { it.copy(error = "Secure Android storage is unavailable; pairings will not be saved") }
+        }
         startConnectionWatchdog()
     }
 
@@ -102,7 +108,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); pairingChallengeJob?.cancel(); ble.disconnect()
+        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ledCatalogJob?.cancel(); pairingChallengeJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
         clearAllPendingSettings()
         settingsRevisionSeen = 0L
@@ -114,6 +120,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         _snapshot.value = DeviceSnapshot(device = device)
         _settings.value = DeviceSettings()
         _soundLibrary.value = SoundLibrarySnapshot()
+        _ledCatalog.value = List(6) { emptyList() }
         ble.connect(device)
         startPairingChallengeRequests()
     }
@@ -121,7 +128,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     fun select(id: String?) {
         _selectedId.value = id
         scanJob?.cancel(); ble.stopScan(); _scanning.value = false
-        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); pairingChallengeJob?.cancel(); ble.disconnect()
+        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ledCatalogJob?.cancel(); ledCatalogJob = null; pairingChallengeJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
         clearAllPendingSettings()
         wifiReachable.set(false)
@@ -131,6 +138,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         _snapshot.value = cached?.snapshot ?: DeviceSnapshot(device = device)
         _settings.value = cached?.settings ?: DeviceSettings()
         _soundLibrary.value = SoundLibrarySnapshot()
+        _ledCatalog.value = List(6) { emptyList() }
         settingsRevisionSeen = 0L
         if (device == null) return
         if (device.address.isNotBlank()) ble.connect(device)
@@ -149,6 +157,9 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
                         val fetched = wifi.fetchSettings(currentDevice)
                         if (fetched != null && _selectedId.value == device.id) acceptRemoteSettings(fetched)
                         settingsCountdown = 1
+                    }
+                    if (reachable && ledCatalogJob == null && _ledCatalog.value.any(List<String>::isEmpty)) {
+                        loadLedCatalog(currentDevice)
                     }
                     delay(1500)
                 }
@@ -548,6 +559,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         val current = _snapshot.value.device ?: return
         pairingChallengeJob?.cancel()
         pollingJob?.cancel()
+        ledCatalogJob?.cancel()
+        ledCatalogJob = null
         wifiReachable.set(false)
         val unpaired = current.copy(id = challenge.deviceId, name = challenge.deviceName, host = "", token = "")
         _devices.value = _devices.value.filterNot { it.id == current.id || it.address == current.address }
@@ -635,6 +648,23 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun loadLedCatalog(device: CoronetDevice) {
+        ledCatalogJob = viewModelScope.launch(Dispatchers.IO) {
+            val loaded = _ledCatalog.value.toMutableList()
+            for (category in loaded.indices) {
+                if (!isActive || _selectedId.value != device.id) return@launch
+                if (loaded[category].isEmpty()) {
+                    wifi.fetchLedCatalog(device, category)?.takeIf(List<String>::isNotEmpty)?.let { names ->
+                        loaded[category] = names
+                        _ledCatalog.value = loaded.toList()
+                    }
+                }
+            }
+            if (loaded.any(List<String>::isEmpty)) delay(10000)
+            ledCatalogJob = null
+        }
+    }
+
     private fun createNotificationChannel() {
         val manager = getApplication<Application>().getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("printer-events", "Printer events", NotificationManager.IMPORTANCE_HIGH))
@@ -657,6 +687,7 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         pollingJob?.cancel()
         connectionWatchdogJob?.cancel()
         bleSettingsRefreshJob?.cancel()
+        ledCatalogJob?.cancel()
         pairingChallengeJob?.cancel()
         ble.close()
         super.onCleared()

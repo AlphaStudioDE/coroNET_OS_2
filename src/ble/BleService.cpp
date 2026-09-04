@@ -542,7 +542,8 @@ void BleService::handleCommand(const char* command, size_t length) {
         const int category = doc["category"] | -1;
         const int animation = doc["animation"] | -1;
         const uint32_t durationMs = constrain(doc["durationMs"] | 10000U, 1000U, 30000U);
-        if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 || animation > 255) {
+        if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 ||
+            animation >= ledAnimationCount(static_cast<LedCategory>(category))) {
             publishEvent("error", "led_preview_invalid");
             return;
         }
@@ -567,7 +568,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         return;
     }
     if (strcmp(cmd, "setWifi") == 0) {
-        AppSettings& cfg = settingsService().mutableSettings();
+        AppSettings cfg = settingsService().snapshot();
         char ssid[sizeof(cfg.wifiSsid)] = "";
         char password[sizeof(cfg.wifiPassword)] = "";
         if (!readBoundedString(doc["ssid"], ssid, sizeof(ssid), true)) {
@@ -581,6 +582,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         strlcpy(cfg.wifiSsid, ssid, sizeof(cfg.wifiSsid));
         if (passwordProvided) strlcpy(cfg.wifiPassword, password, sizeof(cfg.wifiPassword));
+        settingsService().replace(cfg);
         settingsService().save();
         publishSettings();
         publishEvent("ack", "wifi_saved");
@@ -588,7 +590,7 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
 
     if (strcmp(cmd, "setPrinter") == 0) {
-        AppSettings& cfg = settingsService().mutableSettings();
+        AppSettings cfg = settingsService().snapshot();
         char rawHost[sizeof(cfg.printerHost) + 16] = "";
         char cleanHost[sizeof(cfg.printerHost)] = "";
         char apiKey[sizeof(cfg.printerApiKey)] = "";
@@ -620,6 +622,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         strlcpy(cfg.printerHost, cleanHost, sizeof(cfg.printerHost));
         cfg.printerPort = port;
         if (apiKeyProvided) strlcpy(cfg.printerApiKey, apiKey, sizeof(cfg.printerApiKey));
+        settingsService().replace(cfg);
         settingsService().save();
         publishSettings();
         publishEvent("ack", "printer_saved");
@@ -640,8 +643,9 @@ void BleService::handleCommand(const char* command, size_t length) {
             publishEvent("error", "setup_done_invalid");
             return;
         }
-        AppSettings& cfg = settingsService().mutableSettings();
+        AppSettings cfg = settingsService().snapshot();
         cfg.setupDone = doc["done"].as<bool>();
+        settingsService().replace(cfg);
         state().setupDone = cfg.setupDone;
         settingsService().save();
         publishSettings();
@@ -651,7 +655,9 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
 
     if (strcmp(cmd, "resetDeviceName") == 0) {
-        settingsService().mutableSettings().deviceName[0] = '\0';
+        AppSettings cfg = settingsService().snapshot();
+        cfg.deviceName[0] = '\0';
+        settingsService().replace(cfg);
         settingsService().save();
         updateAdvertisingName();
         publishState(true);
@@ -660,7 +666,7 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
 
     if (strcmp(cmd, "setDeviceName") == 0 || strcmp(cmd, "setName") == 0) {
-        AppSettings& cfg = settingsService().mutableSettings();
+        AppSettings cfg = settingsService().snapshot();
         char requestedName[sizeof(cfg.deviceName)] = "";
         char cleanName[sizeof(cfg.deviceName)] = "";
         if (!readBoundedString(doc["name"], requestedName, sizeof(requestedName), true)) {
@@ -669,6 +675,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         deviceIdentity().sanitizeName(requestedName, cleanName, sizeof(cleanName));
         strlcpy(cfg.deviceName, cleanName, sizeof(cfg.deviceName));
+        settingsService().replace(cfg);
         settingsService().save();
         updateAdvertisingName();
         publishState(true);
@@ -683,7 +690,7 @@ void BleService::handleCommand(const char* command, size_t length) {
             return;
         }
 
-        AppSettings& cfg = settingsService().mutableSettings();
+        AppSettings cfg = settingsService().snapshot();
         if (strcasecmp(mode, "auto") == 0) cfg.companionTransport = CompanionTransport::Auto;
         else if (strcasecmp(mode, "ble") == 0 || strcasecmp(mode, "bt") == 0) cfg.companionTransport = CompanionTransport::Ble;
         else if (strcasecmp(mode, "wifi") == 0) cfg.companionTransport = CompanionTransport::Wifi;
@@ -691,6 +698,7 @@ void BleService::handleCommand(const char* command, size_t length) {
             publishEvent("error", "transport_mode_invalid");
             return;
         }
+        settingsService().replace(cfg);
         settingsService().save();
         publishSettings();
         publishEvent("ack", "transport_saved");
@@ -698,8 +706,8 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
 
     if (strcmp(cmd, "setSettings") == 0) {
-        AppSettings& cfg = settingsService().mutableSettings();
-        if (doc["displayBrightness"].is<int>()) cfg.displayBrightness = constrain(doc["displayBrightness"].as<int>(), 0, 100);
+        AppSettings cfg = settingsService().snapshot();
+        if (doc["displayBrightness"].is<int>()) cfg.displayBrightness = constrain(doc["displayBrightness"].as<int>(), 10, 100);
         if (doc["uiSkin"].is<int>()) cfg.uiSkin = static_cast<UiSkin>(constrain(doc["uiSkin"].as<int>(), 0, 3));
         if (doc["uiColorMode"].is<int>()) cfg.uiColorMode = static_cast<UiColorMode>(constrain(doc["uiColorMode"].as<int>(), 0, 2));
         if (doc["accentHueDegrees"].is<int>()) cfg.accentHueDegrees = constrain(doc["accentHueDegrees"].as<int>(), 0, 359);
@@ -737,7 +745,14 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         if (doc["ledAnimation"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["ledAnimation"].as<JsonArrayConst>();
-            for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) cfg.ledAnimation[i] = constrain(values[i].as<int>(), 0, 255);
+            for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) {
+                const int animation = values[i].as<int>();
+                if (animation < 0 || animation >= ledAnimationCount(static_cast<LedCategory>(i))) {
+                    publishEvent("error", "led_animation_invalid");
+                    return;
+                }
+                cfg.ledAnimation[i] = static_cast<uint8_t>(animation);
+            }
         }
         if (doc["ledColorRemixDegrees"].is<JsonArrayConst>()) {
             JsonArrayConst values = doc["ledColorRemixDegrees"].as<JsonArrayConst>();
@@ -773,8 +788,20 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["ventTargetTempC"].is<int>()) cfg.ventTargetTempC = constrain(doc["ventTargetTempC"].as<int>(), 20, 80);
         if (doc["manualFanPercent"].is<int>()) cfg.manualFanPercent = constrain(doc["manualFanPercent"].as<int>(), 0, 100);
         if (doc["manualFlapPercent"].is<int>()) cfg.manualFlapPercent = constrain(doc["manualFlapPercent"].as<int>(), 0, 100);
-        if (doc["fanMinPercent"].is<int>()) cfg.fanMinPercent = constrain(doc["fanMinPercent"].as<int>(), 0, cfg.fanMaxPercent);
-        if (doc["fanMaxPercent"].is<int>()) cfg.fanMaxPercent = constrain(doc["fanMaxPercent"].as<int>(), cfg.fanMinPercent, 100);
+        const bool hasFanMin = doc["fanMinPercent"].is<int>();
+        const bool hasFanMax = doc["fanMaxPercent"].is<int>();
+        const uint8_t requestedFanMin = hasFanMin
+                                            ? static_cast<uint8_t>(constrain(doc["fanMinPercent"].as<int>(), 0, 100))
+                                            : cfg.fanMinPercent;
+        const uint8_t requestedFanMax = hasFanMax
+                                            ? static_cast<uint8_t>(constrain(doc["fanMaxPercent"].as<int>(), 0, 100))
+                                            : cfg.fanMaxPercent;
+        if (hasFanMin && hasFanMax && requestedFanMin > requestedFanMax) {
+            publishEvent("error", "fan_range_invalid");
+            return;
+        }
+        if (hasFanMin) cfg.fanMinPercent = min(requestedFanMin, requestedFanMax);
+        if (hasFanMax) cfg.fanMaxPercent = max(requestedFanMax, cfg.fanMinPercent);
         if (doc["failsafeFanPercent"].is<int>()) cfg.failsafeFanPercent = constrain(doc["failsafeFanPercent"].as<int>(), 0, 100);
         if (doc["failsafeFlapPercent"].is<int>()) cfg.failsafeFlapPercent = constrain(doc["failsafeFlapPercent"].as<int>(), 0, 100);
         if (doc["servoClosedUs"].is<int>()) cfg.servoClosedUs = constrain(doc["servoClosedUs"].as<int>(), 500, 2500);
@@ -794,6 +821,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 180);
         if (doc["pandaTemperingEndTempC"].is<int>()) cfg.pandaTemperingEndTempC = constrain(doc["pandaTemperingEndTempC"].as<int>(), 0, 60);
         if (doc["pandaTemperingAfterPrint"].is<bool>()) cfg.pandaTemperingAfterPrint = doc["pandaTemperingAfterPrint"].as<bool>();
+        settingsService().replace(cfg);
         settingsService().save();
         publishSettings();
         publishEvent("ack", "settings_saved");

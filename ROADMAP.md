@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.3.3` closes the broad software audit; the remaining path is organized around physical validation, polish, and stability.
 
 ## Foundation
 
@@ -87,11 +87,41 @@ coroNET OS 2 is planned to become its native visual and control companion. The i
 
 The protocol, hardware details, and release schedule will be published only after the relevant safety mechanisms have been validated. Until then, AirGuard 300 remains a deliberate glimpse of the wider open-source ecosystem planned around coroNET.
 
-## Public Release
+## Release Path
 
-- [ ] long-duration memory, WiFi, BLE, display, audio, and LED soak tests
-- [ ] disconnect and power-failure tests
+### 0.3.3 - Software Audit Baseline
+
+- [x] complete cross-project audit of firmware, Android companion, and browser panel
+- [x] validate the complete 336-animation LED catalog against names, enums, render cases, and documentation
+- [x] make remote settings updates transactional across BLE and WiFi
+- [x] harden Android network handling, permission feedback, and pairing-token storage
+- [x] add Android unit tests and run firmware, Android, and LED validation in CI
+- [x] publish matching OTA firmware, Flash Tool package, checksums, and Android APK
+
+### 0.4.x - Physical Validation And Corrections
+
+- [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
+- [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness
+- [ ] test simultaneous control from the touchscreen, Android companion, and browser panel
+- [ ] validate BLE/WiFi recovery, Moonraker reconnect, OTA, SD audio, ventilation, and pairing resets
+- [ ] correct every functional issue found during physical testing
+- [ ] validate Panda Breath discovery and direct control on physical hardware
+
+### 0.5.x - Final Experience Polish
+
+- [ ] complete visual and interaction polish on the coroNET touchscreen
+- [ ] complete visual and interaction polish in the Android companion
+- [ ] complete visual and interaction polish in the local browser panel
+- [ ] finish accessibility, localization, touch-target, and touch-calibration review
+- [ ] align wording, hierarchy, feedback, empty states, and error presentation across all three interfaces
+
+### 1.0.0 - Stable Public Release
+
+- [ ] complete long-duration memory, WiFi, BLE, display, audio, LED, and control soak tests
+- [ ] complete repeated disconnect, restart, update, brownout, and power-failure recovery tests
+- [ ] resolve all release-blocking defects and repeat the affected stability tests
 - [x] complete build photography and wiring diagrams
-- [x] documented BOM and tested reference hardware
-- [x] release binaries and reproducible build notes
-- [ ] Snapmaker contest submission material
+- [x] document the BOM and reference hardware
+- [x] provide release binaries and reproducible build notes
+- [ ] publish coroNET OS 2 `1.0.0` only after the stability gate passes
+- [ ] prepare Snapmaker contest submission material

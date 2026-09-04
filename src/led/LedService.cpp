@@ -37,6 +37,71 @@ constexpr uint8_t CalibrationReferenceSaturation = 220U;
 
 LedService gLedService;
 
+struct LedRuntimeState {
+    uint32_t bootMs = 0;
+    bool quietActive = false;
+    PrinterState printerState = PrinterState::Unknown;
+    uint32_t printerStateEventSequence = 0;
+    PrinterState printerEventFrom = PrinterState::Unknown;
+    PrinterState printerEventTo = PrinterState::Unknown;
+    uint8_t printProgress = 0;
+    uint8_t activeTool = 0;
+    float activeToolTempC = NAN;
+    float bedTempC = NAN;
+    float chamberTempC = NAN;
+    uint32_t filamentColorRgb = 0xFFFFFF;
+    uint32_t filamentColorsRgb[4] = {};
+    uint8_t filamentColorMask = 0;
+    uint32_t printDurationSec = 0;
+    uint32_t printEtaSec = 0;
+    bool printerConnected = false;
+    bool printerTelemetryValid = false;
+    bool wifiConnected = false;
+    bool audioPlaying = false;
+    bool timeReady = false;
+    bool ventFailsafe = false;
+    uint32_t lastPrinterUpdateMs = 0;
+    uint32_t lastTouchMs = 0;
+};
+
+LedRuntimeState captureLedRuntimeState() {
+    const SystemState& source = state();
+    LedRuntimeState copy;
+    for (uint8_t attempt = 0; attempt < 3U; ++attempt) {
+        const uint32_t telemetryBefore = source.printerTelemetryRevision;
+        const uint32_t eventBefore = source.printerStateEventSequence;
+        copy.bootMs = source.bootMs;
+        copy.quietActive = source.quietActive;
+        copy.printerState = source.printerState;
+        copy.printerStateEventSequence = source.printerStateEventSequence;
+        copy.printerEventFrom = source.printerEventFrom;
+        copy.printerEventTo = source.printerEventTo;
+        copy.printProgress = source.printProgress;
+        copy.activeTool = source.activeTool;
+        copy.activeToolTempC = source.activeToolTempC;
+        copy.bedTempC = source.bedTempC;
+        copy.chamberTempC = source.chamberTempC;
+        copy.filamentColorRgb = source.filamentColorRgb;
+        memcpy(copy.filamentColorsRgb, source.filamentColorsRgb, sizeof(copy.filamentColorsRgb));
+        copy.filamentColorMask = source.filamentColorMask;
+        copy.printDurationSec = source.printDurationSec;
+        copy.printEtaSec = source.printEtaSec;
+        copy.printerConnected = source.printerConnected;
+        copy.printerTelemetryValid = source.printerTelemetryValid;
+        copy.wifiConnected = source.wifiConnected;
+        copy.audioPlaying = source.audioPlaying;
+        copy.timeReady = source.timeReady;
+        copy.ventFailsafe = source.ventFailsafe;
+        copy.lastPrinterUpdateMs = source.lastPrinterUpdateMs;
+        copy.lastTouchMs = source.lastTouchMs;
+        if (telemetryBefore == source.printerTelemetryRevision &&
+            eventBefore == source.printerStateEventSequence) {
+            break;
+        }
+    }
+    return copy;
+}
+
 constexpr LedSection VisualOuterSections[3] = {
     LedSection::Left,
     LedSection::Center,
@@ -274,7 +339,7 @@ RgbwColor scaled(const RgbwColor& color, uint8_t scale) {
 }
 
 uint8_t effectiveSectionBrightnessPercent(const AppSettings& settings,
-                                          const SystemState& system,
+                                           const LedRuntimeState& system,
                                           LedSection section,
                                           uint32_t now) {
     const uint8_t index = static_cast<uint8_t>(section);
@@ -374,7 +439,7 @@ RgbwColor temperatureColor(uint8_t percent, uint8_t value = 255U) {
                         static_cast<uint8_t>((percent - 67U) * 255U / 33U)), value);
 }
 
-LedCategory categoryForState(const SystemState& system) {
+LedCategory categoryForState(const LedRuntimeState& system) {
     switch (system.printerState) {
         case PrinterState::Printing: return LedCategory::Print;
         case PrinterState::Paused: return LedCategory::Pause;
@@ -386,7 +451,7 @@ LedCategory categoryForState(const SystemState& system) {
     }
 }
 
-bool quietSuppressesLeds(const AppSettings& settings, const SystemState& system) {
+bool quietSuppressesLeds(const AppSettings& settings, const LedRuntimeState& system) {
     if (!system.quietActive) return false;
     if (settings.quietErrorsBypass && system.printerState == PrinterState::Error) return false;
     return settings.quietTarget == QuietTarget::Leds ||
@@ -415,6 +480,7 @@ void LedService::begin() {
     spi_ = new SPIClass(LedSpiHost);
     if (!spi_) {
         Serial.println("[led] SPI object allocation failed");
+        releaseBuffers();
         return;
     }
     pinMode(hw::LedDataPin, OUTPUT);
@@ -431,6 +497,12 @@ void LedService::begin() {
         taskEntry, "coronet-led", TaskStackBytes, this, TaskPriority, &task_, TaskCore);
     if (created != pdPASS) {
         Serial.println("[led] task creation failed");
+        spi_->endTransaction();
+        spi_->end();
+        delete spi_;
+        spi_ = nullptr;
+        releaseBuffers();
+        digitalWrite(hw::LedDataPin, LOW);
         return;
     }
 
@@ -540,18 +612,33 @@ bool LedService::allocateBuffers() {
         hw::LedCount, sizeof(RgbwColor), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     txBuffer_ = static_cast<uint8_t*>(heap_caps_malloc(
         hw::LedCount * 16U, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-    return targetFrame_ && currentFrame_ && previewFrame_ && txBuffer_;
+    if (targetFrame_ && currentFrame_ && previewFrame_ && txBuffer_) return true;
+    releaseBuffers();
+    return false;
+}
+
+void LedService::releaseBuffers() {
+    free(targetFrame_);
+    free(currentFrame_);
+    free(previewFrame_);
+    free(txBuffer_);
+    targetFrame_ = nullptr;
+    currentFrame_ = nullptr;
+    previewFrame_ = nullptr;
+    txBuffer_ = nullptr;
 }
 
 void LedService::render(uint32_t now) {
     clearTarget();
-    const AppSettings& settings = settingsService().settings();
-    const SystemState& system = state();
+    const AppSettings settings = settingsService().snapshot();
+    const LedRuntimeState system = captureLedRuntimeState();
     frameMirror_ = settings.mirrorLedLayout;
+    memcpy(frameColorRemixDegrees_, settings.ledColorRemixDegrees,
+           sizeof(frameColorRemixDegrees_));
 
     if (renderColorCalibration(now)) {
         bootActive_ = false;
-        smoothAndShow(true);
+        smoothAndShow(settings, true);
         return;
     }
 
@@ -577,7 +664,7 @@ void LedService::render(uint32_t now) {
 
     if (!settings.ledEnabled || quietSuppressesLeds(settings, system)) {
         bootActive_ = false;
-        smoothAndShow();
+        smoothAndShow(settings);
         return;
     }
 
@@ -585,7 +672,7 @@ void LedService::render(uint32_t now) {
     const uint32_t bootElapsed = bootExperience().timelineMs();
     if (bootActive_) {
         renderBoot(bootExperience().performanceStarted() ? bootElapsed : bootExperience().preludeMs(),
-                   bootExperience().full(), bootExperience().performanceStarted());
+                   bootExperience().full(), bootExperience().performanceStarted(), settings);
     } else {
         const bool preview = !snakeFinishActive_ && previewActive_ &&
                              static_cast<int32_t>(previewUntilMs_ - now) > 0;
@@ -656,11 +743,11 @@ void LedService::render(uint32_t now) {
             context.lastTouchAgeMs = 0U;
         }
         renderCategory(category, animation, context);
-        applyInsidePolicy();
+        applyInsidePolicy(settings);
     }
 
-    applyOutputPolicies();
-    smoothAndShow(bootActive_ && bootElapsed < 300U);
+    applyOutputPolicies(settings);
+    smoothAndShow(settings, bootActive_ && bootElapsed < 300U);
 }
 
 bool LedService::renderColorCalibration(uint32_t now) {
@@ -684,7 +771,8 @@ bool LedService::renderColorCalibration(uint32_t now) {
     return true;
 }
 
-void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted) {
+void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted,
+                            const AppSettings& settings) {
     if (!performanceStarted) {
         const uint8_t breath = static_cast<uint8_t>(10U + wave8(static_cast<uint8_t>(elapsedMs / 20U)) / 5U);
         for (uint16_t i = 0; i < hw::InsideCount; ++i) {
@@ -733,8 +821,7 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             }
         }
         if (handoff) {
-            const SystemState& system = state();
-            const AppSettings& settings = settingsService().settings();
+            const LedRuntimeState system = captureLedRuntimeState();
             const LedCategory category = settings.ledOtherMode
                 ? LedCategory::Other : categoryForState(system);
             LedAnimationContext context;
@@ -761,7 +848,7 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
                 ? context.nowMs - system.lastTouchMs : UINT32_MAX;
             renderCategory(category,
                            settings.ledAnimation[static_cast<uint8_t>(category)], context);
-            applyInsidePolicy();
+            applyInsidePolicy(settings);
         }
         for (uint16_t i = 0; i < hw::LedCount; ++i) {
             targetFrame_[i] = handoff ? blend(signature[i], targetFrame_[i], handoff) : signature[i];
@@ -941,8 +1028,7 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
                                      BootExperience::FullDurationMs - FullLedHandoffStartMs);
         RgbwColor signature[hw::LedCount];
         memcpy(signature, targetFrame_, sizeof(signature));
-        const SystemState& system = state();
-        const AppSettings& settings = settingsService().settings();
+        const LedRuntimeState system = captureLedRuntimeState();
         const LedCategory category = settings.ledOtherMode
             ? LedCategory::Other : categoryForState(system);
         LedAnimationContext context;
@@ -969,7 +1055,7 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             ? context.nowMs - system.lastTouchMs : UINT32_MAX;
         renderCategory(category,
                        settings.ledAnimation[static_cast<uint8_t>(category)], context);
-        applyInsidePolicy();
+        applyInsidePolicy(settings);
         for (uint16_t i = 0; i < hw::LedCount; ++i) targetFrame_[i] = blend(signature[i], targetFrame_[i], handoff);
     }
 }
@@ -3223,10 +3309,17 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
 
         case PrintAnimation::Running: {
             fillFilamentSides();
-            const uint32_t shift = now / 60U;
-            for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const bool on = ((i + shift) % 5U) < 3U;
-                setSection(LedSection::Center, i, scaled(filament, on ? 255U : 42U));
+            const uint16_t completed = static_cast<uint16_t>(
+                (static_cast<uint32_t>(progress) * hw::CenterCount + 99U) / 100U);
+            if (!completed) break;
+
+            const uint16_t head = static_cast<uint16_t>((now / 60U) % completed);
+            for (uint16_t i = 0; i < completed; ++i) {
+                const uint16_t trail = static_cast<uint16_t>((head + completed - i) % completed);
+                const uint8_t value = trail == 0U ? 255U : trail == 1U ? 150U : trail == 2U ? 70U : 16U;
+                const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
+                setSection(LedSection::Center, i,
+                           scaled(filament, static_cast<uint8_t>(static_cast<uint16_t>(value) * coverage / 255U)));
             }
             break;
         }
@@ -7347,14 +7440,13 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
     }
 }
 
-void LedService::applyInsidePolicy() {
-    const AppSettings& settings = settingsService().settings();
+void LedService::applyInsidePolicy(const AppSettings& settings) {
     if (settings.insideColorStyle == InsideColorStyle::White) {
         fillSection(LedSection::Inside, RgbwColor(0, 0, 0, 255));
         return;
     }
 
-    const SystemState& system = state();
+    const LedRuntimeState system = captureLedRuntimeState();
     const uint32_t now = millis();
     for (uint16_t i = 0; i < hw::InsideCount; ++i) {
         const uint16_t outerCenter = static_cast<uint16_t>(i * (hw::OuterCount - 1U) / (hw::InsideCount - 1U));
@@ -7401,8 +7493,7 @@ void LedService::applyInsidePolicy() {
     }
 }
 
-void LedService::applyOutputPolicies() {
-    const AppSettings& settings = settingsService().settings();
+void LedService::applyOutputPolicies(const AppSettings& settings) {
     if (bootActive_) {
         uint16_t brightnessSum = 0;
         for (uint8_t index = 0; index < enumCount(LedSection{}); ++index) {
@@ -7435,7 +7526,7 @@ void LedService::applyOutputPolicies() {
         return;
     }
 
-    const SystemState& system = state();
+    const LedRuntimeState system = captureLedRuntimeState();
     const uint32_t now = millis();
     // coroNET 1 rendered most decorative colours with OUT_MAX=204. Keeping
     // that RGB headroom prevents the diffuser from visually washing bright
@@ -7467,14 +7558,15 @@ void LedService::applyOutputPolicies() {
     }
 }
 
-bool LedService::smoothAndShow(bool immediate) {
+bool LedService::smoothAndShow(const AppSettings& settings, bool immediate) {
     bool dirty = false;
     uint8_t step = 18U;
+    const LedRuntimeState system = captureLedRuntimeState();
     const LedCategory activeCategory = bootActive_ ? LedCategory::Idle
         : (previewActive_ ? previewCategory_
             : (snakeFinishActive_ ? LedCategory::Print
-                : (settingsService().settings().ledOtherMode
-                    ? LedCategory::Other : categoryForState(state()))));
+                : (settings.ledOtherMode
+                    ? LedCategory::Other : categoryForState(system))));
     if (activeCategory == LedCategory::Error) {
         step = 3U;
     } else if (activeCategory == LedCategory::Print ||
@@ -7484,7 +7576,7 @@ bool LedService::smoothAndShow(bool immediate) {
     }
 
     const bool forceInsideWhite = !bootActive_ &&
-        settingsService().settings().insideColorStyle == InsideColorStyle::White;
+        settings.insideColorStyle == InsideColorStyle::White;
     const uint16_t bootSaturationScale = bootActive_ && bootExperience().full()
         ? 150U : 0U;
     portENTER_CRITICAL(&frameMux_);
@@ -7496,7 +7588,7 @@ bool LedService::smoothAndShow(bool immediate) {
         // and diffuser reproduce that target to the viewer.
         previewFrame_[i] = perceptualOutput(targetFrame_[i]);
         const RgbwColor target = perceptualOutput(applyUserColorCalibration(
-            targetFrame_[i], settingsService().settings(), bootSaturationScale));
+            targetFrame_[i], settings, bootSaturationScale));
         const uint8_t targetPeak = max(target.r, max(target.g, target.b));
         const uint8_t targetLow = min(target.r, min(target.g, target.b));
         const uint8_t targetSaturation = targetPeak
@@ -7628,7 +7720,7 @@ uint16_t LedService::sectionPhysicalIndex(LedSection section, uint16_t logical) 
 
 RgbwColor LedService::decorativeHsv(LedCategory category, uint8_t hue,
                                     uint8_t saturation, uint8_t value) const {
-    const int16_t degrees = settingsService().settings().ledColorRemixDegrees[static_cast<uint8_t>(category)];
+    const int16_t degrees = frameColorRemixDegrees_[static_cast<uint8_t>(category)];
     const int16_t shift = static_cast<int16_t>(degrees * 256L / 360L);
     return hsv(static_cast<uint8_t>(hue + shift), saturation, value);
 }

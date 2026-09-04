@@ -159,9 +159,7 @@ void SettingsService::load() {
     printerHost.toCharArray(settings_.printerHost, sizeof(settings_.printerHost));
     printerApiKey.toCharArray(settings_.printerApiKey, sizeof(settings_.printerApiKey));
     apiToken.toCharArray(settings_.apiToken, sizeof(settings_.apiToken));
-    if (settings_.displayBrightness < 10 || settings_.displayBrightness > 100) {
-        settings_.displayBrightness = 80;
-    }
+    settings_.displayBrightness = clampValue<uint8_t>(settings_.displayBrightness, 10, 100);
     settings_.printerPort = sanePort(settings_.printerPort);
     if (static_cast<uint8_t>(settings_.uiSkin) > static_cast<uint8_t>(UiSkin::Minimal)) {
         settings_.uiSkin = UiSkin::Coronet;
@@ -258,6 +256,20 @@ void SettingsService::save() {
     lastChangeMs_ = now;
     savePending_ = true;
     revision_++;
+}
+
+AppSettings SettingsService::snapshot() const {
+    AppSettings copy;
+    portENTER_CRITICAL(&settingsMux_);
+    copy = settings_;
+    portEXIT_CRITICAL(&settingsMux_);
+    return copy;
+}
+
+void SettingsService::replace(const AppSettings& settings) {
+    portENTER_CRITICAL(&settingsMux_);
+    settings_ = settings;
+    portEXIT_CRITICAL(&settingsMux_);
 }
 
 void SettingsService::flush() {

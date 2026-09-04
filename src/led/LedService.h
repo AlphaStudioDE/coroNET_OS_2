@@ -10,6 +10,8 @@
 
 namespace coronet {
 
+struct AppSettings;
+
 enum class LedCalibrationColor : uint8_t {
     Red = 0,
     Orange,
@@ -47,9 +49,11 @@ private:
     static void taskEntry(void* context);
     void taskLoop();
     bool allocateBuffers();
+    void releaseBuffers();
     void render(uint32_t now);
     bool renderColorCalibration(uint32_t now);
-    void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted);
+    void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted,
+                    const AppSettings& settings);
     void renderCategory(LedCategory category, uint8_t animation,
                         const LedAnimationContext& context);
     void renderIdle(uint8_t animation, const LedAnimationContext& context);
@@ -58,9 +62,9 @@ private:
     void renderError(uint8_t animation, const LedAnimationContext& context);
     void renderFinish(uint8_t animation, const LedAnimationContext& context);
     void renderOther(uint8_t animation, const LedAnimationContext& context);
-    void applyInsidePolicy();
-    void applyOutputPolicies();
-    bool smoothAndShow(bool immediate = false);
+    void applyInsidePolicy(const AppSettings& settings);
+    void applyOutputPolicies(const AppSettings& settings);
+    bool smoothAndShow(const AppSettings& settings, bool immediate = false);
     void encodeFrame();
     void transmitEncodedFrame();
 
@@ -87,6 +91,7 @@ private:
     bool previewActive_ = false;
     bool colorCalibrationActive_ = false;
     bool frameMirror_ = false;
+    int16_t frameColorRemixDegrees_[enumCount(LedCategory{})] = {};
     LedCategory previewCategory_ = LedCategory::Idle;
     uint8_t previewAnimation_ = 0;
     uint32_t previewStartedMs_ = 0;

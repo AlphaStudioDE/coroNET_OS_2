@@ -104,8 +104,9 @@ bool PairingService::completeFromPhone(uint32_t sessionId) {
     portEXIT_CRITICAL(&mux_);
 
     if (accepted) {
-        AppSettings& settings = settingsService().mutableSettings();
+        AppSettings settings = settingsService().snapshot();
         settings.apiPaired = true;
+        settingsService().replace(settings);
         settingsService().save();
         settingsService().flush();
     }

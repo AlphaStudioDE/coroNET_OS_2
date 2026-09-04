@@ -18,13 +18,12 @@ class CoronetWifiClient {
     }
 
     private fun fetchFromHost(device: CoronetDevice, host: String): DeviceSnapshot {
-        val connection = URL("http://$host/api/state").openConnection() as HttpURLConnection
-        connection.connectTimeout = 1500
-        connection.readTimeout = 1800
-        connection.setRequestProperty("X-coroNET-Token", device.token)
+        var connection: HttpURLConnection? = null
         return try {
-            if (connection.responseCode != 200) throw IllegalStateException("HTTP ${connection.responseCode}")
-            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            val active = open(device, host, "/api/state", 1800)
+            connection = active
+            if (active.responseCode != 200) throw IllegalStateException("HTTP ${active.responseCode}")
+            val json = JSONObject(active.inputStream.bufferedReader().use { it.readText() })
             val printer = json.optJSONObject("printer") ?: JSONObject()
             val ota = json.optJSONObject("ota") ?: JSONObject()
             DeviceSnapshot(
@@ -57,24 +56,23 @@ class CoronetWifiClient {
             )
         } catch (error: Exception) {
             DeviceSnapshot(device = device, error = error.message)
-        } finally { connection.disconnect() }
+        } finally { connection?.disconnect() }
     }
 
     fun fetchSettings(device: CoronetDevice): DeviceSettings? {
         if (device.token.isBlank()) return null
         hostCandidates(device).forEach { host ->
-            val connection = URL("http://$host/api/settings").openConnection() as HttpURLConnection
-            connection.connectTimeout = 1500
-            connection.readTimeout = 2200
-            connection.setRequestProperty("X-coroNET-Token", device.token)
+            var connection: HttpURLConnection? = null
             try {
-                if (connection.responseCode == 200) {
-                    return parseSettings(JSONObject(connection.inputStream.bufferedReader().use { it.readText() }))
+                val active = open(device, host, "/api/settings", 2200)
+                connection = active
+                if (active.responseCode == 200) {
+                    return parseSettings(JSONObject(active.inputStream.bufferedReader().use { it.readText() }))
                 }
             } catch (_: Exception) {
                 // The saved IP may have changed; try the stable mDNS hostname next.
             } finally {
-                connection.disconnect()
+                connection?.disconnect()
             }
         }
         return null
@@ -83,18 +81,38 @@ class CoronetWifiClient {
     fun fetchSoundLibrary(device: CoronetDevice, folder: Int, page: Int): SoundLibrarySnapshot? {
         if (device.token.isBlank()) return null
         hostCandidates(device).forEach { host ->
-            val connection = URL("http://$host/api/audio/library?folder=$folder&page=$page").openConnection() as HttpURLConnection
-            connection.connectTimeout = 1500
-            connection.readTimeout = 2500
-            connection.setRequestProperty("X-coroNET-Token", device.token)
+            var connection: HttpURLConnection? = null
             try {
-                if (connection.responseCode == 200) {
-                    return parseSoundLibrary(JSONObject(connection.inputStream.bufferedReader().use { it.readText() }))
+                val active = open(device, host, "/api/audio/library?folder=$folder&page=$page", 2500)
+                connection = active
+                if (active.responseCode == 200) {
+                    return parseSoundLibrary(JSONObject(active.inputStream.bufferedReader().use { it.readText() }))
                 }
             } catch (_: Exception) {
                 // Try the next saved IP or mDNS hostname.
             } finally {
-                connection.disconnect()
+                connection?.disconnect()
+            }
+        }
+        return null
+    }
+
+    fun fetchLedCatalog(device: CoronetDevice, category: Int): List<String>? {
+        if (device.token.isBlank() || category !in 0..5) return null
+        hostCandidates(device).forEach { host ->
+            var connection: HttpURLConnection? = null
+            try {
+                val active = open(device, host, "/api/led/catalog?category=$category", 2200)
+                connection = active
+                if (active.responseCode == 200) {
+                    val array = JSONObject(active.inputStream.bufferedReader().use { it.readText() })
+                        .optJSONArray("animations") ?: return@forEach
+                    return List(array.length()) { index -> array.optString(index) }.filter(String::isNotBlank)
+                }
+            } catch (_: Exception) {
+                // Try the next saved IP or mDNS hostname.
+            } finally {
+                connection?.disconnect()
             }
         }
         return null
@@ -128,6 +146,13 @@ class CoronetWifiClient {
             .orEmpty()
         return listOf(device.host, mdns).filter { it.isNotBlank() }.distinct()
     }
+
+    private fun open(device: CoronetDevice, host: String, path: String, readTimeoutMs: Int): HttpURLConnection =
+        (URL("http://$host$path").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 1500
+            readTimeout = readTimeoutMs
+            setRequestProperty("X-coroNET-Token", device.token)
+        }
 }
 
 fun parseSoundLibrary(json: JSONObject): SoundLibrarySnapshot {

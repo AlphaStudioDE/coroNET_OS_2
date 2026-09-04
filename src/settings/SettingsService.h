@@ -102,6 +102,8 @@ public:
     void loop();
     const AppSettings& settings() const { return settings_; }
     AppSettings& mutableSettings() { return settings_; }
+    AppSettings snapshot() const;
+    void replace(const AppSettings& settings);
     uint32_t revision() const { return revision_; }
     void save();
     void flush();
@@ -118,6 +120,7 @@ private:
     uint32_t revision_ = 1;
     uint32_t dirtySinceMs_ = 0;
     uint32_t lastChangeMs_ = 0;
+    mutable portMUX_TYPE settingsMux_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
 SettingsService& settingsService();
