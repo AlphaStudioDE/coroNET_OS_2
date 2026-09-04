@@ -37,12 +37,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.alphastudio.coronet2.model.DeviceSettings
 import de.alphastudio.coronet2.model.DeviceSnapshot
+import de.alphastudio.coronet2.model.LedFrame
 
 @Composable
 internal fun LedPage(
     settings: DeviceSettings,
     snapshot: DeviceSnapshot,
     deviceCatalog: List<List<String>>,
+    ledFrame: LedFrame,
     send: (String) -> Unit,
     preview: (Int, Int) -> Unit,
     calibrate: (Boolean, Int) -> Unit,
@@ -56,8 +58,6 @@ internal fun LedPage(
     val animationName = animationDisplayName(animations.getOrElse(animationIndex) { "None" })
 
     AdaptivePage(
-        title = "LED",
-        subtitle = "Status light engine",
         primary = {
             SectionPanel("Animation") {
                 CompactChoices(ledCategoryNames, category) { category = it }
@@ -89,14 +89,9 @@ internal fun LedPage(
                         modifier = Modifier.size(52.dp),
                     ) { Icon(Icons.Rounded.ChevronRight, contentDescription = "Next animation") }
                 }
-                LedLayoutPreview(
-                    brightness = settings.ledBrightness,
-                    selectedSection = section,
-                    insideAmbient = settings.insideColorStyle != 0,
-                    mirror = settings.mirrorLedLayout,
-                )
+                LedLayoutPreview(ledFrame)
                 Text(
-                    "The diagram follows the physical right, center, left and inside sections.",
+                    if (ledFrame.available) "LIVE OUTPUT / 2 FPS" else "WAITING FOR LIVE OUTPUT",
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     fontSize = 10.sp,

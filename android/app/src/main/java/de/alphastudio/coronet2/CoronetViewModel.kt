@@ -19,12 +19,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class CoronetViewModel(application: Application) : AndroidViewModel(application) {
+    private companion object {
+        const val TemperatureHistoryDurationMs = 2L * 60L * 60L * 1000L
+        const val MaxTemperatureSamples = 14_400
+        const val TemperatureHistoryPersistIntervalMs = 30_000L
+    }
+
     private data class PendingSetting(val mutation: Long, val value: Any, val createdAtMs: Long)
 
     private val store = DeviceStore(application)
@@ -35,12 +42,16 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     val discovered: StateFlow<List<CoronetDevice>> = _discovered
     private val _snapshot = MutableStateFlow(DeviceSnapshot())
     val snapshot: StateFlow<DeviceSnapshot> = _snapshot
+    private val _temperatureHistory = MutableStateFlow<List<TemperatureSample>>(emptyList())
+    val temperatureHistory: StateFlow<List<TemperatureSample>> = _temperatureHistory
     private val _settings = MutableStateFlow(DeviceSettings())
     val settings: StateFlow<DeviceSettings> = _settings
     private val _soundLibrary = MutableStateFlow(SoundLibrarySnapshot())
     val soundLibrary: StateFlow<SoundLibrarySnapshot> = _soundLibrary
     private val _ledCatalog = MutableStateFlow(List(6) { emptyList<String>() })
     val ledCatalog: StateFlow<List<List<String>>> = _ledCatalog
+    private val _ledFrame = MutableStateFlow(LedFrame())
+    val ledFrame: StateFlow<LedFrame> = _ledFrame
     private val _selectedId = MutableStateFlow(_devices.value.firstOrNull()?.id)
     val selectedId: StateFlow<String?> = _selectedId
     private val _scanning = MutableStateFlow(false)
@@ -56,15 +67,22 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     private var connectionWatchdogJob: Job? = null
     private var bleSettingsRefreshJob: Job? = null
     private var ledCatalogJob: Job? = null
+    private var ledPreviewJob: Job? = null
     private var pairingChallengeJob: Job? = null
+    private var soundLibraryRequestJob: Job? = null
+    private var soundSelectionJob: Job? = null
+    private var temperatureHistoryPersistJob: Job? = null
     private val settingsMutationMutex = Mutex()
+    private val soundLibraryMutex = Mutex()
+    private val temperatureHistoryStorageMutex = Mutex()
     private val settingsMutationRevision = AtomicLong(0)
     private val wifiReachable = AtomicBoolean(false)
     private val pendingSettingsLock = Any()
     private val pendingSettings = mutableMapOf<String, PendingSetting>()
     private val lastCacheWriteMs = ConcurrentHashMap<String, Long>()
+    private val lastTemperatureHistoryWriteMs = ConcurrentHashMap<String, Long>()
     @Volatile private var settingsRevisionSeen = 0L
-    private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings, ::onBleSoundLibrary,
+    private val ble = CoronetBleManager(application, ::onFound, ::onSnapshot, ::onBleSettings, ::onBleSoundLibrary, ::onLedFrame,
         ::onPairingChallenge, ::onPairingResult, ::onEvent)
 
     init {
@@ -90,6 +108,12 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun isBluetoothEnabled(): Boolean = ble.isBluetoothEnabled()
+
+    fun reconnectSelected() {
+        select(_selectedId.value)
+    }
+
     fun addAndConnect(device: CoronetDevice) {
         scanJob?.cancel()
         ble.stopScan()
@@ -108,7 +132,8 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ledCatalogJob?.cancel(); pairingChallengeJob?.cancel(); ble.disconnect()
+        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ledCatalogJob?.cancel(); pairingChallengeJob?.cancel()
+        soundLibraryRequestJob?.cancel(); soundSelectionJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
         clearAllPendingSettings()
         settingsRevisionSeen = 0L
@@ -118,17 +143,21 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         _pairingCandidate.value = device
         _selectedId.value = device.id
         _snapshot.value = DeviceSnapshot(device = device)
+        _temperatureHistory.value = emptyList()
         _settings.value = DeviceSettings()
         _soundLibrary.value = SoundLibrarySnapshot()
         _ledCatalog.value = List(6) { emptyList() }
+        _ledFrame.value = LedFrame()
         ble.connect(device)
         startPairingChallengeRequests()
     }
 
     fun select(id: String?) {
+        persistTemperatureHistory(force = true)
         _selectedId.value = id
         scanJob?.cancel(); ble.stopScan(); _scanning.value = false
-        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ledCatalogJob?.cancel(); ledCatalogJob = null; pairingChallengeJob?.cancel(); ble.disconnect()
+        pollingJob?.cancel(); bleSettingsRefreshJob?.cancel(); ledCatalogJob?.cancel(); ledCatalogJob = null; pairingChallengeJob?.cancel()
+        soundLibraryRequestJob?.cancel(); soundSelectionJob?.cancel(); ble.disconnect()
         settingsMutationRevision.incrementAndGet()
         clearAllPendingSettings()
         wifiReachable.set(false)
@@ -136,9 +165,11 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         Log.i("coroNET", "select id=${device?.id.orEmpty()} ble=${device?.address.orEmpty()} wifi=${device?.host.orEmpty()}")
         val cached = device?.let(store::loadCache)
         _snapshot.value = cached?.snapshot ?: DeviceSnapshot(device = device)
+        _temperatureHistory.value = device?.let { store.loadTemperatureHistory(it.id) }.orEmpty()
         _settings.value = cached?.settings ?: DeviceSettings()
         _soundLibrary.value = SoundLibrarySnapshot()
         _ledCatalog.value = List(6) { emptyList() }
+        _ledFrame.value = LedFrame()
         settingsRevisionSeen = 0L
         if (device == null) return
         if (device.address.isNotBlank()) ble.connect(device)
@@ -184,7 +215,9 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         _devices.value = _devices.value.filterNot { it.id == removedId }
         store.save(_devices.value)
         store.clearCache(removedId)
+        store.clearTemperatureHistory(removedId)
         removedId?.let(lastCacheWriteMs::remove)
+        removedId?.let(lastTemperatureHistoryWriteMs::remove)
         select(_devices.value.firstOrNull()?.id)
     }
 
@@ -324,6 +357,25 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setLedPreviewVisible(visible: Boolean) {
+        ledPreviewJob?.cancel()
+        ledPreviewJob = null
+        if (!visible) return
+        ledPreviewJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                val device = _snapshot.value.device
+                if (device != null && wifiReachable.get() && device.token.isNotBlank()) {
+                    wifi.fetchLedFrame(device)?.let { frame ->
+                        if (_selectedId.value == device.id) _ledFrame.value = frame
+                    }
+                } else if (_snapshot.value.connection == ConnectionKind.Ble) {
+                    ble.send("{\"cmd\":\"getLedFrame\"}")
+                }
+                delay(500)
+            }
+        }
+    }
+
     fun calibrateLed(active: Boolean, color: Int) {
         val device = _snapshot.value.device ?: return
         val payload = JSONObject().put("active", active).put("color", color.coerceIn(0, 7))
@@ -340,22 +392,46 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
     fun loadSoundLibrary(folder: Int = 0, page: Int = 0) {
         val device = _snapshot.value.device ?: return
         _soundLibrary.update { it.copy(loading = true, error = null) }
-        if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val loaded = wifi.fetchSoundLibrary(device, folder, page)
-                if (_selectedId.value != device.id) return@launch
-                _soundLibrary.value = loaded ?: _soundLibrary.value.copy(
-                    loading = false,
-                    error = "Sound library could not be loaded",
-                )
+        soundLibraryRequestJob?.cancel()
+        soundLibraryRequestJob = viewModelScope.launch {
+            delay(120)
+            soundLibraryMutex.withLock {
+                if (_selectedId.value != device.id) return@withLock
+                if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
+                    val loaded = withContext(Dispatchers.IO) { wifi.fetchSoundLibrary(device, folder, page) }
+                    if (_selectedId.value != device.id) return@withLock
+                    _soundLibrary.value = loaded ?: _soundLibrary.value.copy(
+                        loading = false,
+                        error = "Sound library could not be loaded",
+                    )
+                } else if (_snapshot.value.connection == ConnectionKind.Ble) {
+                    val command = JSONObject().put("cmd", "getSoundLibrary").put("folder", folder).put("page", page)
+                    if (!ble.send(command.toString())) {
+                        _soundLibrary.update { it.copy(loading = false, error = "Sound library request could not be delivered") }
+                    }
+                } else {
+                    _soundLibrary.update { it.copy(loading = false, error = "Connect to coroNET to browse sounds") }
+                }
             }
-        } else if (_snapshot.value.connection == ConnectionKind.Ble) {
-            val command = JSONObject().put("cmd", "getSoundLibrary").put("folder", folder).put("page", page)
-            if (!ble.send(command.toString())) {
-                _soundLibrary.update { it.copy(loading = false, error = "Sound library request could not be delivered") }
-            }
-        } else {
-            _soundLibrary.update { it.copy(loading = false, error = "Connect to coroNET to browse sounds") }
+        }
+    }
+
+    fun selectSound(scenario: Int, path: String) {
+        val index = scenario.coerceIn(0, 4)
+        val deviceId = _selectedId.value ?: return
+        if (_settings.value.soundPath.getOrElse(index) { "" } == path) return
+        val paths = _settings.value.soundPath.toMutableList().also { values ->
+            while (values.size < 5) values.add("")
+            values[index] = path
+        }
+        _settings.update { it.copy(soundPath = paths) }
+        persistCurrentState(true)
+
+        soundSelectionJob?.cancel()
+        soundSelectionJob = viewModelScope.launch {
+            delay(500)
+            if (_selectedId.value != deviceId) return@launch
+            sendSettings(JSONObject().put("soundPath", JSONArray(paths)).toString())
         }
     }
 
@@ -461,8 +537,15 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
             notifyPrinter(live.printer.eventTo, live.printer.filename)
         }
         _snapshot.value = live
+        recordTemperatureSnapshot(live, stateKey)
         live.device?.let(::rememberResolvedDevice)
         persistCurrentState()
+    }
+
+    private fun onLedFrame(frame: LedFrame) {
+        if (_snapshot.value.connection == ConnectionKind.Ble && !wifiReachable.get()) {
+            _ledFrame.value = frame
+        }
     }
 
     private fun onBleSettings(json: JSONObject) {
@@ -542,6 +625,49 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         if (!force && now - previous < 5000L) return
         lastCacheWriteMs[device.id] = now
         store.saveCache(device.id, _snapshot.value, _settings.value)
+    }
+
+    private fun recordTemperatureSnapshot(snapshot: DeviceSnapshot, deviceId: String) {
+        val printer = snapshot.printer
+        if (!printer.telemetryValid) return
+        val tools = printer.toolTemps.take(4).toMutableList().also { values ->
+            while (values.size < 4) values.add(null)
+            if (values.none { it != null }) values[printer.tool.coerceIn(0, 3)] = printer.toolTemp
+        }
+        if (tools.all { it == null } && printer.bedTemp == null && printer.chamberTemp == null) return
+
+        val now = snapshot.updatedAtEpochMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+        val current = _temperatureHistory.value
+        val last = current.lastOrNull()
+        if (printer.telemetryRevision > 0L && last?.telemetryRevision == printer.telemetryRevision) return
+        val cutoff = now - TemperatureHistoryDurationMs
+        val sample = TemperatureSample(
+            timestampEpochMs = now,
+            telemetryRevision = printer.telemetryRevision,
+            toolTemps = tools,
+            bedTemp = printer.bedTemp,
+            chamberTemp = printer.chamberTemp,
+        )
+        _temperatureHistory.value = (current.asSequence()
+            .filter { it.timestampEpochMs >= cutoff } + sequenceOf(sample))
+            .toList().takeLast(MaxTemperatureSamples)
+        persistTemperatureHistory(deviceId)
+    }
+
+    private fun persistTemperatureHistory(deviceId: String? = _snapshot.value.device?.id, force: Boolean = false) {
+        if (deviceId.isNullOrBlank() || _temperatureHistory.value.isEmpty()) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val previous = lastTemperatureHistoryWriteMs[deviceId] ?: 0L
+        if (!force && now - previous < TemperatureHistoryPersistIntervalMs) return
+        lastTemperatureHistoryWriteMs[deviceId] = now
+        val samples = _temperatureHistory.value
+        temperatureHistoryPersistJob = viewModelScope.launch(Dispatchers.IO) {
+            temperatureHistoryStorageMutex.withLock {
+                if (_devices.value.any { it.id == deviceId }) {
+                    store.saveTemperatureHistory(deviceId, samples)
+                }
+            }
+        }
     }
 
     private fun rememberResolvedDevice(device: CoronetDevice) {
@@ -688,7 +814,11 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         connectionWatchdogJob?.cancel()
         bleSettingsRefreshJob?.cancel()
         ledCatalogJob?.cancel()
+        ledPreviewJob?.cancel()
         pairingChallengeJob?.cancel()
+        soundLibraryRequestJob?.cancel()
+        soundSelectionJob?.cancel()
+        temperatureHistoryPersistJob?.cancel()
         ble.close()
         super.onCleared()
     }

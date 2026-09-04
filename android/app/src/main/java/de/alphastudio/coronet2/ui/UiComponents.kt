@@ -9,14 +9,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,14 +46,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import de.alphastudio.coronet2.model.LedFrame
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
 @Composable
 internal fun AdaptivePage(
-    title: String,
-    subtitle: String,
     primary: @Composable ColumnScope.() -> Unit,
     secondary: @Composable ColumnScope.() -> Unit,
 ) {
@@ -66,14 +63,11 @@ internal fun AdaptivePage(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                PageHeading(title, subtitle)
                 primary()
                 secondary()
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp)) {
-                PageHeading(title, subtitle)
-                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(
                         Modifier.weight(1.12f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 12.dp),
@@ -92,19 +86,10 @@ internal fun AdaptivePage(
 }
 
 @Composable
-internal fun PageHeading(title: String, subtitle: String) {
-    val palette = LocalCoronetPalette.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Light, color = palette.text)
-        Spacer(Modifier.width(10.dp))
-        Text(subtitle, fontSize = 12.sp, color = palette.muted, modifier = Modifier.padding(bottom = 3.dp))
-    }
-}
-
-@Composable
 internal fun SectionPanel(
     title: String,
     modifier: Modifier = Modifier,
+    headerEnd: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalCoronetPalette.current
@@ -116,7 +101,14 @@ internal fun SectionPanel(
         tonalElevation = 0.dp,
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = palette.accent)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = palette.accent)
+                headerEnd?.invoke()
+            }
             content()
         }
     }
@@ -210,10 +202,7 @@ internal fun MetricTile(label: String, value: String, accent: Color, modifier: M
 
 @Composable
 internal fun LedLayoutPreview(
-    brightness: List<Int>,
-    selectedSection: Int,
-    insideAmbient: Boolean,
-    mirror: Boolean,
+    frame: LedFrame,
 ) {
     val palette = LocalCoronetPalette.current
     Canvas(
@@ -226,35 +215,18 @@ internal fun LedLayoutPreview(
         val outerWidth = size.width - margin * 2f
         val ledGap = outerWidth / 42f
         val radius = (ledGap * 0.28f).coerceAtLeast(2.2f)
-        val sectionColors = listOf(Color(0xFFED4E4E), Color(0xFF45CF84), Color(0xFF3E8DFF))
-        for (logical in 0 until 42) {
-            val section = when {
-                logical < 11 -> 0
-                logical < 31 -> 1
-                else -> 2
-            }
-            val visual = if (mirror) 41 - logical else logical
-            val alpha = (brightness.getOrElse(section) { 70 } / 100f).coerceIn(0.12f, 1f)
+        for (visual in 0 until 42) {
             drawCircle(
-                color = sectionColors[section].copy(alpha = if (selectedSection == section) alpha else alpha * 0.58f),
-                radius = if (selectedSection == section) radius * 1.25f else radius,
+                color = Color(0xFF000000L or frame.outer.getOrElse(visual) { 0 }.toLong()),
+                radius = radius,
                 center = Offset(outerStart + (visual + 0.5f) * ledGap, topY),
             )
         }
         val innerGap = outerWidth / 18f
-        val innerBase = if (insideAmbient) palette.accent else Color.White
-        val innerAlpha = (brightness.getOrElse(3) { 70 } / 100f).coerceIn(0.12f, 1f)
         for (index in 0 until 18) {
-            val color = if (insideAmbient) {
-                when {
-                    index < 6 -> sectionColors[0]
-                    index < 12 -> sectionColors[1]
-                    else -> sectionColors[2]
-                }
-            } else innerBase
             drawCircle(
-                color = color.copy(alpha = if (selectedSection == 3) innerAlpha else innerAlpha * 0.58f),
-                radius = if (selectedSection == 3) radius * 1.25f else radius,
+                color = Color(0xFF000000L or frame.inside.getOrElse(index) { 0 }.toLong()),
+                radius = radius,
                 center = Offset(outerStart + (index + 0.5f) * innerGap, insideY),
             )
         }

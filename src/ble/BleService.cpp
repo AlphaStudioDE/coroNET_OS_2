@@ -513,6 +513,10 @@ void BleService::handleCommand(const char* command, size_t length) {
         publishEvent("ack", "settings");
         return;
     }
+    if (strcmp(cmd, "getLedFrame") == 0) {
+        publishLedFrame();
+        return;
+    }
     if (strcmp(cmd, "getSoundLibrary") == 0) {
         publishSoundLibrary(static_cast<uint8_t>(constrain(doc["folder"] | 0, 0, 255)),
                             static_cast<uint8_t>(constrain(doc["page"] | 0, 0, 255)));
@@ -1142,6 +1146,9 @@ void BleService::publishState(bool force) {
     snapshot.printerEventTo = static_cast<uint8_t>(s.printerEventTo);
     snapshot.fanPercent = s.fanPercent;
     snapshot.flapPercent = s.flapPercent;
+    for (uint8_t index = 0; index < 4; ++index) {
+        snapshot.toolTempTenths[index] = tempToTenths(s.toolTemperaturesC[index]);
+    }
 
     if (sendFramed(gStateChr,
                    static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot),
@@ -1150,6 +1157,18 @@ void BleService::publishState(bool force) {
         lastNotifyMs_ = now;
         stateDirty_ = false;
     }
+}
+
+void BleService::publishLedFrame() {
+    if (!gEventChr || !isConnected()) return;
+    ledpreview::Frame frame{};
+    if (!ledService().copyPreviewFrame(frame)) {
+        publishEvent("error", "led_unavailable");
+        return;
+    }
+    sendFramed(gEventChr,
+               static_cast<uint8_t>(bleprotocol::MessageType::LedFrame),
+               reinterpret_cast<const uint8_t*>(&frame), sizeof(frame));
 }
 
 bool BleService::sendFramed(NimBLECharacteristic* characteristic,

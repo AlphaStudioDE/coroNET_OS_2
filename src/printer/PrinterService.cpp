@@ -718,6 +718,8 @@ void PrinterService::applyResult(const PollResult& result) {
     system.printProgress = result.printProgress;
     system.activeTool = result.activeTool;
     system.activeToolTempC = result.activeToolTempC;
+    memcpy(system.toolTemperaturesC, result.toolTemperaturesC,
+           sizeof(system.toolTemperaturesC));
     system.bedTempC = result.bedTempC;
     system.chamberTempC = result.chamberTempC;
     system.printDurationSec = result.printDurationSec;
@@ -825,17 +827,18 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
     const uint8_t tool = toolIndexFromObject(extruder);
     const float duration = status["print_stats"]["print_duration"] | 0.0f;
 
-    float toolTemp = NAN;
-    if (tool == 0) toolTemp = status["extruder"]["temperature"] | NAN;
-    else if (tool == 1) toolTemp = status["extruder1"]["temperature"] | NAN;
-    else if (tool == 2) toolTemp = status["extruder2"]["temperature"] | NAN;
-    else if (tool == 3) toolTemp = status["extruder3"]["temperature"] | NAN;
+    static constexpr const char* ToolObjects[] = {
+        "extruder", "extruder1", "extruder2", "extruder3",
+    };
+    for (uint8_t index = 0; index < 4; ++index) {
+        result.toolTemperaturesC[index] = status[ToolObjects[index]]["temperature"] | NAN;
+    }
 
     result.ok = true;
     result.printerState = static_cast<uint8_t>(normalizePrinterState(rawState));
     result.printProgress = clampProgress(progress);
     result.activeTool = tool;
-    result.activeToolTempC = toolTemp;
+    result.activeToolTempC = result.toolTemperaturesC[tool < 4 ? tool : 0];
     result.bedTempC = status["heater_bed"]["temperature"] | NAN;
     const float rawChamberTempC = status["temperature_sensor cavity"]["temperature"] | NAN;
     result.chamberTempC = filterChamberTemperature(rawChamberTempC);
@@ -1194,6 +1197,8 @@ void PrinterService::applyRealtimeStatus(JsonVariantConst status) {
             workerToolTemperatures_[index] = extruderStatus["temperature"].as<float>();
         }
     }
+    memcpy(workerSnapshot_.toolTemperaturesC, workerToolTemperatures_,
+           sizeof(workerSnapshot_.toolTemperaturesC));
     const uint8_t tool = workerSnapshot_.activeTool < 4 ? workerSnapshot_.activeTool : 0;
     workerSnapshot_.activeToolTempC = workerToolTemperatures_[tool];
     JsonVariantConst bedStatus = status["heater_bed"];
@@ -1492,9 +1497,8 @@ void PrinterService::workerLoop() {
         if (result.ok) {
             workerSnapshot_ = result;
             workerSnapshotValid_ = true;
-            if (result.activeTool < 4) {
-                workerToolTemperatures_[result.activeTool] = result.activeToolTempC;
-            }
+            memcpy(workerToolTemperatures_, result.toolTemperaturesC,
+                   sizeof(workerToolTemperatures_));
             if (result.activeTool < 4 && result.material[0]) {
                 strlcpy(workerToolMaterials_[result.activeTool], result.material,
                         sizeof(workerToolMaterials_[result.activeTool]));

@@ -38,6 +38,7 @@ private:
     void handleSettings();
     void handleUpdateSettings();
     void handleLedCatalog();
+    void handleLedFrame();
     void handleLedPreview();
     void handleLedCalibration();
     void handleTimeZones();

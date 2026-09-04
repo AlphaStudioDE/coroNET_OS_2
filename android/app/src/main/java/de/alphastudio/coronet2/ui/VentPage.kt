@@ -24,8 +24,6 @@ internal fun VentPage(settings: DeviceSettings, snapshot: DeviceSnapshot, send: 
     var pandaHost by remember(settings.pandaHost) { mutableStateOf(settings.pandaHost) }
     val palette = LocalCoronetPalette.current
     AdaptivePage(
-        title = "Vent",
-        subtitle = "Chamber airflow and Panda Breath",
         primary = {
             SectionPanel("Operating mode") {
                 CompactChoices(listOf("AUTO", "TARGET", "MANUAL"), settings.ventMode.coerceIn(0, 2)) {

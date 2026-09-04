@@ -73,6 +73,7 @@ struct SystemState {
     uint32_t printEtaSec = 0;
     uint8_t activeTool = 0;
     float activeToolTempC = NAN;
+    float toolTemperaturesC[4] = {NAN, NAN, NAN, NAN};
     float bedTempC = NAN;
     float chamberTempC = NAN;
     char printFilename[65] = "";

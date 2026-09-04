@@ -1,5 +1,10 @@
 package de.alphastudio.coronet2.ui
 
+import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,7 +13,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -50,6 +57,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +70,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.alphastudio.coronet2.CoronetViewModel
@@ -87,16 +98,31 @@ fun CoronetApp(
     val devices by model.devices.collectAsState()
     val selectedId by model.selectedId.collectAsState()
     val snapshot by model.snapshot.collectAsState()
+    val temperatureHistory by model.temperatureHistory.collectAsState()
     val settings by model.settings.collectAsState()
     val soundLibrary by model.soundLibrary.collectAsState()
     val ledCatalog by model.ledCatalog.collectAsState()
+    val ledFrame by model.ledFrame.collectAsState()
     val discovered by model.discovered.collectAsState()
     val scanning by model.scanning.collectAsState()
     val pairingChallenge by model.pairingChallenge.collectAsState()
     val pairingCandidate by model.pairingCandidate.collectAsState()
     var pageName by rememberSaveable { mutableStateOf(AppPage.Home.name) }
     var manageDevices by rememberSaveable { mutableStateOf(devices.isEmpty()) }
+    var showBluetoothEnableDialog by rememberSaveable { mutableStateOf(false) }
     val page = AppPage.entries.firstOrNull { it.name == pageName } ?: AppPage.Home
+    val bluetoothEnableLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) model.startScan()
+    }
+
+    LaunchedEffect(page) {
+        model.setLedPreviewVisible(page == AppPage.Led)
+    }
+    DisposableEffect(Unit) {
+        onDispose { model.setLedPreviewVisible(false) }
+    }
 
     CoronetTheme(settings) {
         Scaffold(
@@ -117,12 +143,15 @@ fun CoronetApp(
                 modifier = Modifier.padding(padding).fillMaxSize(),
             ) { selected ->
                 when (selected) {
-                    AppPage.Home -> HomePage(snapshot)
-                    AppPage.Led -> LedPage(settings, snapshot, ledCatalog, model::sendSettings, model::previewLed, model::calibrateLed)
+                    AppPage.Home -> HomePage(snapshot, temperatureHistory)
+                    AppPage.Led -> LedPage(
+                        settings, snapshot, ledCatalog, ledFrame,
+                        model::sendSettings, model::previewLed, model::calibrateLed,
+                    )
                     AppPage.Vent -> VentPage(settings, snapshot, model::sendSettings)
                     AppPage.Sound -> SoundPage(
-                        settings, snapshot, soundLibrary, model::sendSettings, model::loadSoundLibrary,
-                        model::playSound, model::stopSound, model::rescanSounds,
+                        settings, soundLibrary, model::sendSettings, model::loadSoundLibrary,
+                        model::selectSound, model::playSound, model::stopSound,
                     )
                     AppPage.Settings -> SettingsPage(
                         settings, snapshot, model::sendSettings, model::sendOtaAction,
@@ -139,7 +168,13 @@ fun CoronetApp(
                 discovered = discovered,
                 scanning = scanning,
                 onSelect = model::select,
-                onScan = model::startScan,
+                onScan = {
+                    if (model.isBluetoothEnabled()) {
+                        model.startScan()
+                    } else {
+                        showBluetoothEnableDialog = true
+                    }
+                },
                 onAdd = model::addAndConnect,
                 onSave = model::saveDevice,
                 onRemove = model::removeSelected,
@@ -154,6 +189,22 @@ fun CoronetApp(
                 text = { Text("Allow nearby-device access so coroNET can be discovered, paired and used as a recovery connection.") },
                 confirmButton = { TextButton(onClick = onRetryPermissions) { Text("TRY AGAIN") } },
                 dismissButton = { TextButton(onClick = onDismissPermissionWarning) { Text("NOT NOW") } },
+            )
+        }
+        if (showBluetoothEnableDialog) {
+            AlertDialog(
+                onDismissRequest = { showBluetoothEnableDialog = false },
+                title = { Text("Turn on Bluetooth") },
+                text = { Text("Bluetooth must be turned on before coroNET can search for nearby devices.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showBluetoothEnableDialog = false
+                        bluetoothEnableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                    }) { Text("TURN ON") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBluetoothEnableDialog = false }) { Text("CANCEL") }
+                },
             )
         }
         pairingChallenge?.let {
@@ -174,50 +225,111 @@ private fun ConsoleHeader(page: AppPage, snapshot: DeviceSnapshot, onDevices: ()
         shadowElevation = 0.dp,
         border = BorderStroke(1.dp, palette.border),
     ) {
-        Row(
-            Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("coro", color = palette.text, fontSize = 20.sp, fontWeight = FontWeight.Light)
-            Text("NET", color = palette.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("  /  ${page.label}", color = palette.muted, fontSize = 12.sp)
-            Spacer(Modifier.weight(1f))
-            StatusPill(
-                text = when (snapshot.connection) {
-                    ConnectionKind.Wifi -> "Wi-Fi"
-                    ConnectionKind.Ble -> "BLE"
-                    ConnectionKind.Offline -> if (snapshot.cached) "OFFLINE CACHE" else "OFFLINE"
-                },
-                color = connectionColor(snapshot.connection),
-            )
-            Spacer(Modifier.width(8.dp))
-            StatusPill(
-                text = if (snapshot.printer.connected) snapshot.printer.state.uppercase() else "PRINTER OFFLINE",
-                color = if (snapshot.printer.connected) stateColor(snapshot.printer.state) else palette.muted,
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(snapshot.device?.name ?: "No device", color = palette.text, fontSize = 13.sp, maxLines = 1)
-            IconButton(onClick = onDevices, modifier = Modifier.size(42.dp)) {
-                Icon(Icons.Rounded.Devices, contentDescription = "Manage coroNET devices", tint = palette.accent)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            if (maxWidth < 600.dp) {
+                Row(
+                    Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(Modifier.width(142.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("coro", color = palette.text, fontSize = 20.sp, fontWeight = FontWeight.Light)
+                        Text("NET", color = palette.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "  /  ${page.label}",
+                            color = palette.muted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                        )
+                    }
+                    Row(
+                        Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spacer(Modifier.weight(1f))
+                        ConnectionStatusPill(snapshot, compact = true)
+                        Spacer(Modifier.width(3.dp))
+                        PrinterStatusPill(snapshot, compact = true)
+                        Spacer(Modifier.width(5.dp))
+                        Row(
+                            modifier = Modifier.width(132.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                snapshot.device?.name ?: "No device",
+                                modifier = Modifier.weight(1f),
+                                color = palette.text,
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.End,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            IconButton(onClick = onDevices, modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.Devices, contentDescription = "Manage coroNET devices", tint = palette.accent)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("coro", color = palette.text, fontSize = 20.sp, fontWeight = FontWeight.Light)
+                    Text("NET", color = palette.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("  /  ${page.label}", color = palette.muted, fontSize = 12.sp)
+                    Spacer(Modifier.weight(1f))
+                    ConnectionStatusPill(snapshot)
+                    Spacer(Modifier.width(8.dp))
+                    PrinterStatusPill(snapshot)
+                    Spacer(Modifier.width(10.dp))
+                    Text(snapshot.device?.name ?: "No device", color = palette.text, fontSize = 13.sp, maxLines = 1)
+                    IconButton(onClick = onDevices, modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Rounded.Devices, contentDescription = "Manage coroNET devices", tint = palette.accent)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatusPill(text: String, color: Color) {
+private fun ConnectionStatusPill(snapshot: DeviceSnapshot, compact: Boolean = false) {
+    StatusPill(
+        text = when (snapshot.connection) {
+            ConnectionKind.Wifi -> "Wi-Fi"
+            ConnectionKind.Ble -> "BLE"
+            ConnectionKind.Offline -> if (snapshot.cached && !compact) "OFFLINE CACHE" else "OFFLINE"
+        },
+        color = connectionColor(snapshot.connection),
+        compact = compact,
+    )
+}
+
+@Composable
+private fun PrinterStatusPill(snapshot: DeviceSnapshot, compact: Boolean = false) {
+    val palette = LocalCoronetPalette.current
+    StatusPill(
+        text = if (snapshot.printer.connected) snapshot.printer.state.uppercase() else if (compact) "PRN OFF" else "PRINTER OFFLINE",
+        color = if (snapshot.printer.connected) stateColor(snapshot.printer.state) else palette.muted,
+        compact = compact,
+    )
+}
+
+@Composable
+private fun StatusPill(text: String, color: Color, compact: Boolean = false) {
     Surface(
         color = color.copy(alpha = 0.10f),
         border = BorderStroke(1.dp, color.copy(alpha = 0.75f)),
         shape = RoundedCornerShape(5.dp),
     ) {
         Row(
-            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier.padding(horizontal = if (compact) 5.dp else 8.dp, vertical = if (compact) 3.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp),
         ) {
-            Box(Modifier.size(6.dp).background(color, CircleShape))
-            Text(text, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Box(Modifier.size(if (compact) 5.dp else 6.dp).background(color, CircleShape))
+            Text(text, color = color, fontSize = if (compact) 9.sp else 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
@@ -318,11 +430,7 @@ private fun DeviceManager(
         onDismissRequest = onDismiss,
         title = { Text("coroNET devices") },
         text = {
-            Row(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 480.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(
-                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            val discoveryContent: @Composable ColumnScope.() -> Unit = {
                     Text("SAVED", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     devices.forEach { device ->
                         OutlinedButton(
@@ -339,17 +447,53 @@ private fun DeviceManager(
                     Button(onClick = onScan, enabled = !scanning, modifier = Modifier.fillMaxWidth()) {
                         Text(if (scanning) "SCANNING..." else "SCAN BLE")
                     }
+                    if (scanning || discovered.isNotEmpty()) {
+                        Text(
+                            "NEARBY DEVICES",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (scanning && discovered.isEmpty()) {
+                        Text("Searching for coroNET devices...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     discovered.forEach { device ->
-                        val saved = devices.any { it.id == device.id || it.address == device.address }
-                        TextButton(onClick = { onAdd(device) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("${if (saved) "CONNECT" else "PAIR"}  ${device.name}", maxLines = 1)
+                        val saved = devices.firstOrNull { it.id == device.id || it.address == device.address }
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(device.name, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text(
+                                        device.address.ifBlank { "ID ${device.id}" },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                }
+                                Button(onClick = {
+                                    if (saved != null) {
+                                        onSave(saved.copy(name = device.name, address = device.address))
+                                    } else {
+                                        onAdd(device)
+                                    }
+                                    onDismiss()
+                                }) {
+                                    Text(if (saved != null) "CONNECT" else "PAIR")
+                                }
+                            }
                         }
                     }
-                }
-                Column(
-                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            }
+            val connectionContent: @Composable ColumnScope.() -> Unit = {
                     Text("LOCAL WI-FI", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     edited?.let { device ->
                         Text(device.name, fontWeight = FontWeight.SemiBold)
@@ -363,6 +507,33 @@ private fun DeviceManager(
                             Text("REMOVE SELECTED", color = MaterialTheme.colorScheme.error)
                         }
                     } ?: Text("Scan and securely pair a coroNET to begin.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (maxWidth < 560.dp) {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        discoveryContent()
+                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                        connectionContent()
+                    }
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 480.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Column(
+                            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            content = discoveryContent,
+                        )
+                        Column(
+                            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            content = connectionContent,
+                        )
+                    }
                 }
             }
         },

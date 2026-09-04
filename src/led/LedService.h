@@ -7,6 +7,7 @@
 
 #include "../core/ProductTypes.h"
 #include "LedAnimations.h"
+#include "LedPreviewFrame.h"
 
 namespace coronet {
 
@@ -36,6 +37,7 @@ public:
     void setColorCalibrationColor(LedCalibrationColor color);
     void stopColorCalibration();
     bool copyFrame(RgbwColor* output, size_t count) const;
+    bool copyPreviewFrame(ledpreview::Frame& output) const;
     void logStatus() const;
 
 private:

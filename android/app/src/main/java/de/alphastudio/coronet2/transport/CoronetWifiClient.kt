@@ -1,6 +1,7 @@
 package de.alphastudio.coronet2.transport
 
 import de.alphastudio.coronet2.model.*
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -26,6 +27,12 @@ class CoronetWifiClient {
             val json = JSONObject(active.inputStream.bufferedReader().use { it.readText() })
             val printer = json.optJSONObject("printer") ?: JSONObject()
             val ota = json.optJSONObject("ota") ?: JSONObject()
+            val activeTool = printer.optInt("activeTool").coerceIn(0, 3)
+            val activeToolTemp = printer.optDoubleOrNull("activeToolTempC")
+            val toolTemps = List(4) { index ->
+                printer.optJSONArray("toolTempsC")?.optNullableDouble(index)
+                    ?: activeToolTemp.takeIf { index == activeTool }
+            }
             DeviceSnapshot(
                 device = device.copy(name = json.optString("name", device.name), host = host),
                 connection = ConnectionKind.Wifi,
@@ -33,8 +40,8 @@ class CoronetWifiClient {
                 printer = PrinterSnapshot(
                     connected = printer.optBoolean("connected"), state = printer.optString("state", "unknown"),
                     status = printer.optString("status", ""), filename = printer.optString("filename", ""),
-                    progress = printer.optInt("progress"), tool = printer.optInt("activeTool"),
-                    toolTemp = printer.optDoubleOrNull("activeToolTempC"),
+                    progress = printer.optInt("progress"), tool = activeTool,
+                    toolTemp = activeToolTemp, toolTemps = toolTemps,
                     bedTemp = printer.optDoubleOrNull("bedTempC"),
                     chamberTemp = printer.optDoubleOrNull("chamberTempC"),
                     telemetryValid = printer.optBoolean("telemetryValid"),
@@ -111,6 +118,25 @@ class CoronetWifiClient {
                 }
             } catch (_: Exception) {
                 // Try the next saved IP or mDNS hostname.
+            } finally {
+                connection?.disconnect()
+            }
+        }
+        return null
+    }
+
+    fun fetchLedFrame(device: CoronetDevice): LedFrame? {
+        if (device.token.isBlank()) return null
+        hostCandidates(device).forEach { host ->
+            var connection: HttpURLConnection? = null
+            try {
+                val active = open(device, host, "/api/led/frame", 1000)
+                connection = active
+                if (active.responseCode == 200) {
+                    parseLedFrame(active.inputStream.use { it.readBytes() })?.let { return it }
+                }
+            } catch (_: Exception) {
+                // The regular connection poll owns transport error reporting.
             } finally {
                 connection?.disconnect()
             }
@@ -250,6 +276,10 @@ fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings())
 
 private fun JSONObject.optDoubleOrNull(key: String): Double? =
     if (isNull(key) || !has(key)) null else optDouble(key).takeUnless { it.isNaN() }
+
+private fun JSONArray.optNullableDouble(index: Int): Double? =
+    if (index !in 0 until length() || isNull(index)) null
+    else optDouble(index).takeUnless { it.isNaN() }
 
 private fun JSONObject.optIntList(key: String, fallback: List<Int>): List<Int> {
     val array = optJSONArray(key) ?: return fallback

@@ -33,7 +33,7 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - `PandaBreathService`: optional external vent workflow state machine.
 - `OtaService`: GitHub release updates, same-version reinstall, rollback validity, and SD recovery.
 
-The browser control panel is generated from `web/index.html` before every PlatformIO build and embedded as a compressed read-only asset. It has no filesystem, CDN, framework, or external Internet dependency. A random per-boot browser session authorizes same-origin requests without exposing or replacing the persistent token issued to the paired Android app. The browser reads the same central state and settings revisions as the touchscreen and companion app, so all three interfaces converge on firmware-owned values.
+The browser control panel is generated from `web/index.html` before every PlatformIO build and embedded as a compressed read-only asset. It has no filesystem, CDN, framework, or external Internet dependency. A random per-boot browser session authorizes same-origin requests without exposing or replacing the persistent token issued to the paired Android app. The browser reads the same central state and settings revisions as the touchscreen and companion app, so all three interfaces converge on firmware-owned values. The LED page requests a compact display-ready snapshot at 2 FPS only while visible; Android uses the identical 192-byte frame over WiFi or framed BLE. Android and the browser also retain a bounded two-hour temperature history per device in their own local storage. They append only newly received telemetry revisions and never request a separate temperature stream from firmware or Moonraker.
 
 ## Milestone 0
 

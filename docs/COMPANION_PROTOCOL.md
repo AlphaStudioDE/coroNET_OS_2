@@ -75,7 +75,7 @@ Message type `1` contains this packed payload in order:
 | `uint8` | live fan output, `0..100` |
 | `uint8` | live flap position, `0..100` |
 
-The extended V2 snapshot is 187 bytes. Clients may also accept the original 185-byte V2 snapshot, treating unavailable fan and flap values as zero. Its first 175 bytes retain the V1 field order. Temperature value `-32768` means unavailable.
+The current extended V2 snapshot is 195 bytes. It appends four signed 16-bit tool temperatures, in tenths of a degree Celsius, after the fan and flap values. Clients may also accept the earlier 187-byte and original 185-byte V2 snapshots, treating unavailable per-tool, fan, and flap values as unknown or zero as appropriate. Its first 175 bytes retain the V1 field order. Temperature value `-32768` means unavailable.
 
 Flag bits are: setup done `0`, WiFi connected `1`, web API ready `2`, BLE connected `3`, display ready `4`, touch ready `5`, printer configured `6`, printer connected `7`, audio ready `8`, temporary BLE fallback active `9`, and valid printer telemetry `10`.
 
@@ -138,6 +138,10 @@ The phone can start the firmware's real ten-second LED preview without simulatin
 ```json
 {"cmd":"previewLed","category":1,"animation":14,"durationMs":10000}
 ```
+
+While its LED page is visible, the phone can request a current display-ready frame with
+`{"cmd":"getLedFrame"}`. Firmware replies with BLE message type `5`; clients should
+request no faster than every 500 ms and stop requesting when the page closes.
 
 Physical color calibration is similarly controlled with `calibrateLed`. The `color` index is `0..7` for red, orange, yellow, green, cyan, blue, violet, and magenta. Always send `active:false` when the calibration UI closes.
 
@@ -209,6 +213,7 @@ The API is available in `auto` and `wifi` modes while the device has a WiFi conn
 - `GET /api/settings`;
 - `POST /api/settings`;
 - `GET /api/led/catalog?category=0`;
+- `GET /api/led/frame`;
 - `POST /api/led/preview`;
 - `POST /api/led/calibration`;
 - `GET /api/timezones`;
@@ -243,7 +248,7 @@ Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 409
 
 Settings are applied to active services immediately. NVS persistence is debounced for 1.5 seconds and forced after at most 5 seconds to prevent slider controls from wearing flash.
 
-`GET /api/led/catalog` returns the current firmware-owned animation names for one category. `POST /api/led/preview` accepts `category`, `animation`, and optional `durationMs` (`1000..30000`). `POST /api/led/calibration` accepts `active` and, when active, `color`. These routes call the same LED engine used by the touchscreen and do not stream or duplicate animation frames in the client. The audio library response includes folder names together with the selected eight-file page so clients do not need hardcoded SD card categories.
+`GET /api/led/catalog` returns the current firmware-owned animation names for one category. `POST /api/led/preview` accepts `category`, `animation`, and optional `durationMs` (`1000..30000`). `POST /api/led/calibration` accepts `active` and, when active, `color`. `GET /api/led/frame` returns the same compact 192-byte frame used by BLE. The frame contains a 12-byte little-endian header followed by 60 RGB888 pixels in visual order: 42 outer pixels from left to right and 18 inside pixels from left to right. Header bytes are version `1`, pixel format `1`, total size, 32-bit sequence, outer count `42`, inside count `18`, and two reserved bytes. This is a 2 FPS snapshot of the firmware-owned output, not a second animation engine in the client. The audio library response includes folder names together with the selected eight-file page so clients do not need hardcoded SD card categories.
 
 `GET /api/settings` returns `settingsRevision`, and every BLE settings group includes the same value as `sr`. The revision changes whenever firmware accepts a settings mutation. Clients must ignore older revisions, keep locally pending fields during an optimistic update, and replace them with the device-confirmed value after acknowledgement. Concurrent edits to different fields therefore merge; concurrent edits to the same field settle on the latest value accepted by coroNET.
 

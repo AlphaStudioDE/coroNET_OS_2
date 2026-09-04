@@ -188,6 +188,11 @@ void addPrinterState(JsonDocument& doc) {
     printer["durationSec"] = s.printDurationSec;
     printer["etaSec"] = s.printEtaSec;
     printer["activeTool"] = s.activeTool;
+    JsonArray toolTemperatures = printer["toolTempsC"].to<JsonArray>();
+    for (float temperature : s.toolTemperaturesC) {
+        if (isnan(temperature)) toolTemperatures.add(nullptr);
+        else toolTemperatures.add(temperature);
+    }
     if (isnan(s.activeToolTempC)) printer["activeToolTempC"] = nullptr;
     else printer["activeToolTempC"] = s.activeToolTempC;
     if (isnan(s.bedTempC)) printer["bedTempC"] = nullptr;
@@ -224,6 +229,7 @@ void WebControlService::registerRoutes() {
     server_.on("/api/settings", HTTP_GET, [this]() { if (authorizeRequest()) handleSettings(); });
     server_.on("/api/settings", HTTP_POST, [this]() { if (authorizeRequest()) handleUpdateSettings(); });
     server_.on("/api/led/catalog", HTTP_GET, [this]() { if (authorizeRequest()) handleLedCatalog(); });
+    server_.on("/api/led/frame", HTTP_GET, [this]() { if (authorizeRequest()) handleLedFrame(); });
     server_.on("/api/led/preview", HTTP_POST, [this]() { if (authorizeRequest()) handleLedPreview(); });
     server_.on("/api/led/calibration", HTTP_POST, [this]() { if (authorizeRequest()) handleLedCalibration(); });
     server_.on("/api/timezones", HTTP_GET, [this]() { if (authorizeRequest()) handleTimeZones(); });
@@ -240,6 +246,7 @@ void WebControlService::registerRoutes() {
     server_.on("/api/state", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/settings", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/catalog", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/led/frame", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/preview", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/calibration", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/timezones", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -402,6 +409,7 @@ void WebControlService::handleApiDescription() {
     doc["settings"] = "/api/settings";
     doc["ledPreview"] = "/api/led/preview";
     doc["ledCatalog"] = "/api/led/catalog";
+    doc["ledFrame"] = "/api/led/frame";
     doc["ledCalibration"] = "/api/led/calibration";
     doc["timeZones"] = "/api/timezones";
     doc["audioLibrary"] = "/api/audio/library";
@@ -788,6 +796,18 @@ void WebControlService::handleLedCatalog() {
     String payload;
     serializeJson(doc, payload);
     sendJson(200, payload);
+}
+
+void WebControlService::handleLedFrame() {
+    ledpreview::Frame frame{};
+    if (!ledService().copyPreviewFrame(frame)) {
+        sendJson(503, "{\"ok\":false,\"error\":\"led_unavailable\"}");
+        return;
+    }
+    sendCommonHeaders();
+    server_.setContentLength(sizeof(frame));
+    server_.send(200, "application/octet-stream", "");
+    server_.sendContent(reinterpret_cast<const char*>(&frame), sizeof(frame));
 }
 
 void WebControlService::handleLedPreview() {

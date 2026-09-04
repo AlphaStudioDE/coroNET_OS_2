@@ -83,8 +83,6 @@ internal fun SettingsPage(
         mutableStateOf(snapshot.device?.name.orEmpty())
     }
     AdaptivePage(
-        title = "Settings",
-        subtitle = "Display, behavior and system",
         primary = {
             SectionPanel("Appearance") {
                 CompactChoices(listOf("CORONET", "GRAPHITE", "AURORA", "MINIMAL"), settings.uiSkin.coerceIn(0, 3)) {

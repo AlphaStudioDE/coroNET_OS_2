@@ -1,6 +1,47 @@
 # Development Updates
 
-## Unreleased
+## 0.4.2
+
+### Live LED Preview
+- Replaced the Android placeholder and browser section diagram with a true 2 FPS view of the firmware-owned LED output over both WiFi and BLE.
+- Unified RGBW conversion and physical left-to-right ordering across the coroNET display, Android companion, and local browser panel.
+- Added a compact 192-byte frame protocol that reuses the existing PSRAM preview buffer and does not reserve additional DMA memory.
+- Moved Android BLE scan start and stop calls off the UI thread to prevent device-specific Bluetooth waits from freezing or crashing the companion app.
+- Added the native Android Bluetooth-enable prompt before discovery instead of showing a scan state while the adapter is only in system BLE mode.
+- Replaced ambiguous discovery actions with a scalable nearby-device list showing each coroNET name, BLE address, and its own Pair or Connect action.
+- Reworked the Android companion for a phone-native portrait layout, including a compact two-row status header and a single-column device manager on narrow screens.
+- Removed redundant per-page headings and rebuilt the phone header as one stable row, with connection indicators grouped directly beside the fixed connected-device control.
+
+### Local Temperature History
+- Added a responsive two-hour temperature chart to Android Home and the local browser Home page for all four tools, the bed, and the chamber.
+- Records every newly received telemetry revision in local phone or browser storage without adding a second Moonraker subscription or increasing ESP32 polling.
+- Added an interactive legend for hiding individual series and automatic line emphasis for the currently active tool.
+- Extended the existing REST and BLE snapshots with all four already-received tool temperatures while retaining compatibility with earlier V2 BLE packet sizes.
+
+### Android Companion
+- Reworked the companion into a phone-native portrait interface that preserves the touchscreen's information hierarchy while using the larger mobile canvas.
+- Added a scalable nearby-device list with a distinct Pair or Connect action for every discovered coroNET.
+- Corrected Connect for an already saved device so it preserves the paired API token and refreshes the BLE address instead of starting a new pairing session.
+- Added the native Bluetooth-enable prompt before discovery and moved BLE scanner operations off the UI thread.
+- Added an automatic reconnect after Android grants Bluetooth permissions on first launch.
+- Replaced the constrained sound dialog with an inline, continuously loading carousel and clear directional affordances.
+- Replaced rapid sound-selection traffic with a latest-choice-wins update and serialized sound-library requests so fast browsing cannot overload the ESP32 audio path.
+
+### Browser Panel And Reliability
+- Rebalanced Home and Settings into independent two-column desktop stacks, enlarged desktop typography, and made the coroNET logo accent follow the selected touchscreen theme.
+- Removed redundant missing-default warnings from Sound and aligned live metric colors with the temperature chart.
+- Kept every incoming chart sample while moving Android history serialization off the interactive state path and reducing persistent writes to a bounded 30-second cadence.
+- Moved browser history writes into idle time, avoiding repeated large synchronous `localStorage` work during live updates.
+- Made LED preview and audio code consume coherent firmware settings snapshots during concurrent remote changes.
+- Re-ran the complete firmware build, Android unit tests and lint, JavaScript syntax validation, binary validation, and all 336 LED catalog checks.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.4.2_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.3.3...v0.4.2
 
 ## 0.3.3
 

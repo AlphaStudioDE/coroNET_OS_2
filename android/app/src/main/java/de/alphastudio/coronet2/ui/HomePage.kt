@@ -22,14 +22,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.alphastudio.coronet2.model.ConnectionKind
 import de.alphastudio.coronet2.model.DeviceSnapshot
+import de.alphastudio.coronet2.model.TemperatureSample
 
 @Composable
-internal fun HomePage(snapshot: DeviceSnapshot) {
+internal fun HomePage(snapshot: DeviceSnapshot, temperatureHistory: List<TemperatureSample>) {
     val printer = snapshot.printer
     val palette = LocalCoronetPalette.current
     AdaptivePage(
-        title = "Home",
-        subtitle = "Live printer overview",
         primary = {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -63,9 +62,14 @@ internal fun HomePage(snapshot: DeviceSnapshot) {
                         trackColor = palette.raised,
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MetricTile("Tool ${printer.tool + 1}", formatTemp(printer.toolTemp), palette.accent, Modifier.weight(1f))
-                        MetricTile("Bed", formatTemp(printer.bedTemp), palette.amber, Modifier.weight(1f))
-                        MetricTile("Chamber", formatTemp(printer.chamberTemp), palette.green, Modifier.weight(1f))
+                        MetricTile(
+                            "Tool ${printer.tool + 1}",
+                            formatTemp(printer.toolTemp),
+                            TemperatureChartColors.tools[printer.tool.coerceIn(0, 3)],
+                            Modifier.weight(1f),
+                        )
+                        MetricTile("Bed", formatTemp(printer.bedTemp), TemperatureChartColors.bed, Modifier.weight(1f))
+                        MetricTile("Chamber", formatTemp(printer.chamberTemp), TemperatureChartColors.chamber, Modifier.weight(1f))
                     }
                 }
             }
@@ -85,6 +89,7 @@ internal fun HomePage(snapshot: DeviceSnapshot) {
                     fontSize = 12.sp,
                 )
             }
+            TemperatureHistoryPanel(temperatureHistory, printer.tool.coerceIn(0, 3))
             SectionPanel("System") {
                 InfoLine("Firmware", snapshot.firmware)
                 InfoLine("coroNET", snapshot.device?.name ?: "Not selected")
@@ -109,4 +114,3 @@ private fun InfoLine(label: String, value: String) {
 }
 
 private fun formatTemp(value: Double?): String = value?.let { "%.1f C".format(it) } ?: "--"
-

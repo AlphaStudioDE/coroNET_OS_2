@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.3.3` closes the broad software audit; the remaining path is organized around physical validation, polish, and stability.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.2` begins structured physical validation with the firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and stability.
 
 ## Foundation
 
@@ -43,6 +43,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] bidirectional state and settings synchronization
 - [x] printer error and finish notifications
 - [x] automatic reconnect, revisioned conflict resolution, and per-device offline cached state
+- [x] true 2 FPS LED output preview over WiFi and BLE
 
 ## Hardware Services
 
@@ -100,6 +101,11 @@ The protocol, hardware details, and release schedule will be published only afte
 
 ### 0.4.x - Physical Validation And Corrections
 
+- [x] publish the first coordinated `0.4.2` physical-validation build for firmware, Android, and browser control
+- [x] add firmware-driven 2 FPS LED previews to Android and the browser without additional DMA allocation
+- [x] add local two-hour temperature history with per-series controls and active-tool emphasis
+- [x] redesign the Android companion for portrait phones and make discovery scale to multiple coroNET devices
+- [x] harden rapid sound selection and move growing history persistence away from interactive UI work
 - [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
 - [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness
 - [ ] test simultaneous control from the touchscreen, Android companion, and browser panel

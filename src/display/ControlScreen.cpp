@@ -7,7 +7,6 @@
 #include "../audio/AudioService.h"
 #include "../config/HardwareConfig.h"
 #include "../core/SystemState.h"
-#include "../led/LedBrightnessCurve.h"
 #include "../led/LedService.h"
 #include "../panda/PandaBreathService.h"
 #include "../settings/SettingsService.h"
@@ -86,29 +85,6 @@ void markTouch() {
 
 void rootTouch(lv_event_t* event) {
     if (lv_event_get_code(event) == LV_EVENT_PRESSED) markTouch();
-}
-
-uint8_t previewDegamma(uint8_t value) {
-    return ledcurve::decode(value);
-}
-
-uint32_t rgbwHex(const RgbwColor& color, bool linearWhite = false) {
-    // Physical output applies gamma to RGB luminance while preserving channel
-    // ratios. Undoing gamma per channel would lift weaker channels too much and
-    // make saturated colours look pastel in the LCD preview.
-    const uint8_t peak = max(color.r, max(color.g, color.b));
-    const uint8_t linearPeak = previewDegamma(peak);
-    const uint8_t rgbR = peak ? static_cast<uint8_t>(
-        (static_cast<uint16_t>(color.r) * linearPeak + peak / 2U) / peak) : 0U;
-    const uint8_t rgbG = peak ? static_cast<uint8_t>(
-        (static_cast<uint16_t>(color.g) * linearPeak + peak / 2U) / peak) : 0U;
-    const uint8_t rgbB = peak ? static_cast<uint8_t>(
-        (static_cast<uint16_t>(color.b) * linearPeak + peak / 2U) / peak) : 0U;
-    const uint8_t white = linearWhite ? color.w : previewDegamma(color.w);
-    const uint8_t r = static_cast<uint8_t>(min<uint16_t>(255U, rgbR + white));
-    const uint8_t g = static_cast<uint8_t>(min<uint16_t>(255U, rgbG + white));
-    const uint8_t b = static_cast<uint8_t>(min<uint16_t>(255U, rgbB + white));
-    return (static_cast<uint32_t>(r) << 16U) | (static_cast<uint32_t>(g) << 8U) | b;
 }
 
 }
@@ -589,24 +565,25 @@ void ControlScreen::refreshLedCanvas() {
     lastCanvasUpdateMs_ = millis();
     lv_color_t* pixels = static_cast<lv_color_t*>(previewBuffer_);
     for (int i = 0; i < kCanvasWidth * kCanvasHeight; ++i) pixels[i] = lv_color_hex(ui::ColorBackground);
-    RgbwColor frame[hw::LedCount] = {};
-    if (!ledService().copyFrame(frame, hw::LedCount)) return;
+    ledpreview::Frame frame{};
+    if (!ledService().copyPreviewFrame(frame)) return;
     auto draw = [&](int x, int y, int width, int height, uint32_t color) {
         const lv_color_t pixel = lv_color_hex(color);
         for (int py = y; py < y + height && py < kCanvasHeight; ++py)
             for (int px = x; px < x + width && px < kCanvasWidth; ++px)
                 if (px >= 0 && py >= 0) pixels[py * kCanvasWidth + px] = pixel;
     };
-    // Physical outer indices run from the device's right edge to its left edge.
-    // Draw them in visual left-to-right order so motion matches the real strip.
     for (uint16_t i = 0; i < hw::OuterCount; ++i) {
-        draw(2 + i * 10, 4, 8, 8, rgbwHex(frame[hw::OuterEnd - i]));
+        const uint8_t* rgb = &frame.pixels[i * 3U];
+        draw(2 + i * 10, 4, 8, 8,
+             (static_cast<uint32_t>(rgb[0]) << 16U) |
+             (static_cast<uint32_t>(rgb[1]) << 8U) | rgb[2]);
     }
-    const bool linearInsideWhite =
-        settingsService().settings().insideColorStyle == InsideColorStyle::White;
     for (uint16_t i = 0; i < hw::InsideCount; ++i) {
+        const uint8_t* rgb = &frame.pixels[(hw::OuterCount + i) * 3U];
         draw(2 + i * 23, 25, 18, 8,
-             rgbwHex(frame[hw::InsideStart + i], linearInsideWhite));
+             (static_cast<uint32_t>(rgb[0]) << 16U) |
+             (static_cast<uint32_t>(rgb[1]) << 8U) | rgb[2]);
     }
     lv_obj_invalidate(previewCanvas_);
 }

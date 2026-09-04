@@ -22,8 +22,8 @@ android {
         applicationId = "de.alphastudio.coronet2"
         minSdk = 26
         targetSdk = 36
-        versionCode = 303
-        versionName = "0.3.3"
+        versionCode = 402
+        versionName = "0.4.2"
     }
     signingConfigs {
         if (releaseSigningConfigured) {

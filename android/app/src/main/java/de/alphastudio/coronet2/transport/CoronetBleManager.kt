@@ -21,6 +21,8 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class CoronetBleManager(
     private val context: Context,
@@ -28,6 +30,7 @@ class CoronetBleManager(
     private val onSnapshot: (DeviceSnapshot) -> Unit,
     private val onSettings: (JSONObject) -> Unit,
     private val onSoundLibrary: (JSONObject) -> Unit,
+    private val onLedFrame: (LedFrame) -> Unit,
     private val onPairingChallenge: (PairingChallenge) -> Unit,
     private val onPairingResult: (String, String, String, Long) -> Boolean,
     private val onEvent: (String, String) -> Unit,
@@ -41,6 +44,7 @@ class CoronetBleManager(
         private const val ProtocolVersion = 2
         private const val StateSnapshotBaseBytes = 185
         private const val StateSnapshotExtendedBytes = 187
+        private const val StateSnapshotTemperatureBytes = 195
         private const val MaxCommandBytes = 384
         private const val MaxPendingCommands = 16
     }
@@ -50,6 +54,10 @@ class CoronetBleManager(
     private val adapter get() = context.getSystemService(BluetoothManager::class.java)?.adapter
     private val assemblies = mutableMapOf<AssemblyKey, Assembly>()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val scanExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "coroNET-BLE-scan").apply { isDaemon = true }
+    }
+    private val scanRequested = AtomicBoolean(false)
     @Volatile private var gatt: BluetoothGatt? = null
     @Volatile private var command: BluetoothGattCharacteristic? = null
     private var activeDevice: CoronetDevice? = null
@@ -124,14 +132,35 @@ class CoronetBleManager(
     }
 
     @SuppressLint("MissingPermission")
+    fun isBluetoothEnabled(): Boolean = hasConnectPermission() && adapter?.isEnabled == true
+
+    @SuppressLint("MissingPermission")
     fun startScan(): Boolean {
-        if (!hasScanPermission()) return false
-        adapter?.bluetoothLeScanner?.startScan(scanCallback) ?: return false
-        return true
+        if (!hasScanPermission() || !isBluetoothEnabled()) return false
+        val scanner = adapter?.bluetoothLeScanner ?: return false
+        scanRequested.set(true)
+        return runCatching {
+            scanExecutor.execute {
+                if (!scanRequested.get()) return@execute
+                runCatching { scanner.startScan(scanCallback) }
+                    .onFailure { Log.e("coroNET-BLE", "scan start failed", it) }
+            }
+            true
+        }.getOrDefault(false)
     }
 
     @SuppressLint("MissingPermission")
-    fun stopScan() { if (hasScanPermission()) adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+    fun stopScan() {
+        scanRequested.set(false)
+        if (!hasScanPermission()) return
+        val scanner = adapter?.bluetoothLeScanner ?: return
+        runCatching {
+            scanExecutor.execute {
+                runCatching { scanner.stopScan(scanCallback) }
+                    .onFailure { Log.w("coroNET-BLE", "scan stop failed", it) }
+            }
+        }
+    }
 
     @SuppressLint("MissingPermission")
     fun connect(device: CoronetDevice) {
@@ -178,11 +207,13 @@ class CoronetBleManager(
     }
 
     fun close() {
+        stopScan()
         disconnect()
         if (adapterReceiverRegistered) {
             runCatching { context.unregisterReceiver(adapterStateReceiver) }
             adapterReceiverRegistered = false
         }
+        scanExecutor.shutdown()
     }
 
     @SuppressLint("MissingPermission")
@@ -439,11 +470,16 @@ class CoronetBleManager(
                 assemblies.remove(key)
             }
         } ?: return
-        if (type == 1) parseSnapshot(payload) else parseJson(payload)
+        when (type) {
+            1 -> parseSnapshot(payload)
+            LedFrameMessageType -> parseLedFrame(payload)?.let(onLedFrame)
+            else -> parseJson(payload)
+        }
     }
 
     private fun parseSnapshot(bytes: ByteArray) {
-        if ((bytes.size != StateSnapshotBaseBytes && bytes.size != StateSnapshotExtendedBytes) ||
+        if ((bytes.size != StateSnapshotBaseBytes && bytes.size != StateSnapshotExtendedBytes &&
+                bytes.size != StateSnapshotTemperatureBytes) ||
             (bytes[0].toInt() and 0xff) != ProtocolVersion ||
             (bytes[1].toInt() and 0xff) != 1) return
         val b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -468,6 +504,11 @@ class CoronetBleManager(
         val eventToValue = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
         val fanPercent = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
         val flapPercent = if (b.remaining() >= 1) b.get().toInt() and 0xff else 0
+        val toolTemps = if (b.remaining() >= 8) {
+            List(4) { b.short.toInt().toTemperature() }
+        } else {
+            List(4) { index -> toolTemp.takeIf { index == tool.coerceIn(0, 3) } }
+        }
         val device = (activeDevice ?: CoronetDevice(id, name)).copy(id = id, name = name)
         val states = arrayOf("unknown", "idle", "printing", "paused", "error", "complete")
         onSnapshot(DeviceSnapshot(
@@ -480,7 +521,7 @@ class CoronetBleManager(
             printer = PrinterSnapshot(
             connected = flags and (1 shl 7) != 0, state = states.getOrElse(stateValue) { "unknown" },
             status = status, filename = filename, progress = progress, tool = tool,
-            toolTemp = toolTemp, bedTemp = bedTemp, chamberTemp = chamberTemp,
+            toolTemp = toolTemp, toolTemps = toolTemps, bedTemp = bedTemp, chamberTemp = chamberTemp,
             telemetryValid = flags and (1 shl 10) != 0, telemetryRevision = telemetryRevision,
             eventSequence = eventSequence,
             eventFrom = states.getOrElse(eventFromValue) { "unknown" },

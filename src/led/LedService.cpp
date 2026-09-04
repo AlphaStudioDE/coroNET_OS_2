@@ -33,6 +33,21 @@ constexpr uint8_t CalibrationPointCount = 8U;
 constexpr uint8_t CalibrationReferenceHues[CalibrationPointCount] = {
     0U, 21U, 43U, 85U, 128U, 170U, 191U, 213U,
 };
+
+void previewRgb(const RgbwColor& color, bool linearWhite, uint8_t* output) {
+    const uint8_t peak = max(color.r, max(color.g, color.b));
+    const uint8_t linearPeak = ledcurve::decode(peak);
+    const uint8_t rgbR = peak ? static_cast<uint8_t>(
+        (static_cast<uint16_t>(color.r) * linearPeak + peak / 2U) / peak) : 0U;
+    const uint8_t rgbG = peak ? static_cast<uint8_t>(
+        (static_cast<uint16_t>(color.g) * linearPeak + peak / 2U) / peak) : 0U;
+    const uint8_t rgbB = peak ? static_cast<uint8_t>(
+        (static_cast<uint16_t>(color.b) * linearPeak + peak / 2U) / peak) : 0U;
+    const uint8_t white = linearWhite ? color.w : ledcurve::decode(color.w);
+    output[0] = static_cast<uint8_t>(min<uint16_t>(255U, rgbR + white));
+    output[1] = static_cast<uint8_t>(min<uint16_t>(255U, rgbG + white));
+    output[2] = static_cast<uint8_t>(min<uint16_t>(255U, rgbB + white));
+}
 constexpr uint8_t CalibrationReferenceSaturation = 220U;
 
 LedService gLedService;
@@ -566,6 +581,30 @@ bool LedService::copyFrame(RgbwColor* output, size_t count) const {
     portENTER_CRITICAL(&frameMux_);
     memcpy(output, previewFrame_, sizeof(RgbwColor) * hw::LedCount);
     portEXIT_CRITICAL(&frameMux_);
+    return true;
+}
+
+bool LedService::copyPreviewFrame(ledpreview::Frame& output) const {
+    RgbwColor source[hw::LedCount] = {};
+    if (!copyFrame(source, hw::LedCount)) return false;
+    const AppSettings settings = settingsService().snapshot();
+
+    output = {};
+    output.version = ledpreview::Version;
+    output.pixelFormat = ledpreview::PixelFormatRgb888;
+    output.size = sizeof(output);
+    output.sequence = state().ledFrameCount;
+    output.outerCount = hw::OuterCount;
+    output.insideCount = hw::InsideCount;
+
+    for (uint16_t visual = 0; visual < hw::OuterCount; ++visual) {
+        previewRgb(source[hw::OuterEnd - visual], false, &output.pixels[visual * 3U]);
+    }
+    const bool linearInsideWhite = settings.insideColorStyle == InsideColorStyle::White;
+    for (uint16_t visual = 0; visual < hw::InsideCount; ++visual) {
+        previewRgb(source[hw::InsideStart + visual], linearInsideWhite,
+                   &output.pixels[(hw::OuterCount + visual) * 3U]);
+    }
     return true;
 }
 

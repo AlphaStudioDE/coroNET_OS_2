@@ -8,11 +8,14 @@ import androidx.security.crypto.MasterKey
 import de.alphastudio.coronet2.model.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 data class CachedDeviceState(val snapshot: DeviceSnapshot, val settings: DeviceSettings)
 
 class DeviceStore(context: Context) {
     private val legacyPrefs = context.getSharedPreferences("coronet_devices", Context.MODE_PRIVATE)
+    private val historyPrefs = context.getSharedPreferences("coronet_temperature_history", Context.MODE_PRIVATE)
+    private val historyLocks = ConcurrentHashMap<String, Any>()
     private val securePrefs = runCatching {
         val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
         EncryptedSharedPreferences.create(
@@ -90,6 +93,11 @@ class DeviceStore(context: Context) {
                     progress = printer.optInt("progress"),
                     tool = printer.optInt("tool"),
                     toolTemp = printer.optNullableDouble("toolTemp"),
+                    toolTemps = printer.optNullableDoubleList("toolTemps", 4).let { values ->
+                        if (values.any { it != null }) values else List(4) { index ->
+                            printer.optNullableDouble("toolTemp").takeIf { index == printer.optInt("tool").coerceIn(0, 3) }
+                        }
+                    },
                     bedTemp = printer.optNullableDouble("bedTemp"),
                     chamberTemp = printer.optNullableDouble("chamberTemp"),
                     telemetryValid = printer.optBoolean("telemetryValid"),
@@ -191,7 +199,8 @@ class DeviceStore(context: Context) {
                 .put("connected", printer.connected).put("state", printer.state)
                 .put("status", printer.status).put("filename", printer.filename)
                 .put("progress", printer.progress).put("tool", printer.tool)
-                .putNullable("toolTemp", printer.toolTemp).putNullable("bedTemp", printer.bedTemp)
+                .putNullable("toolTemp", printer.toolTemp).put("toolTemps", printer.toolTemps.toJsonArray())
+                .putNullable("bedTemp", printer.bedTemp)
                 .putNullable("chamberTemp", printer.chamberTemp)
                 .put("telemetryValid", printer.telemetryValid)
                 .put("telemetryRevision", printer.telemetryRevision)
@@ -251,7 +260,65 @@ class DeviceStore(context: Context) {
         if (!deviceId.isNullOrBlank()) prefs.edit().remove(cacheKey(deviceId)).apply()
     }
 
+    fun loadTemperatureHistory(deviceId: String): List<TemperatureSample> = synchronized(historyLock(deviceId)) { runCatching {
+        val cutoff = System.currentTimeMillis() - TemperatureHistoryDurationMs
+        val array = JSONArray(historyPrefs.getString(historyKey(deviceId), "[]"))
+        buildList {
+            for (index in 0 until array.length()) {
+                val sample = when (val item = array.opt(index)) {
+                    is JSONArray -> TemperatureSample(
+                        timestampEpochMs = item.optLong(0),
+                        telemetryRevision = item.optLong(1),
+                        toolTemps = item.optNullableDoubleList(2, 4),
+                        bedTemp = item.optNullableDouble(3),
+                        chamberTemp = item.optNullableDouble(4),
+                    )
+                    is JSONObject -> TemperatureSample(
+                        timestampEpochMs = item.optLong("timestamp"),
+                        telemetryRevision = item.optLong("revision"),
+                        toolTemps = item.optNullableDoubleList("tools", 4),
+                        bedTemp = item.optNullableDouble("bed"),
+                        chamberTemp = item.optNullableDouble("chamber"),
+                    )
+                    else -> continue
+                }
+                if (sample.timestampEpochMs >= cutoff) add(sample)
+            }
+        }.takeLast(MaxTemperatureSamples)
+    }.getOrDefault(emptyList()) }
+
+    fun saveTemperatureHistory(deviceId: String, samples: List<TemperatureSample>) = synchronized(historyLock(deviceId)) {
+        if (deviceId.isBlank()) return
+        val cutoff = System.currentTimeMillis() - TemperatureHistoryDurationMs
+        val array = JSONArray()
+        samples.asSequence().filter { it.timestampEpochMs >= cutoff }
+            .toList().takeLast(MaxTemperatureSamples).forEach { sample ->
+                array.put(JSONArray()
+                    .put(sample.timestampEpochMs)
+                    .put(sample.telemetryRevision)
+                    .put(sample.toolTemps.toJsonArray())
+                    .put(sample.bedTemp ?: JSONObject.NULL)
+                    .put(sample.chamberTemp ?: JSONObject.NULL))
+            }
+        historyPrefs.edit().putString(historyKey(deviceId), array.toString()).apply()
+    }
+
+    fun clearTemperatureHistory(deviceId: String?) {
+        if (deviceId.isNullOrBlank()) return
+        synchronized(historyLock(deviceId)) {
+            historyPrefs.edit().remove(historyKey(deviceId)).apply()
+        }
+        historyLocks.remove(deviceId)
+    }
+
     private fun cacheKey(deviceId: String) = "cache_$deviceId"
+    private fun historyKey(deviceId: String) = "temperature_$deviceId"
+    private fun historyLock(deviceId: String): Any = historyLocks.getOrPut(deviceId) { Any() }
+
+    private companion object {
+        const val TemperatureHistoryDurationMs = 2L * 60L * 60L * 1000L
+        const val MaxTemperatureSamples = 14_400
+    }
 }
 
 private fun JSONObject.putNullable(key: String, value: Double?): JSONObject =
@@ -259,6 +326,26 @@ private fun JSONObject.putNullable(key: String, value: Double?): JSONObject =
 
 private fun JSONObject.optNullableDouble(key: String): Double? =
     if (!has(key) || isNull(key)) null else optDouble(key).takeUnless(Double::isNaN)
+
+private fun JSONObject.optNullableDoubleList(key: String, size: Int): List<Double?> {
+    val array = optJSONArray(key) ?: return List(size) { null }
+    return List(size) { index ->
+        if (index >= array.length() || array.isNull(index)) null
+        else array.optDouble(index).takeUnless(Double::isNaN)
+    }
+}
+
+private fun JSONArray.optNullableDouble(index: Int): Double? =
+    if (index >= length() || isNull(index)) null else optDouble(index).takeUnless(Double::isNaN)
+
+private fun JSONArray.optNullableDoubleList(index: Int, size: Int): List<Double?> {
+    val array = optJSONArray(index) ?: return List(size) { null }
+    return List(size) { item -> array.optNullableDouble(item) }
+}
+
+private fun List<Double?>.toJsonArray(): JSONArray = JSONArray().also { array ->
+    forEach { value -> array.put(value ?: JSONObject.NULL) }
+}
 
 private fun JSONObject.optIntList(key: String, fallback: List<Int>): List<Int> {
     val array = optJSONArray(key) ?: return fallback

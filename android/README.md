@@ -10,9 +10,10 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 - preferred authenticated local WiFi polling and settings control;
 - automatic BLE reconnect and WiFi recovery through the stable mDNS hostname;
 - encrypted per-device offline state and settings cache;
+- local two-hour temperature history for all tools, the bed, and the chamber, with an interactive series legend;
 - firmware-revision conflict handling for simultaneous touchscreen and phone edits;
 - Home, LED, Vent, Sound, and Settings screens;
-- adaptive landscape console UI matching the touchscreen's information hierarchy while using the phone's wider canvas;
+- phone-native portrait console UI matching the touchscreen's information hierarchy while using the larger mobile canvas;
 - real firmware-driven LED animation previews and physical color calibration over BLE or WiFi;
 - browsable microSD sound folders, per-status sound assignment, playback, stop, and library rescan over BLE or WiFi;
 - synchronized device naming and companion transport selection;
@@ -21,7 +22,7 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 
 ## Install
 
-Download the current signed [coroNET Companion APK](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest/download/coroNET_Companion.apk), allow installation from the browser or file manager when Android asks, and open the app in landscape orientation. Pair devices from the app's **Devices** screen instead of Android's generic Bluetooth settings.
+Download the current signed [coroNET Companion APK](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest/download/coroNET_Companion.apk), allow installation from the browser or file manager when Android asks, and open the app. Pair devices from the app's **Devices** screen instead of Android's generic Bluetooth settings.
 
 Development APKs used before the public signed release may need to be uninstalled once because Android will not replace an app signed with a different key. Saved pairings from that development installation will then need to be created again.
 

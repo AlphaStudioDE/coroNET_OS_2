@@ -63,6 +63,7 @@ private:
     void publishState(bool force);
     void publishSettings();
     void publishSoundLibrary(uint8_t folder, uint8_t page);
+    void publishLedFrame();
     void publishPairingChallenge();
     void publishPairingResult();
     void refreshAdvertisedName();

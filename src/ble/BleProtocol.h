@@ -13,6 +13,7 @@ enum class MessageType : uint8_t {
     EventJson = 2,
     SettingsJson = 3,
     PairingJson = 4,
+    LedFrame = 5,
 };
 
 enum StateFlag : uint16_t {
@@ -68,11 +69,12 @@ struct StateSnapshotV2 {
     uint8_t printerEventTo;
     uint8_t fanPercent;
     uint8_t flapPercent;
+    int16_t toolTempTenths[4];
 };
 #pragma pack(pop)
 
 static_assert(sizeof(FrameHeader) == 8, "BLE frame header layout changed");
-static_assert(sizeof(StateSnapshotV2) == 187, "BLE V2 state snapshot layout changed");
+static_assert(sizeof(StateSnapshotV2) == 195, "BLE V2 state snapshot layout changed");
 static_assert(sizeof(StateSnapshotV2) <= 236, "BLE state snapshot no longer fits one preferred-MTU frame");
 
 }

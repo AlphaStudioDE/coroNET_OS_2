@@ -27,6 +27,7 @@ data class PrinterSnapshot(
     val progress: Int = 0,
     val tool: Int = 0,
     val toolTemp: Double? = null,
+    val toolTemps: List<Double?> = List(4) { null },
     val bedTemp: Double? = null,
     val chamberTemp: Double? = null,
     val telemetryValid: Boolean = false,
@@ -34,6 +35,14 @@ data class PrinterSnapshot(
     val eventSequence: Long = 0,
     val eventFrom: String = "unknown",
     val eventTo: String = "unknown",
+)
+
+data class TemperatureSample(
+    val timestampEpochMs: Long,
+    val telemetryRevision: Long,
+    val toolTemps: List<Double?> = List(4) { null },
+    val bedTemp: Double? = null,
+    val chamberTemp: Double? = null,
 )
 
 data class OtaSnapshot(
@@ -63,6 +72,13 @@ data class SoundLibrarySnapshot(
     val fileCount: Int = 0,
     val files: List<SoundFileEntry> = emptyList(),
     val error: String? = null,
+)
+
+data class LedFrame(
+    val sequence: Long = 0,
+    val outer: List<Int> = List(42) { 0 },
+    val inside: List<Int> = List(18) { 0 },
+    val available: Boolean = false,
 )
 
 data class DeviceSnapshot(

@@ -19,7 +19,7 @@ constexpr int32_t kToneAmplitude = 5200;
 constexpr uint32_t kFadeMs = 45;
 
 bool quietSuppressesSound(SoundScenario scenario) {
-    const AppSettings& settings = settingsService().settings();
+    const AppSettings settings = settingsService().snapshot();
     if (!state().quietActive) return false;
     if (scenario == SoundScenario::Error && settings.quietErrorsBypass) return false;
     return settings.quietTarget == QuietTarget::Sound ||
@@ -409,7 +409,7 @@ bool AudioService::playScenario(SoundScenario scenario) {
                  "Missing %s.wav on SD card", scenarioStem(scenario));
         return false;
     }
-    const AppSettings& settings = settingsService().settings();
+    const AppSettings settings = settingsService().snapshot();
     return playFile(path, settings.soundVolume[index], settings.soundRepeat[index], scenario, false);
 }
 
@@ -856,7 +856,8 @@ void AudioService::finishPlayback(bool naturalEnd) {
 bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) const {
     const uint8_t index = static_cast<uint8_t>(scenario);
     if (index >= enumCount(SoundScenario{}) || !storageReady_) return false;
-    const char* custom = settingsService().settings().soundPath[index];
+    const AppSettings settings = settingsService().snapshot();
+    const char* custom = settings.soundPath[index];
     if (custom[0] == '/' && SD_MMC.exists(custom)) {
         strlcpy(path, custom, 65);
         return true;
@@ -901,7 +902,7 @@ void AudioService::processPrinterSoundEvents() {
         scenario = SoundScenario::Pause;
         shouldPlay = true;
     } else if (system.printerEventTo == PrinterState::Complete) {
-        const AppSettings& settings = settingsService().settings();
+        const AppSettings settings = settingsService().snapshot();
         const uint8_t selectedPrintAnimation = normalizeLedAnimation(
             LedCategory::Print,
             settings.ledAnimation[static_cast<uint8_t>(LedCategory::Print)]);

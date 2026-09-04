@@ -9,24 +9,27 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 import de.alphastudio.coronet2.ui.CoronetApp
 
 class MainActivity : ComponentActivity() {
     private var showBluetoothPermissionWarning by mutableStateOf(false)
+    private var coronetModel: CoronetViewModel? = null
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         showBluetoothPermissionWarning = grants.any { (permission, granted) ->
             !granted && permission != Manifest.permission.POST_NOTIFICATIONS
         }
+        if (!showBluetoothPermissionWarning) coronetModel?.reconnectSelected()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val model = ViewModelProvider(this, CoronetViewModel.Factory(application))[CoronetViewModel::class.java]
+        coronetModel = model
         requestRuntimePermissions()
         setContent {
-            val model: CoronetViewModel = viewModel(factory = CoronetViewModel.Factory(application))
             CoronetApp(
                 model = model,
                 showBluetoothPermissionWarning = showBluetoothPermissionWarning,
@@ -34,6 +37,11 @@ class MainActivity : ComponentActivity() {
                 onDismissPermissionWarning = { showBluetoothPermissionWarning = false },
             )
         }
+    }
+
+    override fun onDestroy() {
+        coronetModel = null
+        super.onDestroy()
     }
 
     private fun requestRuntimePermissions() {
