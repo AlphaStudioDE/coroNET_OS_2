@@ -55,7 +55,7 @@ coroNET is already living beyond the original prototype. Community builders are 
   <tr>
     <td width="33%"><img src="docs/media/community-showcase/wlodeka-top-cover/top-cover-three-quarter.jpg" alt="coroNET OS 2 with the original Snapmaker U1 Top Cover"></td>
     <td width="33%"><img src="docs/media/community-showcase/wlodeka-top-cover/inside-work-area-lighting.jpg" alt="coroNET lighting the work area inside the original Top Cover"></td>
-    <td width="33%"><img src="docs/media/community-showcase/controller-and-spoolbox.jpg" alt="coroNET touchscreen in Bobby Morgan's community installation"></td>
+    <td width="33%"><img src="docs/media/community-showcase/front-status-lighting.jpg" alt="Bobby Morgan's complete coroNET installation with status lighting"></td>
   </tr>
 </table>
 

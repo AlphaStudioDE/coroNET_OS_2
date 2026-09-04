@@ -54,11 +54,11 @@ The installation demonstrates the idea behind coroNET: printer telemetry should 
 
 <table>
   <tr>
-    <td width="50%"><img src="media/community-showcase/front-status-lighting.jpg" alt="Front view with coroNET RGBW status lighting"></td>
+    <td width="50%"><img src="media/community-showcase/controller-and-spoolbox.jpg" alt="Side-mounted coroNET touchscreen beside the filament enclosure"></td>
     <td width="50%"><img src="media/community-showcase/pod-front.jpg" alt="Front POD enclosure and status lighting"></td>
   </tr>
   <tr>
-    <td align="center"><strong>Status lighting across the machine</strong></td>
+    <td align="center"><strong>Dedicated side-mounted controller</strong></td>
     <td align="center"><strong>The customized POD enclosure</strong></td>
   </tr>
 </table>
@@ -69,7 +69,7 @@ The dedicated coroNET touchscreen presents live print state, progress, temperatu
 
 <table>
   <tr>
-    <td width="50%"><img src="media/community-showcase/controller-and-spoolbox.jpg" alt="coroNET touchscreen controller mounted beside the filament enclosure"></td>
+    <td width="50%"><img src="media/community-showcase/front-status-lighting.jpg" alt="Complete coroNET installation with RGBW status lighting across the machine"></td>
     <td width="50%"><img src="media/community-showcase/controller-close-up.jpg" alt="Close view of the coroNET touchscreen during a print"></td>
   </tr>
   <tr>
