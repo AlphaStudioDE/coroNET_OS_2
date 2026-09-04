@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## 0.3.2
+
+### Local Browser Control
+- Added a complete responsive control panel served directly by coroNET at its local IP address or `http://coronet-xxxx.local/`.
+- Mirrored live printer status and the main Home, LED, Vent, Sound, and Settings workflows without requiring a cloud account, external server, or Internet connection.
+- Added browser control for LED animations, per-section brightness and DIMM, color calibration, ventilation safeguards, Panda Breath, status sounds, clocks, time zones, Quiet Mode, and firmware updates.
+
+### Browser Security And Reliability
+- Added a random per-boot browser session restricted to the device's own hostname or local IP address, keeping the persistent Android companion token private.
+- Embedded the compressed panel in firmware with no SD-card, CDN, framework, or external asset dependency.
+- Reused firmware-owned state revisions so changes from the touchscreen, Android app, and browser converge on the same saved settings.
+- Kept browser access available in Auto and WiFi companion modes while deliberately stopping the HTTP service in BLE-only mode.
+
+### Sound Interface Polish
+- Removed technical `DEFAULT ... MISSING` warnings from the browser's status-sound rows.
+- Kept assigned custom filenames visible while leaving unassigned rows clean and compact.
+
+### Community Project Showcase
+- Added @wlodeka's verified coroNET OS 2 installation beneath the original Snapmaker U1 Top Cover, including interior work-area lighting and touchscreen integration.
+- Expanded Bobby Morgan's four-tool community build gallery and promoted complete-machine photographs that show the full scope of coroNET.
+- Added a combined README feature image presenting both community installations and documented the AirGuard 300 Rev. 1 prototype planned for future coroNET integration.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.3.2_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.3.1...v0.3.2
+
 ## 0.3.1
 
 ### Android Companion Release
