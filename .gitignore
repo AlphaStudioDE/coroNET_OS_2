@@ -18,6 +18,7 @@ desktop.ini
 **/build/
 local.properties
 compile_commands.json
+include/generated/
 
 *.bin
 *.elf

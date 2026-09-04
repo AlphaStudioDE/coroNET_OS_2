@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <esp_system.h>
 
 #include "../config/AppConfig.h"
 #include "../audio/AudioService.h"
@@ -13,6 +14,7 @@
 #include "../settings/SettingsService.h"
 #include "../update/OtaService.h"
 #include "../wifi/WifiService.h"
+#include "generated/WebUiAsset.h"
 
 namespace coronet {
 
@@ -21,11 +23,13 @@ namespace {
 const char* CollectedHeaders[] = {
     "Authorization",
     "X-coroNET-Token",
+    "X-coroNET-Web-Session",
     "Content-Length",
+    "Origin",
 };
 
 bool constantTimeEquals(const char* expected, const String& supplied) {
-    if (!expected) return false;
+    if (!expected || !expected[0] || supplied.isEmpty()) return false;
     const size_t expectedLength = strlen(expected);
     const size_t suppliedLength = supplied.length();
     size_t difference = expectedLength ^ suppliedLength;
@@ -188,6 +192,7 @@ void addPrinterState(JsonDocument& doc) {
 }
 
 void WebControlService::begin() {
+    rotateWebSession();
     registerRoutes();
     updateRuntimeState();
 }
@@ -205,9 +210,12 @@ void WebControlService::registerRoutes() {
     server_.collectHeaders(CollectedHeaders, sizeof(CollectedHeaders) / sizeof(CollectedHeaders[0]));
 
     server_.on("/", HTTP_GET, [this]() { handleRoot(); });
+    server_.on("/api", HTTP_GET, [this]() { if (authorizeRequest()) handleApiDescription(); });
+    server_.on("/api/web/session", HTTP_GET, [this]() { handleWebSession(); });
     server_.on("/api/state", HTTP_GET, [this]() { if (authorizeRequest()) handleState(); });
     server_.on("/api/settings", HTTP_GET, [this]() { if (authorizeRequest()) handleSettings(); });
     server_.on("/api/settings", HTTP_POST, [this]() { if (authorizeRequest()) handleUpdateSettings(); });
+    server_.on("/api/led/catalog", HTTP_GET, [this]() { if (authorizeRequest()) handleLedCatalog(); });
     server_.on("/api/led/preview", HTTP_POST, [this]() { if (authorizeRequest()) handleLedPreview(); });
     server_.on("/api/led/calibration", HTTP_POST, [this]() { if (authorizeRequest()) handleLedCalibration(); });
     server_.on("/api/audio/library", HTTP_GET, [this]() { if (authorizeRequest()) handleAudioLibrary(); });
@@ -221,6 +229,7 @@ void WebControlService::registerRoutes() {
     server_.on("/api/ota/sd", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaSdRecovery(); });
     server_.on("/api/state", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/settings", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/led/catalog", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/preview", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/calibration", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/audio/library", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -297,9 +306,48 @@ bool WebControlService::authorizeRequest() {
     supplied.trim();
     if (constantTimeEquals(expected, supplied)) return true;
 
+    const String webSession = server_.header("X-coroNET-Web-Session");
+    if (authorizeWebOrigin() && constantTimeEquals(webSessionToken_, webSession)) return true;
+
     server_.sendHeader("WWW-Authenticate", "Bearer");
     sendJson(401, "{\"ok\":false,\"error\":\"unauthorized\"}");
     return false;
+}
+
+bool WebControlService::authorizeWebOrigin() {
+    String requestHost = server_.hostHeader();
+    requestHost.trim();
+    requestHost.toLowerCase();
+    String host = requestHost;
+    host.trim();
+    const int portSeparator = host.lastIndexOf(':');
+    if (portSeparator > 0) host.remove(portSeparator);
+
+    String hostname = deviceIdentity().hostname();
+    hostname.toLowerCase();
+    const String localName = hostname + ".local";
+    const String localIp = WiFi.localIP().toString();
+    if (host != hostname && host != localName && host != localIp) return false;
+
+    String origin = server_.header("Origin");
+    origin.trim();
+    if (origin.isEmpty()) return true;
+    origin.toLowerCase();
+    return origin == "http://" + requestHost;
+}
+
+void WebControlService::rotateWebSession() {
+    static constexpr char Hex[] = "0123456789abcdef";
+    for (size_t offset = 0; offset < 16; offset += sizeof(uint32_t)) {
+        const uint32_t random = esp_random();
+        for (size_t byte = 0; byte < sizeof(random); ++byte) {
+            const uint8_t value = static_cast<uint8_t>(random >> (byte * 8U));
+            const size_t index = (offset + byte) * 2U;
+            webSessionToken_[index] = Hex[value >> 4U];
+            webSessionToken_[index + 1U] = Hex[value & 0x0FU];
+        }
+    }
+    webSessionToken_[32] = '\0';
 }
 
 void WebControlService::sendCommonHeaders() {
@@ -320,11 +368,28 @@ void WebControlService::sendNoContent() {
 }
 
 void WebControlService::handleRoot() {
+    if (!authorizeWebOrigin()) {
+        sendJson(421, "{\"ok\":false,\"error\":\"invalid_host\"}");
+        return;
+    }
+    server_.sendHeader("Cache-Control", "no-cache");
+    server_.sendHeader("Content-Encoding", "gzip");
+    server_.sendHeader("X-Content-Type-Options", "nosniff");
+    server_.sendHeader("Referrer-Policy", "no-referrer");
+    server_.sendHeader("Content-Security-Policy",
+                       "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+                       "style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'");
+    server_.send_P(200, PSTR("text/html; charset=utf-8"),
+                   reinterpret_cast<PGM_P>(webui::IndexHtmlGzip), webui::IndexHtmlGzipSize);
+}
+
+void WebControlService::handleApiDescription() {
     JsonDocument doc;
     addCommonState(doc);
     doc["api"] = "/api/state";
     doc["settings"] = "/api/settings";
     doc["ledPreview"] = "/api/led/preview";
+    doc["ledCatalog"] = "/api/led/catalog";
     doc["ledCalibration"] = "/api/led/calibration";
     doc["audioLibrary"] = "/api/audio/library";
     doc["audioPlay"] = "/api/audio/play";
@@ -339,10 +404,26 @@ void WebControlService::handleRoot() {
     sendJson(200, payload);
 }
 
+void WebControlService::handleWebSession() {
+    if (!authorizeWebOrigin()) {
+        sendJson(403, "{\"ok\":false,\"error\":\"local_origin_required\"}");
+        return;
+    }
+
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["token"] = webSessionToken_;
+    doc["expires"] = "reboot";
+    String payload;
+    serializeJson(doc, payload);
+    sendJson(200, payload);
+}
+
 void WebControlService::handleState() {
     JsonDocument doc;
     addCommonState(doc);
     addPrinterState(doc);
+    doc["settingsRevision"] = settingsService().revision();
     doc["wifiIp"] = WiFi.localIP().toString();
     doc["wifiRssi"] = WiFi.RSSI();
 
@@ -634,6 +715,29 @@ void WebControlService::handlePrinterTest() {
     sendJson(result.ok ? 200 : 503, payload);
 }
 
+void WebControlService::handleLedCatalog() {
+    const int requested = server_.hasArg("category") ? server_.arg("category").toInt() : 0;
+    if (requested < 0 || requested >= static_cast<int>(LedCategory::Count)) {
+        sendJson(400, "{\"ok\":false,\"error\":\"category_out_of_range\"}");
+        return;
+    }
+
+    const LedCategory category = static_cast<LedCategory>(requested);
+    const uint8_t count = ledAnimationCount(category);
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["category"] = requested;
+    doc["count"] = count;
+    JsonArray animations = doc["animations"].to<JsonArray>();
+    for (uint8_t index = 0; index < count; ++index) {
+        animations.add(ledAnimationName(category, index));
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+    sendJson(200, payload);
+}
+
 void WebControlService::handleLedPreview() {
     JsonDocument doc;
     if (deserializeJson(doc, server_.arg("plain")) || !doc["category"].is<int>() || !doc["animation"].is<int>()) {
@@ -693,6 +797,10 @@ void WebControlService::handleAudioLibrary() {
     doc["page"] = page;
     doc["pageCount"] = pageCount;
     doc["fileCount"] = fileCount;
+    JsonArray folders = doc["folders"].to<JsonArray>();
+    for (uint8_t index = 0; index < folderCount; ++index) {
+        folders.add(audioService().folderName(index));
+    }
     JsonArray files = doc["files"].to<JsonArray>();
     for (uint8_t index = first; index < fileCount && index < first + PageSize; ++index) {
         const char* path = audioService().folderFilePath(folder, index);

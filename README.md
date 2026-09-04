@@ -68,7 +68,7 @@ The current public firmware and Android companion release is **coroNET OS 2 0.3.
 | PSRAM canvas and small DMA transfer windows | Verified on reference hardware |
 | Versioned NVS settings | Working with live apply, revision tracking, and write debounce |
 | Unique device identity and BLE peripheral | Working with confirmed pairing and framed protocol V2 |
-| Local WiFi HTTP API and mDNS | Working with token authentication and hostname recovery |
+| Local WiFi control panel, HTTP API, and mDNS | Working with responsive browser UI, isolated browser sessions, token authentication, and hostname recovery |
 | First-run setup wizard | Working with WiFi validation and layered printer discovery |
 | Moonraker realtime telemetry, HTTP fallback, and discovery | Working with WebSocket subscriptions, reconnect, and HTTP integrity checks |
 | I2S audio output | Working with PSRAM staging and controlled startup/shutdown silence |
@@ -109,6 +109,12 @@ pio device monitor
 ```
 
 The target board definition is included in the repository. Detailed instructions and recovery notes are in [FLASHING.md](FLASHING.md).
+
+## Local Browser Control
+
+When coroNET and a phone or computer are on the same trusted WiFi network, open the device IP address or `http://coronet-xxxx.local/` in a modern browser. The responsive control panel is served directly by coroNET and mirrors live printer status and the main LED, ventilation, sound, and device settings. It does not require a cloud account, external server, or Internet connection.
+
+The `xxxx` suffix matches the device identity shown by coroNET. Browser access is available while companion transport is set to **Auto** or **WiFi**; BLE-only mode deliberately stops the HTTP service.
 
 ## Repository Layout
 

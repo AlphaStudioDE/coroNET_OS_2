@@ -204,9 +204,11 @@ Firmware compares the token without an early-exit timing difference and replies 
 
 The API is available in `auto` and `wifi` modes while the device has a WiFi connection:
 
+- `GET /api/web/session` (same-origin browser bootstrap);
 - `GET /api/state`;
 - `GET /api/settings`;
 - `POST /api/settings`;
+- `GET /api/led/catalog?category=0`;
 - `POST /api/led/preview`;
 - `POST /api/led/calibration`;
 - `GET /api/audio/library?folder=0&page=0`;
@@ -223,7 +225,7 @@ OTA commands are deliberately Wi-Fi-only. BLE is not used to stream firmware. Th
 
 Clients should disable repeated update actions while states `1` or `4..6` are active. `install` accepts only a newer published release; `reinstall` permits the same release after explicit user confirmation. When maintenance begins, the web API intentionally stops and the app may temporarily report the device offline while the physical display continues to show installation progress.
 
-Every `/api/*` request requires one of these headers:
+Except for the same-origin `GET /api/web/session` bootstrap, every `/api/*` request requires one of these headers:
 
 ```text
 Authorization: Bearer <32-character-token>
@@ -233,11 +235,13 @@ Authorization: Bearer <32-character-token>
 X-coroNET-Token: <32-character-token>
 ```
 
+The embedded control panel can instead send `X-coroNET-Web-Session` with the random token returned by `GET /api/web/session`. That bootstrap endpoint accepts only the device's own local host/origin and the token expires on reboot. It is intentionally separate from the persistent Android pairing token. A user on the same trusted LAN can open `http://<device-ip>/` or `http://coronet-xxxx.local/`; no cloud service or Internet connection is involved.
+
 Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 4096 bytes. The firmware intentionally does not publish a wildcard CORS origin; the Android app uses its native HTTP client. Secrets are never returned by settings endpoints, only `wifiPasswordSet` and `printerApiKeySet` flags.
 
 Settings are applied to active services immediately. NVS persistence is debounced for 1.5 seconds and forced after at most 5 seconds to prevent slider controls from wearing flash.
 
-`POST /api/led/preview` accepts `category`, `animation`, and optional `durationMs` (`1000..30000`). `POST /api/led/calibration` accepts `active` and, when active, `color`. These routes call the same LED engine used by the touchscreen and do not stream or duplicate animation frames in the client.
+`GET /api/led/catalog` returns the current firmware-owned animation names for one category. `POST /api/led/preview` accepts `category`, `animation`, and optional `durationMs` (`1000..30000`). `POST /api/led/calibration` accepts `active` and, when active, `color`. These routes call the same LED engine used by the touchscreen and do not stream or duplicate animation frames in the client. The audio library response includes folder names together with the selected eight-file page so clients do not need hardcoded SD card categories.
 
 `GET /api/settings` returns `settingsRevision`, and every BLE settings group includes the same value as `sr`. The revision changes whenever firmware accepts a settings mutation. Clients must ignore older revisions, keep locally pending fields during an optimistic update, and replace them with the device-confirmed value after acknowledgement. Concurrent edits to different fields therefore merge; concurrent edits to the same field settle on the latest value accepted by coroNET.
 

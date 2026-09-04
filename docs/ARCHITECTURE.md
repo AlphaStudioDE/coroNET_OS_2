@@ -24,7 +24,7 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - `AudioService`: SD-backed WAV playback and status sounds.
 - `WifiService`: connection lifecycle, network scans, and the shared mDNS responder used by printer discovery and local services.
 - `BleService`: NimBLE companion protocol.
-- `WebControlService`: local HTTP API and conditional HTTP service publication through the shared mDNS responder.
+- `WebControlService`: a gzip-compressed local control panel stored in firmware, the authenticated HTTP API, and conditional HTTP service publication through the shared mDNS responder.
 - `LedService`: layered LED engine, ambient, dimming, preview, and boot show.
 - `PrinterService`: Moonraker/WebSocket/HTTP integration.
 - `SettingsService`: versioned NVS settings, migrations, runtime revisions, and debounced persistence.
@@ -32,6 +32,8 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 - `QuietService`: time-bounded global Sound/LED suppression with Error bypass.
 - `PandaBreathService`: optional external vent workflow state machine.
 - `OtaService`: GitHub release updates, same-version reinstall, rollback validity, and SD recovery.
+
+The browser control panel is generated from `web/index.html` before every PlatformIO build and embedded as a compressed read-only asset. It has no filesystem, CDN, framework, or external Internet dependency. A random per-boot browser session authorizes same-origin requests without exposing or replacing the persistent token issued to the paired Android app. The browser reads the same central state and settings revisions as the touchscreen and companion app, so all three interfaces converge on firmware-owned values.
 
 ## Milestone 0
 
