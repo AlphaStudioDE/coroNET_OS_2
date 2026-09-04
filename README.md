@@ -90,9 +90,9 @@ The current public firmware and Android companion release is **coroNET OS 2 0.4.
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
 | GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.4.2 release, Flash Tool package, checksums, and Android APK published together |
 
-Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). Development on the complete end-user experience remains active.
+Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development focuses on tuning, optimization, and experience refinement.
 
-The path to the stable release is deliberately staged. Firmware `0.4.x` is reserved for physical system tests and corrections found on real hardware. Firmware `0.5.x` is reserved for final visual and interaction polish across the coroNET touchscreen, Android companion, and local browser panel. Version `1.0.0` will be published only after long-duration stability testing has completed successfully.
+The path to `1.0.0` is deliberately staged. Firmware `0.4.x` is focused on real-hardware tuning and corrections, while `0.5.x` is reserved for final visual and interaction polish across the coroNET touchscreen, Android companion, and local browser panel. Version `1.0.0` will mark completion of extended endurance and recovery qualification.
 
 ## Hardware
 
