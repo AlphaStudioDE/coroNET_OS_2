@@ -40,11 +40,13 @@ private:
     void handleLedCatalog();
     void handleLedPreview();
     void handleLedCalibration();
+    void handleTimeZones();
     void handleAudioLibrary();
     void handleAudioPlay();
     void handleAudioStop();
     void handleAudioRescan();
     void handlePrinterTest();
+    void handlePandaDiscover();
     void handleOtaCheck();
     void handleOtaInstall(bool reinstall);
     void handleOtaSdRecovery();

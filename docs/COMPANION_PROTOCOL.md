@@ -211,11 +211,13 @@ The API is available in `auto` and `wifi` modes while the device has a WiFi conn
 - `GET /api/led/catalog?category=0`;
 - `POST /api/led/preview`;
 - `POST /api/led/calibration`;
+- `GET /api/timezones`;
 - `GET /api/audio/library?folder=0&page=0`;
 - `POST /api/audio/play`;
 - `POST /api/audio/stop`;
 - `POST /api/audio/rescan`;
 - `POST /api/printer/test`;
+- `POST /api/panda/discover`;
 - `POST /api/ota/check`;
 - `POST /api/ota/install`;
 - `POST /api/ota/reinstall`;

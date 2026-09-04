@@ -118,7 +118,7 @@ The target board definition is included in the repository. Detailed instructions
 
 ## Local Browser Control
 
-When coroNET and a phone or computer are on the same trusted WiFi network, open the device IP address or `http://coronet-xxxx.local/` in a modern browser. The responsive control panel is served directly by coroNET and mirrors live printer status and the main LED, ventilation, sound, and device settings. It does not require a cloud account, external server, or Internet connection.
+When coroNET and a phone or computer are on the same trusted WiFi network, open the device IP address or `http://coronet-xxxx.local/` in a modern browser. The responsive control panel is served directly by coroNET and mirrors live printer status plus LED animations, per-section brightness and DIMM, color calibration, ventilation failsafes, Panda Breath workflows, status sounds, clocks, time zones, Quiet Mode, and firmware updates. It does not require a cloud account, external server, or Internet connection.
 
 The `xxxx` suffix matches the device identity shown by coroNET. Browser access is available while companion transport is set to **Auto** or **WiFi**; BLE-only mode deliberately stops the HTTP service.
 

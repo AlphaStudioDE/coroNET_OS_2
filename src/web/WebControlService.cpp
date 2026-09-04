@@ -9,7 +9,9 @@
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
+#include "../core/TimeZoneCatalog.h"
 #include "../led/LedService.h"
+#include "../panda/PandaBreathService.h"
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
 #include "../update/OtaService.h"
@@ -150,6 +152,12 @@ void addCommonState(JsonDocument& doc) {
     doc["diyHeaterReady"] = s.diyHeaterReady;
     doc["diyHeaterHigh"] = s.diyHeaterHigh;
     doc["quietActive"] = s.quietActive;
+    doc["pandaConnected"] = s.pandaConnected;
+    doc["pandaHeating"] = s.pandaHeating;
+    doc["pandaPhase"] = static_cast<uint8_t>(s.pandaPhase);
+    if (isnan(s.pandaCurrentTempC)) doc["pandaCurrentTempC"] = nullptr;
+    else doc["pandaCurrentTempC"] = s.pandaCurrentTempC;
+    doc["pandaStatus"] = s.pandaStatusText;
     doc["maintenanceMode"] = s.maintenanceMode;
     JsonObject ota = doc["ota"].to<JsonObject>();
     ota["state"] = static_cast<uint8_t>(s.otaState);
@@ -218,11 +226,13 @@ void WebControlService::registerRoutes() {
     server_.on("/api/led/catalog", HTTP_GET, [this]() { if (authorizeRequest()) handleLedCatalog(); });
     server_.on("/api/led/preview", HTTP_POST, [this]() { if (authorizeRequest()) handleLedPreview(); });
     server_.on("/api/led/calibration", HTTP_POST, [this]() { if (authorizeRequest()) handleLedCalibration(); });
+    server_.on("/api/timezones", HTTP_GET, [this]() { if (authorizeRequest()) handleTimeZones(); });
     server_.on("/api/audio/library", HTTP_GET, [this]() { if (authorizeRequest()) handleAudioLibrary(); });
     server_.on("/api/audio/play", HTTP_POST, [this]() { if (authorizeRequest()) handleAudioPlay(); });
     server_.on("/api/audio/stop", HTTP_POST, [this]() { if (authorizeRequest()) handleAudioStop(); });
     server_.on("/api/audio/rescan", HTTP_POST, [this]() { if (authorizeRequest()) handleAudioRescan(); });
     server_.on("/api/printer/test", HTTP_POST, [this]() { if (authorizeRequest()) handlePrinterTest(); });
+    server_.on("/api/panda/discover", HTTP_POST, [this]() { if (authorizeRequest()) handlePandaDiscover(); });
     server_.on("/api/ota/check", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaCheck(); });
     server_.on("/api/ota/install", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaInstall(false); });
     server_.on("/api/ota/reinstall", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaInstall(true); });
@@ -232,11 +242,13 @@ void WebControlService::registerRoutes() {
     server_.on("/api/led/catalog", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/preview", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/calibration", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/timezones", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/audio/library", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/audio/play", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/audio/stop", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/audio/rescan", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/printer/test", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/panda/discover", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/check", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/install", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/ota/reinstall", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -391,10 +403,12 @@ void WebControlService::handleApiDescription() {
     doc["ledPreview"] = "/api/led/preview";
     doc["ledCatalog"] = "/api/led/catalog";
     doc["ledCalibration"] = "/api/led/calibration";
+    doc["timeZones"] = "/api/timezones";
     doc["audioLibrary"] = "/api/audio/library";
     doc["audioPlay"] = "/api/audio/play";
     doc["audioStop"] = "/api/audio/stop";
     doc["printerTest"] = "/api/printer/test";
+    doc["pandaDiscover"] = "/api/panda/discover";
     doc["otaCheck"] = "/api/ota/check";
     doc["otaInstall"] = "/api/ota/install";
     doc["authentication"] = "Bearer or X-coroNET-Token";
@@ -486,7 +500,16 @@ void WebControlService::handleSettings() {
     JsonArray soundVolume = doc["soundVolume"].to<JsonArray>();
     JsonArray soundRepeat = doc["soundRepeat"].to<JsonArray>();
     JsonArray soundPath = doc["soundPath"].to<JsonArray>();
-    for (uint8_t i = 0; i < enumCount(SoundScenario{}); ++i) { soundVolume.add(cfg.soundVolume[i]); soundRepeat.add(cfg.soundRepeat[i]); soundPath.add(cfg.soundPath[i]); }
+    JsonArray soundAvailable = doc["soundAvailable"].to<JsonArray>();
+    JsonArray soundSelectionAvailable = doc["soundSelectionAvailable"].to<JsonArray>();
+    for (uint8_t i = 0; i < enumCount(SoundScenario{}); ++i) {
+        soundVolume.add(cfg.soundVolume[i]);
+        soundRepeat.add(cfg.soundRepeat[i]);
+        soundPath.add(cfg.soundPath[i]);
+        char resolved[65] = "";
+        soundAvailable.add(audioService().resolveScenarioPath(static_cast<SoundScenario>(i), resolved));
+        soundSelectionAvailable.add(cfg.soundPath[i][0] == '\0' || audioService().pathAvailable(cfg.soundPath[i]));
+    }
     doc["ventMode"] = static_cast<uint8_t>(cfg.ventMode);
     doc["ventTargetTempC"] = cfg.ventTargetTempC;
     doc["manualFanPercent"] = cfg.manualFanPercent;
@@ -715,6 +738,15 @@ void WebControlService::handlePrinterTest() {
     sendJson(result.ok ? 200 : 503, payload);
 }
 
+void WebControlService::handlePandaDiscover() {
+    if (WiFi.status() != WL_CONNECTED) {
+        sendJson(409, "{\"ok\":false,\"error\":\"wifi_unavailable\"}");
+        return;
+    }
+    pandaBreathService().requestDiscovery();
+    sendJson(202, "{\"ok\":true,\"queued\":true}");
+}
+
 void WebControlService::handleLedCatalog() {
     const int requested = server_.hasArg("category") ? server_.arg("category").toInt() : 0;
     if (requested < 0 || requested >= static_cast<int>(LedCategory::Count)) {
@@ -773,6 +805,21 @@ void WebControlService::handleLedCalibration() {
     }
     const bool started = ledService().startColorCalibration(static_cast<LedCalibrationColor>(color));
     sendJson(started ? 200 : 409, started ? "{\"ok\":true,\"calibration\":true}" : "{\"ok\":false,\"error\":\"led_unavailable\"}");
+}
+
+void WebControlService::handleTimeZones() {
+    JsonDocument doc;
+    doc["ok"] = true;
+    JsonArray zones = doc["zones"].to<JsonArray>();
+    for (size_t index = 0; index < TimeZoneOptionCount; ++index) {
+        JsonObject zone = zones.add<JsonObject>();
+        zone["label"] = TimeZoneOptions[index].label;
+        zone["offset"] = TimeZoneOptions[index].offset;
+        zone["spec"] = TimeZoneOptions[index].spec;
+    }
+    String payload;
+    serializeJson(doc, payload);
+    sendJson(200, payload);
 }
 
 void WebControlService::handleAudioLibrary() {
