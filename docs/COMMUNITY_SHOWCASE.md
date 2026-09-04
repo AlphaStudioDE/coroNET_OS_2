@@ -10,12 +10,12 @@ coroNET was built to become part of a real workshop, not to remain a prototype o
 
 **Built, tested, and photographed by @wlodeka on Discord.**
 
-This coroNET OS 2 installation confirms a clean mechanical fit with the original Snapmaker U1 Top Cover. The controller remains accessible on the side of the printer, the external status bar stays fully visible below the transparent cover, and the inside RGBW section provides useful white illumination across the enclosure and build area.
+This coroNET OS 2 installation confirms a clean mechanical fit with the original Snapmaker U1 Top Cover. The controller remains accessible on the side of the printer, the external status bar stays fully visible below the transparent cover, and the inside RGBW section provides useful white illumination across the enclosure and build area. No other mechanical fit correction was reported beyond the cable adjustment described below.
 
 <table>
   <tr>
-    <td width="50%"><img src="media/community-showcase/wlodeka-top-cover/top-cover-three-quarter.jpg" alt="coroNET OS 2 fitted beneath the original Snapmaker U1 Top Cover"></td>
-    <td width="50%"><img src="media/community-showcase/wlodeka-top-cover/top-cover-front.jpg" alt="Front view of coroNET OS 2 with the original Snapmaker U1 Top Cover"></td>
+    <td width="50%" valign="top"><img src="media/community-showcase/wlodeka-top-cover/top-cover-three-quarter.jpg" alt="coroNET OS 2 fitted beneath the original Snapmaker U1 Top Cover"></td>
+    <td width="50%" valign="top"><img src="media/community-showcase/wlodeka-top-cover/top-cover-front.jpg" alt="Front view of coroNET OS 2 with the original Snapmaker U1 Top Cover"></td>
   </tr>
   <tr>
     <td align="center"><strong>Original Top Cover fit</strong></td>
