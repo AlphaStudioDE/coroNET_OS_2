@@ -10,10 +10,10 @@
 OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE/coroNET_OS_1). It keeps the same physical hardware and GPIO layout while replacing the original monolithic firmware with a modular PlatformIO architecture designed for long-term stability, PSRAM-first memory use, and synchronized control from the touchscreen and Android companion app.
 
 <p align="center">
-  <img src="docs/media/community-showcase/three-quarter-system.jpg" alt="Community-built coroNET installation on a customized Snapmaker" width="760">
+  <img src="docs/media/community-showcase/coronet-community-builds-hero.jpg" alt="Two community-built coroNET installations: wlodeka's original Snapmaker U1 Top Cover integration and Bobby Morgan's extensively customized machine" width="920">
 </p>
 
-> Bobby Morgan's community-built coroNET installation running OS 1 on the same controller hardware targeted by OS 2. Photograph published with permission.
+> Two community-built coroNET installations, one shared hardware platform: **@wlodeka's coroNET OS 2 build with the original Snapmaker U1 Top Cover** and **Bobby Morgan's extensively customized machine running OS 1**. Photographs published with permission.
 
 ## Start Here
 
