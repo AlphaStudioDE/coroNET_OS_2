@@ -96,7 +96,7 @@
 
 ### Community Project Showcase
 - Added @wlodeka's verified coroNET OS 2 installation beneath the original Snapmaker U1 Top Cover, including interior work-area lighting and touchscreen integration.
-- Expanded Bobby Morgan's four-tool community build gallery and promoted complete-machine photographs that show the full scope of coroNET.
+- Expanded Bobby Morgan's customized community build gallery and promoted complete-machine photographs that show the full scope of coroNET.
 - Added a combined README feature image presenting both community installations and documented the AirGuard 300 Rev. 1 prototype planned for future coroNET integration.
 
 ### Installation

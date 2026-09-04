@@ -40,11 +40,11 @@ The inner LED section is not only ambient lighting. In White mode it illuminates
 
 > **Top Cover cable note:** the original cable is too short in this installation. Lower the original Top Cover cable splitter or replace the cable with a longer compatible one. A suitable replacement costs approximately EUR 2.
 
-### Four-Tool Workshop Build
+### Environmental-Control Workshop Build
 
 **Built and photographed by Bobby Morgan.**
 
-This extensively customized Snapmaker installation runs coroNET OS 1 on the same coroNET controller hardware targeted by OS 2. The build combines a four-tool filament system, environmental monitoring, active ventilation, a servo-controlled air path, RGBW status lighting, and a dedicated touchscreen interface.
+This extensively customized Snapmaker installation runs coroNET OS 1 on the same coroNET controller hardware targeted by OS 2. The build combines environmental monitoring, active ventilation, a servo-controlled air path, RGBW status lighting, and a dedicated touchscreen interface.
 
 The installation demonstrates the idea behind coroNET: printer telemetry should become useful, visible, and physical throughout the machine instead of remaining confined to a single status screen.
 
@@ -84,7 +84,7 @@ The build also shows why coroNET treats ventilation as a first-class subsystem. 
 
 <table>
   <tr>
-    <td width="50%"><img src="media/community-showcase/four-tool-filament-system.jpg" alt="Four-tool filament system inside the customized POD enclosure"></td>
+    <td width="50%"><img src="media/community-showcase/filament-routing.jpg" alt="Filament routing inside the customized POD enclosure"></td>
     <td width="50%"><img src="media/community-showcase/ventilation-fan.jpg" alt="Internal ventilation fan and filament paths"></td>
   </tr>
   <tr>

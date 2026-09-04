@@ -49,7 +49,7 @@ Future coroNET OS 2 releases are planned to recognize and work directly with Air
 
 ## Community Showcase: coroNET in the Wild
 
-coroNET is already living beyond the original prototype. Community builders are integrating it into original Snapmaker U1 Top Cover installations and extensively customized machines with multi-tool material handling, active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.
+coroNET is already living beyond the original prototype. Community builders are integrating it into original Snapmaker U1 Top Cover installations and extensively customized machines with active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.
 
 <table>
   <tr>
@@ -154,6 +154,6 @@ Created and maintained by **Damian Borkowski**.
 
 Special thanks to **@wlodeka** on Discord for hardware testing, feedback, and the optional magnetic enclosure developed for coroNET OS 1.
 
-Special thanks to **Bobby Morgan** for building and testing an extensive four-tool coroNET installation and for contributing the photographs featured in the [Community Showcase](docs/COMMUNITY_SHOWCASE.md).
+Special thanks to **Bobby Morgan** for building and testing an extensively customized coroNET installation and for contributing the photographs featured in the [Community Showcase](docs/COMMUNITY_SHOWCASE.md).
 
 coroNET is an independent community project and is not affiliated with or endorsed by Snapmaker. Snapmaker and other product names may be trademarks of their respective owners.
