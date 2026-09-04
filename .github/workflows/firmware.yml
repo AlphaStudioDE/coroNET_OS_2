@@ -69,10 +69,14 @@ jobs:
           (cd dist && sha256sum coronet_os2.bin coronet_bootloader.bin coronet_partitions.bin > SHA256SUMS.txt)
 
       - name: Prepare Flash Download Tool package
-        run: >-
-          python scripts/prepare_flash_tool_package.py
-          .pio/build/coronet_os2
-          "${{ steps.version.outputs.version }}"
+        shell: bash
+        run: |
+          python scripts/prepare_flash_tool_package.py \
+            .pio/build/coronet_os2 \
+            "${{ steps.version.outputs.version }}"
+          (cd dist && sha256sum \
+            coronet_os2.bin.md5 \
+            coroNET_OS_2_*_Flash_Tool.zip >> SHA256SUMS.txt)
 
       - name: Prepare detailed release notes
         if: github.ref_type == 'tag'
