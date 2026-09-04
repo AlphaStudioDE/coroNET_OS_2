@@ -49,19 +49,19 @@ Future coroNET OS 2 releases are planned to recognize and work directly with Air
 
 ## Community Showcase: coroNET in the Wild
 
-coroNET is already living beyond the original prototype. Community builders are integrating it into highly customized machines with multi-tool material handling, active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.
+coroNET is already living beyond the original prototype. Community builders are integrating it into original Snapmaker U1 Top Cover installations and extensively customized machines with multi-tool material handling, active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/media/community-showcase/front-status-lighting.jpg" alt="Bobby Morgan's coroNET status lighting installation"></td>
-    <td width="33%"><img src="docs/media/community-showcase/controller-and-spoolbox.jpg" alt="coroNET touchscreen in a community installation"></td>
-    <td width="33%"><img src="docs/media/community-showcase/four-tool-filament-system.jpg" alt="Four-tool filament system managed alongside coroNET"></td>
+    <td width="33%"><img src="docs/media/community-showcase/wlodeka-top-cover/top-cover-three-quarter.jpg" alt="coroNET OS 2 with the original Snapmaker U1 Top Cover"></td>
+    <td width="33%"><img src="docs/media/community-showcase/wlodeka-top-cover/inside-work-area-lighting.jpg" alt="coroNET lighting the work area inside the original Top Cover"></td>
+    <td width="33%"><img src="docs/media/community-showcase/controller-and-spoolbox.jpg" alt="coroNET touchscreen in Bobby Morgan's community installation"></td>
   </tr>
 </table>
 
-Explore the full **[Community Showcase](docs/COMMUNITY_SHOWCASE.md)** and see coroNET working as part of a real, extensively customized printer installation.
+Explore the full **[Community Showcase](docs/COMMUNITY_SHOWCASE.md)** and see coroNET working with the original Snapmaker U1 Top Cover and as part of an extensively customized printer installation.
 
-Featured installation built and photographed by **Bobby Morgan**.
+Featured installations built and photographed by **@wlodeka on Discord** and **Bobby Morgan**.
 
 ## Current Development Status
 
