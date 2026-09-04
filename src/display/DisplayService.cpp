@@ -18,6 +18,7 @@ namespace {
 
 constexpr uint32_t kUiUpdateIntervalMs = 250;
 constexpr uint32_t kLvglLockTimeoutMs = 1000;
+constexpr uint32_t kFirstFrameSettleMs = 25;
 
 }
 
@@ -44,16 +45,26 @@ void DisplayService::begin() {
     state().displayReady = true;
     state().touchReady = (bsp_display_get_input_dev() != nullptr);
 
+    bool firstFrameReady = false;
     if (bsp_display_lock(kLvglLockTimeoutMs)) {
         state().setupDone = settingsService().settings().setupDone;
         bootScreen_.begin();
         bootActive_ = true;
+        lv_obj_invalidate(lv_scr_act());
+        lv_refr_now(display);
+        firstFrameReady = true;
         bsp_display_unlock();
     } else {
         Serial.println("DisplayService warning: LVGL lock timeout while building boot screen");
     }
 
-    bsp_display_backlight_on();
+    if (!firstFrameReady) {
+        state().displayReady = false;
+        return;
+    }
+
+    // The QSPI transfer completes asynchronously after LVGL submits the frame.
+    delay(kFirstFrameSettleMs);
     applyBrightness(settingsService().settings().displayBrightness);
     appliedBrightness_ = settingsService().settings().displayBrightness;
     started_ = true;

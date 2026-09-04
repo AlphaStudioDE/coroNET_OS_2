@@ -65,7 +65,7 @@ Featured installations built and photographed by **@wlodeka on Discord** and **B
 
 ## Current Development Status
 
-The current public firmware and Android companion release is **coroNET OS 2 0.4.2**. It is the first consolidated physical-validation release, pairing the firmware with the redesigned portrait Android companion and the updated local browser panel. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
+The current public firmware and Android companion release is **coroNET OS 2 0.4.4**. It combines the stable feature-complete OS 2 platform with a true 50 FPS LED motion engine, smoother audio transitions, and a clean display start before the first visible frame. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
 
 | Area | Status |
 | --- | --- |
@@ -88,7 +88,7 @@ The current public firmware and Android companion release is **coroNET OS 2 0.4.
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.4.2 release, Flash Tool package, checksums, and Android APK published together |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.4.4 release, Flash Tool package, checksums, and Android APK published together |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development focuses on tuning, optimization, and experience refinement.
 

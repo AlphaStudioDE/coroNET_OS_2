@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.2` begins structured physical validation with the firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and stability.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.4` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
 
 ## Foundation
 
@@ -99,13 +99,17 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] add Android unit tests and run firmware, Android, and LED validation in CI
 - [x] publish matching OTA firmware, Flash Tool package, checksums, and Android APK
 
-### 0.4.x - Physical Validation And Corrections
+### 0.4.x - Physical Refinement And Corrections
 
 - [x] publish the first coordinated `0.4.2` physical-validation build for firmware, Android, and browser control
 - [x] add firmware-driven 2 FPS LED previews to Android and the browser without additional DMA allocation
 - [x] add local two-hour temperature history with per-series controls and active-tool emphasis
 - [x] redesign the Android companion for portrait phones and make discovery scale to multiple coroNET devices
 - [x] harden rapid sound selection and move growing history persistence away from interactive UI work
+- [x] run the physical LED engine at a real 50 FPS with time-interpolated waves and subpixel motion
+- [x] add bounded missed-frame handling so delayed LED work cannot produce catch-up flashes
+- [x] fade manual audio stops and track changes to digital silence before releasing I2S
+- [x] keep the display backlight off until the first complete LVGL boot frame is ready
 - [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
 - [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness
 - [ ] test simultaneous control from the touchscreen, Android companion, and browser panel
@@ -121,7 +125,7 @@ The protocol, hardware details, and release schedule will be published only afte
 - [ ] finish accessibility, localization, touch-target, and touch-calibration review
 - [ ] align wording, hierarchy, feedback, empty states, and error presentation across all three interfaces
 
-### 1.0.0 - Stable Public Release
+### 1.0.0 - Production Qualification Milestone
 
 - [ ] complete long-duration memory, WiFi, BLE, display, audio, LED, and control soak tests
 - [ ] complete repeated disconnect, restart, update, brownout, and power-failure recovery tests

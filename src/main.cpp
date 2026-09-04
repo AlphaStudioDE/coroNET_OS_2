@@ -12,6 +12,7 @@
 #include "core/QuietService.h"
 #include "core/SystemState.h"
 #include "core/SystemHealth.h"
+#include "bsp/esp_bsp.h"
 #include "display/DisplayService.h"
 #include "led/LedService.h"
 #include "panda/PandaBreathService.h"
@@ -315,6 +316,10 @@ void processSerialConsole() {
 }
 
 void setup() {
+    // Keep uninitialized LCD memory hidden until LVGL has rendered the boot frame.
+    digitalWrite(EXAMPLE_PIN_NUM_QSPI_BL, LOW);
+    pinMode(EXAMPLE_PIN_NUM_QSPI_BL, OUTPUT);
+
     pinMode(coronet::hw::DiyChamberHeaterPin, OUTPUT);
     digitalWrite(coronet::hw::DiyChamberHeaterPin, LOW);
     Serial.begin(coronet::config::SerialBaud);

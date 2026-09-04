@@ -78,8 +78,11 @@ private:
     bool reconfigureClock(uint32_t sampleRate);
     bool openWav(const char* path);
     void closeWav();
-    bool writeWavBuffer(uint8_t volumePercent);
+    bool writeWavBuffer(uint8_t volumePercent, uint32_t stopFadeOffset = 0,
+                        uint32_t stopFadeFrames = 0);
     bool writeToneBuffer(uint32_t stopAtMs);
+    bool fadeToneToSilence();
+    bool fadeWavToSilence(uint8_t volumePercent);
     bool writePcm(const int16_t* samples, size_t frameCount, uint32_t timeoutMs = 150);
     bool preloadSilence(uint8_t bufferCount = 2);
     void primeSilence(uint8_t bufferCount = 2);

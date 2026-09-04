@@ -55,3 +55,4 @@ The Android companion exposes the same five scenarios and the same indexed folde
 - Quiet mode suppresses configured sounds. Error can bypass Quiet mode when **Allow Error** is enabled.
 - The Snake print animation delays its Finish sound until the completion burst has ended.
 - WAV data is read in small blocks through a PSRAM staging buffer. Only the I2S descriptor ring uses DMA-capable internal memory.
+- Playback starts and natural file endings use a short gain ramp. Manual stop and track changes continue decoding through the same ramp before digital silence is queued, avoiding an abrupt sample-to-zero transition.

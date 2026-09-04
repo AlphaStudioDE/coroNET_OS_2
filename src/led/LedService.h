@@ -41,7 +41,8 @@ public:
     void logStatus() const;
 
 private:
-    static constexpr uint32_t FrameIntervalMs = 30;
+    static constexpr uint32_t FrameIntervalMs = 20;
+    static constexpr uint32_t SmoothingReferenceMs = 20;
     static constexpr uint32_t SpiClockHz = 3200000;
     static constexpr uint32_t TaskStackBytes = 3584;
     static constexpr UBaseType_t TaskPriority = 8;
@@ -72,13 +73,20 @@ private:
 
     void clearTarget();
     void setPhysical(uint16_t index, const RgbwColor& color);
+    void addPhysical(uint16_t index, const RgbwColor& color);
     void setSection(LedSection section, uint16_t logical, const RgbwColor& color);
+    void addSectionSubpixel(LedSection section, uint32_t positionQ8,
+                            const RgbwColor& color, bool wrap = false);
     void setOuterVisualPathPixel(uint16_t path, const RgbwColor& color);
+    void addOuterVisualPathSubpixel(uint32_t pathQ8, const RgbwColor& color);
     void fillSection(LedSection section, const RgbwColor& color);
     uint16_t sectionCount(LedSection section) const;
     uint16_t sectionPhysicalIndex(LedSection section, uint16_t logical) const;
     RgbwColor decorativeHsv(LedCategory category, uint8_t hue, uint8_t saturation,
                             uint8_t value) const;
+    RgbwColor decorativeSpectrumAt(LedCategory category, uint32_t now,
+                                   uint16_t msPerHue, uint32_t phaseOffset,
+                                   uint8_t saturation, uint8_t value) const;
 
     SPIClass* spi_ = nullptr;
     TaskHandle_t task_ = nullptr;
@@ -101,6 +109,7 @@ private:
     uint32_t previewUntilMs_ = 0;
     LedCalibrationColor colorCalibrationColor_ = LedCalibrationColor::Red;
     uint32_t lastFrameMs_ = 0;
+    uint32_t lastSmoothingMs_ = 0;
     uint32_t shows_ = 0;
     uint32_t skippedShows_ = 0;
     UBaseType_t appliedTaskPriority_ = TaskPriority;

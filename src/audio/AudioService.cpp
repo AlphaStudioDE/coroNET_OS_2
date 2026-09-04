@@ -584,6 +584,7 @@ void AudioService::taskLoop() {
                     break;
                 }
             }
+            if (requestSequence_ != sequence && !fadeToneToSilence()) ++writeFailures_;
             finishPlayback(true);
             completedRequestSequence_ = sequence;
             continue;
@@ -602,6 +603,9 @@ void AudioService::taskLoop() {
                 }
             }
             naturalEnd = requestSequence_ == sequence && wav_.dataRemaining == 0;
+            if (!naturalEnd && requestSequence_ != sequence && !fadeWavToSilence(volume)) {
+                ++writeFailures_;
+            }
             closeWav();
             if (naturalEnd) ++completedFiles_;
         } while (repeat && naturalEnd && requestSequence_ == sequence);
@@ -737,7 +741,8 @@ void AudioService::closeWav() {
     wav_ = {};
 }
 
-bool AudioService::writeWavBuffer(uint8_t volumePercent) {
+bool AudioService::writeWavBuffer(uint8_t volumePercent, uint32_t stopFadeOffset,
+                                  uint32_t stopFadeFrames) {
     const size_t bytesPerSample = wav_.bitsPerSample / 8U;
     const size_t bytesPerFrame = bytesPerSample * wav_.channels;
     if (!bytesPerFrame || !wav_.dataRemaining) return true;
@@ -768,11 +773,29 @@ bool AudioService::writeWavBuffer(uint8_t volumePercent) {
         if (totalFrames > absoluteFrame && totalFrames - absoluteFrame < fadeFrames) {
             sample = sample * (totalFrames - absoluteFrame) / fadeFrames;
         }
+        if (stopFadeFrames > 0) {
+            const uint32_t stopFrame = stopFadeOffset + frame;
+            const uint32_t stopRemaining = stopFrame < stopFadeFrames
+                                               ? stopFadeFrames - stopFrame
+                                               : 0U;
+            sample = sample * stopRemaining / stopFadeFrames;
+        }
         pcmBuffer_[frame] = static_cast<int16_t>(constrain(sample, -32768, 32767));
     }
     wav_.outputFrames += frames;
     if (frames < BufferFrames) memset(pcmBuffer_ + frames, 0, (BufferFrames - frames) * sizeof(int16_t));
     return writePcm(pcmBuffer_, BufferFrames);
+}
+
+bool AudioService::fadeWavToSilence(uint8_t volumePercent) {
+    if (!wavFile_ || !wav_.dataRemaining || sampleRate_ == 0) return true;
+    const uint32_t fadeFrames = max<uint32_t>(32U, sampleRate_ * kFadeMs / 1000UL);
+    uint32_t fadeOffset = 0;
+    while (fadeOffset < fadeFrames && wav_.dataRemaining > 0) {
+        if (!writeWavBuffer(volumePercent, fadeOffset, fadeFrames)) return false;
+        fadeOffset += BufferFrames;
+    }
+    return true;
 }
 
 bool AudioService::writeToneBuffer(uint32_t stopAtMs) {
@@ -796,6 +819,30 @@ bool AudioService::writeToneBuffer(uint32_t stopAtMs) {
         ++outputFrames_;
     }
     return writePcm(pcmBuffer_, BufferFrames);
+}
+
+bool AudioService::fadeToneToSilence() {
+    if (!driverReady_ || !pcmBuffer_ || sampleRate_ == 0) return false;
+    const uint32_t fadeFrames = max<uint32_t>(32U, sampleRate_ * kFadeMs / 1000UL);
+    const uint32_t phaseStep = static_cast<uint32_t>(
+        (static_cast<uint64_t>(kToneFrequencyHz) << 32U) / sampleRate_);
+    uint32_t fadeOffset = 0;
+    while (fadeOffset < fadeFrames) {
+        const size_t frames = min<size_t>(BufferFrames, fadeFrames - fadeOffset);
+        for (size_t frame = 0; frame < frames; ++frame) {
+            const uint32_t remaining = fadeFrames - fadeOffset - frame;
+            const int32_t amplitude = kToneAmplitude * remaining / fadeFrames;
+            pcmBuffer_[frame] = static_cast<int16_t>(
+                static_cast<int32_t>(kSineLut[phase_ >> 26U]) * amplitude / 32767);
+            phase_ += phaseStep;
+        }
+        if (frames < BufferFrames) {
+            memset(pcmBuffer_ + frames, 0, (BufferFrames - frames) * sizeof(int16_t));
+        }
+        if (!writePcm(pcmBuffer_, BufferFrames)) return false;
+        fadeOffset += frames;
+    }
+    return true;
 }
 
 bool AudioService::writePcm(const int16_t* samples, size_t frameCount, uint32_t timeoutMs) {

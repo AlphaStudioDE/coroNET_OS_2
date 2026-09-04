@@ -1,5 +1,36 @@
 # Development Updates
 
+## 0.4.4
+
+### True 50 FPS LED Motion
+- Raised the physical LED render schedule from approximately 33 FPS to a true 50 FPS cadence without increasing the SPI clock or allocating additional DMA buffers.
+- Reworked continuous waves to interpolate between time phases instead of holding each integer phase, removing visible brightness stepping at the higher refresh rate.
+- Added Q8 subpixel positions and neighbouring-pixel light distribution to moving heads, scans, comets, bubbles, sparks, and related effects across every status category.
+- Preserved the proven coroNET 1 smoothing rate while scaling it by bounded elapsed time, so a delayed frame cannot return as a large catch-up brightness flash.
+- Added explicit missed-deadline accounting and advanced the task schedule past missed frames instead of rendering bursts back-to-back.
+
+### Audio And Display Startup
+- Extended the existing 45 ms gain ramp to manual WAV stops, rapid track changes, and interrupted test tones before digital silence is queued.
+- Kept natural file endings and playback starts on the same click-resistant ramped path while retaining non-blocking SD playback.
+- Forced the LCD backlight low at the first application instruction, rendered and flushed the initial LVGL boot frame in darkness, and only then applied the saved brightness.
+- Removed the temporary 100% backlight pulse during display initialization, preventing uninitialized gray LCD memory from becoming visible at startup.
+
+### Project Presentation
+- Corrected the Bobby Morgan community-build description so the Snapmaker U1's standard four-tool architecture is not presented as a custom modification.
+- Clarified that the current public firmware is stable and feature-complete in its intended scope, while ongoing 0.4.x and 0.5.x work focuses on tuning, optimization, and final refinement.
+
+### Validation
+- Rebuilt the complete firmware and validated all 336 documented LED animations against their names, enum entries, and reachable renderer cases.
+- Re-ran Android unit tests and lint, release binary checks, Flash Tool package generation, and checksum validation for the coordinated 0.4.4 assets.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.4.4_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.4.2...v0.4.4
+
 ## 0.4.2
 
 ### Live LED Preview
