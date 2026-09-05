@@ -20,6 +20,14 @@ This machine brings the complete coroNET idea together in one installation. A de
 
 <table>
   <tr>
+    <td width="50%"><img src="media/reference-build/full-front-reference-build.jpg" alt="Full front view of Damian Borkowski's coroNET reference installation"></td>
+    <td width="50%"><img src="media/reference-build/front-led-integration.jpg" alt="Front three-quarter view of the coroNET touchscreen and RGBW status bar"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Complete multi-level installation</strong></td>
+    <td align="center"><strong>Upper-frame integration</strong></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="media/reference-build/interior-work-light.jpg" alt="Top view of the coroNET internal lighting illuminating the build chamber"></td>
     <td width="50%"><img src="media/reference-build/green-status-lighting.jpg" alt="Front view of coroNET displaying a bright green status across the outer LED section"></td>
   </tr>
