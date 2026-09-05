@@ -16,14 +16,16 @@ This machine brings the complete coroNET idea together in one installation. A de
   <img src="media/reference-build/complete-reference-build.jpg" alt="Damian Borkowski's complete coroNET reference machine with active status lighting" width="560">
 </p>
 
+<p align="center"><strong>Touchscreen and full-width status lighting</strong></p>
+
 <table>
   <tr>
-    <td width="50%"><img src="media/reference-build/front-led-integration.jpg" alt="Front three-quarter view of the coroNET touchscreen and RGBW status bar"></td>
     <td width="50%"><img src="media/reference-build/interior-work-light.jpg" alt="Top view of the coroNET internal lighting illuminating the build chamber"></td>
+    <td width="50%"><img src="media/reference-build/green-status-lighting.jpg" alt="Front view of coroNET displaying a bright green status across the outer LED section"></td>
   </tr>
   <tr>
-    <td align="center"><strong>Touchscreen and full-width status lighting</strong></td>
     <td align="center"><strong>White work light inside the chamber</strong></td>
+    <td align="center"><strong>Single-color status lighting</strong></td>
   </tr>
 </table>
 
