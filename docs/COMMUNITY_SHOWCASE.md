@@ -1,10 +1,31 @@
-# Community Showcase
+# coroNET Build Showcase
 
 ## coroNET in the Wild
 
 coroNET is one physical device with two firmware generations. [coroNET OS 1](https://github.com/AlphaStudioDE/coroNET_OS_1) established the product and powers the community installation shown here. OS 2 is a ground-up, MIT-licensed rewrite for the same controller, enclosure, wiring, LEDs, audio, fan, and servo hardware.
 
-coroNET was built to become part of a real workshop, not to remain a prototype on its creator's desk. This gallery celebrates community installations that adapt the platform to ambitious printers, personal workflows, and distinctive hardware builds.
+coroNET was built to become part of a real workshop, not to remain a prototype on its creator's desk. This gallery begins with the creator's reference machine and continues with community installations that adapt the same platform to personal workflows and distinctive hardware builds.
+
+### Creator's Reference Build
+
+**Designed, built, and photographed by Damian Borkowski.**
+
+This machine brings the complete coroNET idea together in one installation. A dedicated touchscreen places live printer control beside the original interface, the outer RGBW strip makes status visible from across the room, and the internal white-light section turns the frame itself into practical work-area lighting.
+
+<p align="center">
+  <img src="media/reference-build/complete-reference-build.jpg" alt="Damian Borkowski's complete coroNET reference machine with active status lighting" width="560">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="media/reference-build/front-led-integration.jpg" alt="Front three-quarter view of the coroNET touchscreen and RGBW status bar"></td>
+    <td width="50%"><img src="media/reference-build/interior-work-light.jpg" alt="Top view of the coroNET internal lighting illuminating the build chamber"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Touchscreen and full-width status lighting</strong></td>
+    <td align="center"><strong>White work light inside the chamber</strong></td>
+  </tr>
+</table>
 
 ### Original Snapmaker U1 Top Cover Integration
 
@@ -37,6 +58,23 @@ The inner LED section is not only ambient lighting. In White mode it illuminates
 <p align="center">
   <img src="media/community-showcase/wlodeka-top-cover/coronet-os2-controller.jpg" alt="coroNET OS 2 touchscreen mounted on the Snapmaker U1" width="520">
 </p>
+
+#### Frame And Lighting Hardware
+
+These construction views from **@wlodeka** show how compactly the printed frame integrates power control, USB-C access, and the protected outer LED channel. The separate inside-light module holds the downward-facing strip used to illuminate the toolhead, build plate, and enclosure interior.
+
+<table>
+  <tr>
+    <td width="33%"><img src="media/community-showcase/wlodeka-top-cover/coronet-frame-overview.jpg" alt="Complete printed coroNET frame photographed by wlodeka"></td>
+    <td width="33%"><img src="media/community-showcase/wlodeka-top-cover/coronet-frame-controls-and-led.jpg" alt="Side detail of the coroNET frame controls and recessed LED strip photographed by wlodeka"></td>
+    <td width="33%"><img src="media/community-showcase/wlodeka-top-cover/coronet-inside-light-module.jpg" alt="Separate coroNET internal work-light module photographed by wlodeka"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Complete printed frame</strong></td>
+    <td align="center"><strong>Power, USB-C, and protected LEDs</strong></td>
+    <td align="center"><strong>Dedicated inside-light module</strong></td>
+  </tr>
+</table>
 
 > **Top Cover cable note:** the original cable is too short in this installation. Lower the original Top Cover cable splitter or replace the cable with a longer compatible one. A suitable replacement costs approximately EUR 2.
 
@@ -100,4 +138,4 @@ To submit a build, open a GitHub Discussion or issue with a short description, h
 
 ---
 
-The featured installations were built and photographed by **@wlodeka on Discord** and **Bobby Morgan**, who granted permission to publish their images in the coroNET project gallery. The installations include personal modifications and accessories beyond the standard coroNET bill of materials. coroNET is an independent community project and is not affiliated with or endorsed by Snapmaker.
+The reference build was designed, built, and photographed by **Damian Borkowski**. The featured community installations were built and photographed by **@wlodeka on Discord** and **Bobby Morgan**, who granted permission to publish their images in the coroNET project gallery. The installations include personal modifications and accessories beyond the standard coroNET bill of materials. coroNET is an independent community project and is not affiliated with or endorsed by Snapmaker.

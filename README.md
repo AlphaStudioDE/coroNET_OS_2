@@ -47,6 +47,27 @@ Future coroNET OS 2 releases are planned to recognize and work directly with Air
 
 > Two open projects. One connected ecosystem. More about AirGuard 300 will be revealed as its hardware and safety architecture reach public validation milestones.
 
+## Creator's Reference Build
+
+The reference installation by **Damian Borkowski** shows coroNET as a complete part of the printer rather than a separate controller: the touchscreen sits beside the original interface, the RGBW status bar follows the upper frame, and the internal white-light section illuminates the work area from above.
+
+<p align="center">
+  <img src="docs/media/reference-build/complete-reference-build.jpg" alt="Damian Borkowski's complete coroNET reference build with touchscreen, RGBW status lighting, and illuminated lower enclosure" width="560">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/reference-build/front-led-integration.jpg" alt="coroNET touchscreen and RGBW status bar integrated into the printer front"></td>
+    <td width="50%"><img src="docs/media/reference-build/interior-work-light.jpg" alt="coroNET internal white-light section illuminating the build chamber"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Visible printer status</strong></td>
+    <td align="center"><strong>Practical work lighting</strong></td>
+  </tr>
+</table>
+
+See the complete reference-build story and community installations in the **[coroNET Build Showcase](docs/COMMUNITY_SHOWCASE.md)**.
+
 ## Community Showcase: coroNET in the Wild
 
 coroNET is already living beyond the original prototype. Community builders are integrating it into original Snapmaker U1 Top Cover installations and extensively customized machines with active ventilation, environmental monitoring, physical status lighting, and dedicated touchscreen control.

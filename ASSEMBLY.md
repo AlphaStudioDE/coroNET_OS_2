@@ -113,6 +113,29 @@ Verify servo endpoints before attaching the flap. A stalled servo can overheat a
 9. Verify common ground and continuity.
 10. Perform first power-up with current limiting when available.
 
+## Visual Assembly Reference
+
+The reference build uses a printed frame that combines the outer LED channel with accessible power and USB-C controls. The separate inside-light module positions its strip to cast useful white light downward into the work area.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/community-showcase/wlodeka-top-cover/coronet-frame-overview.jpg" alt="Complete printed coroNET installation frame"></td>
+    <td width="50%"><img src="docs/media/community-showcase/wlodeka-top-cover/coronet-frame-controls-and-led.jpg" alt="Side detail showing the coroNET power control, USB-C access, and recessed LED channel"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Complete printed frame</strong></td>
+    <td align="center"><strong>Controls and protected outer LED channel</strong></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/media/community-showcase/wlodeka-top-cover/coronet-inside-light-module.jpg" alt="Separate coroNET inside-light module" width="680">
+</p>
+
+<p align="center"><sub>The inside-light module before installation. Photographs by @wlodeka on Discord.</sub></p>
+
+More installed views are available in the [coroNET Build Showcase](docs/COMMUNITY_SHOWCASE.md).
+
 ## Before First Power-Up
 
 - verify no short exists between 5 V and GND;
