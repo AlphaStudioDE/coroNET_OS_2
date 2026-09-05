@@ -61,11 +61,13 @@ private:
     static constexpr uint32_t DefaultSampleRate = 22050;
     static constexpr size_t BufferFrames = 128;
     static constexpr size_t RawBufferBytes = BufferFrames * 4;
-    static constexpr uint16_t BalancedDmaBufferCount = 16;
+    // 24 descriptors retain 64 ms at 48 kHz and 139 ms at 22.05 kHz.
+    static constexpr uint16_t BalancedDmaBufferCount = 24;
     static constexpr uint16_t Coronet1DmaBufferCount = 48;
     static constexpr uint32_t TaskStackBytes = 5120;
-    static constexpr UBaseType_t TaskPriority = 7;
-    static constexpr UBaseType_t BootTaskPriority = 20;
+    // Audio production outranks application work while leaving protocol tasks above it.
+    static constexpr UBaseType_t TaskPriority = 18;
+    static constexpr UBaseType_t BootTaskPriority = 22;
     static constexpr BaseType_t TaskCore = 0;
     static constexpr uint8_t MaxIndexedFiles = 64;
     static constexpr uint8_t MaxScanFolders = 24;
@@ -87,7 +89,7 @@ private:
     bool preloadSilence(uint8_t bufferCount = 2);
     void primeSilence(uint8_t bufferCount = 2);
     void settleToSilence();
-    void finishPlayback(bool naturalEnd);
+    void finishPlayback(bool naturalEnd, bool interrupted = false);
     uint32_t submitRequest(RequestType type, const char* path, uint8_t volumePercent,
                            bool repeat, SoundScenario scenario, bool bootAudio,
                            uint32_t durationMs = 0);
@@ -143,6 +145,7 @@ private:
     uint32_t phase_ = 0;
     uint32_t outputFrames_ = 0;
     uint32_t writeFailures_ = 0;
+    uint32_t writeRetries_ = 0;
     uint32_t completedFiles_ = 0;
     uint32_t observedPrinterEventSequence_ = 0;
     bool pendingFinishSound_ = false;

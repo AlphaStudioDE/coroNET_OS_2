@@ -1,5 +1,31 @@
 # Development Updates
 
+## 0.4.5
+
+### LED And Audio Scheduling
+- Raised normal LED and audio producer tasks above display and application workers while keeping WiFi, Bluetooth controller, and other protocol-critical tasks at higher priorities.
+- Preserved the measured 50 FPS LED deadline during simultaneous display refresh, connectivity, Moonraker telemetry, and audio playback.
+- Expanded the balanced I2S ring from 16 to 24 blocks of 128 mono frames, providing approximately 139 ms at 22.05 kHz and 64 ms at 48 kHz without returning to the substantially larger OS 1 profile.
+- Completed partial I2S writes inside the original bounded producer deadline instead of discarding an unwritten buffer tail, and added separate retry diagnostics.
+- Distinguished an intentional stop from a playback failure and stopped active audio cleanly when a selected scenario is suppressed or has no assigned file.
+
+### Documentation And Release Alignment
+- Updated the OS 1 migration matrix from its early planning language to the functionality that is now implemented, redesigned, intentionally omitted, or still awaiting hardware qualification.
+- Refreshed the public development status, memory and concurrency documentation, roadmap, flashing examples, Android version metadata, and CI development version.
+- Reaffirmed the local-network security model without describing the stable feature-complete firmware as an unfinished prototype.
+
+### Validation
+- Rebuilt and validated the firmware image, all 336 LED catalog entries, Android unit tests and lint, release packaging, and checksums.
+- Retained zero observed LED deadline misses, zero I2S write failures, and zero partial-write retries during the combined target-hardware load profile documented in the architecture notes.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.4.5_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.4.4...v0.4.5
+
 ## 0.4.4
 
 ### True 50 FPS LED Motion

@@ -35,14 +35,14 @@ coroNET OS 2 is a clean rewrite of coroNET 1. The goal is to keep the product be
 
 The browser control panel is generated from `web/index.html` before every PlatformIO build and embedded as a compressed read-only asset. It has no filesystem, CDN, framework, or external Internet dependency. A random per-boot browser session authorizes same-origin requests without exposing or replacing the persistent token issued to the paired Android app. The browser reads the same central state and settings revisions as the touchscreen and companion app, so all three interfaces converge on firmware-owned values. The physical LED engine is scheduled at 50 FPS, transmits only changed frames, and uses bounded elapsed-time smoothing at the proven coroNET 1 rate so a missed deadline cannot cause a large catch-up flash. Continuous brightness waves interpolate between time phases, while moving effects use Q8 subpixel positions and distribute light across neighbouring LEDs instead of waiting for whole-pixel steps. The LED page requests a compact display-ready snapshot at 2 FPS only while visible; Android uses the identical 192-byte frame over WiFi or framed BLE. Android and the browser also retain a bounded two-hour temperature history per device in their own local storage. They append only newly received telemetry revisions and never request a separate temperature stream from firmware or Moonraker.
 
-## Milestone 0
+## Completed Foundation Milestone
 
-- Create PlatformIO project.
-- Add MIT license.
-- Add hardware map inherited from coroNET 1.
-- Add minimal service skeletons.
-- Compile a bootable firmware.
-- Start with display, touch, audio, WiFi, and NimBLE boundaries.
+- PlatformIO project and reproducible board definition established.
+- MIT license published.
+- Hardware map inherited from coroNET 1 and documented.
+- Independent service boundaries established around shared system state.
+- Bootable firmware validated on the target controller.
+- Display, touch, audio, WiFi, NimBLE, LED, printer, ventilation, web, and update services implemented.
 
 ## Platform Baseline
 
@@ -70,7 +70,7 @@ OS 1 features are reviewed before migration in [OS1_FEATURE_SCOPE.md](OS1_FEATUR
 - LCD transfer buffers remain DMA-capable internal memory because the LCD peripheral needs DMA-visible memory.
 - Small BSP objects, touch contexts, semaphores, callbacks, and FreeRTOS task stacks stay in internal RAM unless there is a measured reason to move them.
 - Audio PCM staging is explicitly allocated in PSRAM. Only the bounded I2S descriptor ring and its hardware transfer buffers use DMA-capable internal memory.
-- Future large buffers for WAV input, JSON snapshots, file indexes, icons, cached screens, LED previews, and app protocol queues should use PSRAM-aware allocation helpers instead of raw `malloc`.
+- Any additional large buffers for WAV input, JSON snapshots, file indexes, icons, cached screens, LED previews, or app protocol queues must use PSRAM-aware allocation helpers instead of raw `malloc`.
 - NimBLE host allocations use the library-supported external-memory mode. Controller memory and the host task stack remain internal, while eligible protocol buffers are placed in PSRAM.
 - Startup memory checkpoints are emitted after every service initialization so a regression can be assigned to a service instead of inferred from one final heap value.
 
@@ -81,7 +81,7 @@ Measured on the target JC3248W535 with display, touch, WiFi station stack, print
 | Stage | DMA-capable internal memory used | PSRAM used |
 | --- | ---: | ---: |
 | Display and touch | approximately 63 KB | approximately 315 KB |
-| Audio service, task, and balanced I2S ring | approximately 10.5 KB | less than 1 KB plus indexed file data |
+| Audio service, task, and balanced I2S ring | approximately 13 KB | less than 1 KB plus indexed file data |
 | WiFi station stack | approximately 42.3 KB | approximately 10 KB |
 | Printer worker and queues | approximately 10 KB | less than 1 KB |
 | Web routes | approximately 2.8 KB | negligible |
@@ -97,15 +97,17 @@ The OS 2 audio producer runs in a dedicated Core 0 task. Its 128-frame mono PCM 
 
 | Profile | I2S DMA layout | Driver/ring cost | Buffered time at 22.05 kHz | Buffered time at 48 kHz |
 | --- | ---: | ---: | ---: | ---: |
-| OS 2 balanced | 16 x 128 mono frames | 5,868 B | 92.9 ms | 42.7 ms |
+| OS 2 balanced | 24 x 128 mono frames | approximately 8.4 KB | 139.3 ms | 64.0 ms |
 | coroNET 1 comparison | 48 x 128 mono frames | 15,928 B | 278.6 ms | 128.0 ms |
 
-The balanced profile played continuously at both 22.05 kHz and 48 kHz while WiFi, the local web service, BLE, display refresh, and printer discovery were active. No I2S write failures were observed. Sample rate does not change the allocated DMA byte count; it changes how much time the fixed ring can absorb and affects source/decode bandwidth. Mono remains the correct hardware output because coroNET has one physical speaker, while future stereo WAV input can be downmixed before entering the DMA ring.
+The balanced profile played continuously at both 22.05 kHz and 48 kHz while WiFi, the local web service, BLE, display refresh, Moonraker telemetry, and repeated LED animation changes were active. No I2S write failures or partial-write retries were observed. Partial or temporarily blocked writes are completed inside the same bounded producer deadline instead of discarding the unwritten tail. Sample rate does not change the allocated DMA byte count; it changes how much time the fixed ring can absorb and affects source/decode bandwidth. Mono remains the correct hardware output because coroNET has one physical speaker, while stereo WAV input is downmixed before entering the DMA ring.
 
 Development builds expose `audio test`, `audio stop`, `audio status`, `audio rescan`, `audio release`, `audio profile balanced`, `audio profile coronet1`, and `audio rate 22050|44100|48000` on the serial console. Profile switching is intended for controlled measurements; normal startup always selects the balanced profile.
 
 ## Runtime Concurrency
 
+- The LED renderer runs on Core 1 above the LVGL task and raises its priority during Boot Experience, preserving the 20 ms frame deadline while display and connectivity services initialize.
+- The audio producer runs on Core 0 above application workers and raises its priority during boot audio; WiFi, Bluetooth controller, and other critical protocol tasks retain higher priorities.
 - NimBLE callbacks enqueue fixed-size commands through a FreeRTOS queue; command parsing and settings mutation remain in the main service loop.
 - Moonraker WebSocket handling runs in the low-priority Core 0 printer worker. Partial status notifications are merged into a complete worker-owned snapshot and returned to the main state through a dedicated queue.
 - The realtime client discovers the available Moonraker objects before subscribing, uses a non-blocking TCP reachability probe, detects stale sessions, and reconnects without blocking LVGL or audio.

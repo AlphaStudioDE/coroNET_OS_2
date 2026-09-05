@@ -4,10 +4,10 @@ Import("env")
 
 version = os.environ.get(
     "CORONET_FIRMWARE_VERSION",
-    env.GetProjectOption("custom_firmware_version", "0.4.4"),
+    env.GetProjectOption("custom_firmware_version", "0.4.5"),
 ).strip()
 if not version:
-    version = "0.4.4"
+    version = "0.4.5"
 
 env.Append(CPPDEFINES=[("CORONET_FIRMWARE_VERSION", env.StringifyMacro(version))])
 print(f"coroNET firmware version: {version}")

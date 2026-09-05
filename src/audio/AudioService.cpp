@@ -402,11 +402,13 @@ bool AudioService::playFile(const char* path, uint8_t volumePercent, bool repeat
 bool AudioService::playScenario(SoundScenario scenario) {
     const uint8_t index = static_cast<uint8_t>(scenario);
     if (index >= enumCount(SoundScenario{})) return false;
-    if (quietSuppressesSound(scenario)) return false;
+    if (quietSuppressesSound(scenario)) {
+        stop();
+        return false;
+    }
     char path[65] = "";
     if (!resolveScenarioPath(scenario, path)) {
-        snprintf(state().audioStatusText, sizeof(state().audioStatusText),
-                 "Missing %s.wav on SD card", scenarioStem(scenario));
+        stop();
         return false;
     }
     const AppSettings settings = settingsService().snapshot();
@@ -458,11 +460,12 @@ bool AudioService::setSampleRate(uint32_t sampleRate) {
 void AudioService::logStatus() const {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
     Serial.printf(
-        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu indexed=%u folders=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
+        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu retries=%lu indexed=%u folders=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
         driverReady_ ? 1U : 0U, storageReady_ ? 1U : 0U, playing_ ? 1U : 0U,
         bootAudioActive_ ? 1U : 0U, profileName(profile_), static_cast<unsigned long>(sampleRate_),
         static_cast<unsigned>(dmaBufferCount_), static_cast<unsigned>(BufferFrames),
-        static_cast<unsigned long>(writeFailures_), static_cast<unsigned>(fileCount_),
+        static_cast<unsigned long>(writeFailures_), static_cast<unsigned long>(writeRetries_),
+        static_cast<unsigned>(fileCount_),
         static_cast<unsigned>(libraryFolderCount_),
         static_cast<unsigned long>(completedFiles_),
         static_cast<unsigned>(stackHeadroom),
@@ -578,14 +581,20 @@ void AudioService::taskLoop() {
             phase_ = 0;
             outputFrames_ = 0;
             const uint32_t stopAt = millis() + durationMs;
+            bool writeOk = true;
             while (requestSequence_ == sequence && static_cast<int32_t>(millis() - stopAt) < 0) {
                 if (!writeToneBuffer(stopAt)) {
                     ++writeFailures_;
+                    writeOk = false;
                     break;
                 }
             }
-            if (requestSequence_ != sequence && !fadeToneToSilence()) ++writeFailures_;
-            finishPlayback(true);
+            const bool interrupted = requestSequence_ != sequence;
+            if (interrupted && !fadeToneToSilence()) {
+                ++writeFailures_;
+                writeOk = false;
+            }
+            finishPlayback(writeOk && !interrupted, interrupted);
             completedRequestSequence_ = sequence;
             continue;
         }
@@ -609,7 +618,7 @@ void AudioService::taskLoop() {
             closeWav();
             if (naturalEnd) ++completedFiles_;
         } while (repeat && naturalEnd && requestSequence_ == sequence);
-        finishPlayback(naturalEnd);
+        finishPlayback(naturalEnd, requestSequence_ != sequence);
         completedRequestSequence_ = sequence;
     }
 }
@@ -847,12 +856,32 @@ bool AudioService::fadeToneToSilence() {
 
 bool AudioService::writePcm(const int16_t* samples, size_t frameCount, uint32_t timeoutMs) {
     if (!driverReady_ || !samples || !frameCount) return false;
-    size_t written = 0;
+    const size_t totalBytes = frameCount * sizeof(int16_t);
+    size_t totalWritten = 0;
+    const uint32_t startedMs = millis();
     writing_ = true;
-    const esp_err_t result = i2s_channel_write(
-        txChannel_, samples, frameCount * sizeof(int16_t), &written, timeoutMs);
+    while (totalWritten < totalBytes) {
+        const uint32_t elapsedMs = millis() - startedMs;
+        if (elapsedMs >= timeoutMs) {
+            writing_ = false;
+            return false;
+        }
+
+        size_t written = 0;
+        const esp_err_t result = i2s_channel_write(
+            txChannel_, reinterpret_cast<const uint8_t*>(samples) + totalWritten,
+            totalBytes - totalWritten, &written, timeoutMs - elapsedMs);
+        totalWritten += written;
+        if (totalWritten == totalBytes) break;
+        if (result != ESP_OK && result != ESP_ERR_TIMEOUT) {
+            writing_ = false;
+            return false;
+        }
+        ++writeRetries_;
+        if (written == 0) taskYIELD();
+    }
     writing_ = false;
-    return result == ESP_OK && written == frameCount * sizeof(int16_t);
+    return true;
 }
 
 bool AudioService::preloadSilence(uint8_t bufferCount) {
@@ -887,7 +916,7 @@ void AudioService::settleToSilence() {
     vTaskDelay(pdMS_TO_TICKS(drainMs + 2U));
 }
 
-void AudioService::finishPlayback(bool naturalEnd) {
+void AudioService::finishPlayback(bool naturalEnd, bool interrupted) {
     closeWav();
     primeSilence();
     playing_ = false;
@@ -895,9 +924,11 @@ void AudioService::finishPlayback(bool naturalEnd) {
     vTaskPrioritySet(nullptr, TaskPriority);
     state().audioPlaying = false;
     state().activeSoundPath[0] = '\0';
-    strlcpy(state().audioStatusText, naturalEnd ? "Playback complete" : "Playback stopped or failed",
-            sizeof(state().audioStatusText));
-    if (!naturalEnd) Serial.println("[audio] playback stopped or failed");
+    const char* status = naturalEnd ? "Playback complete"
+                         : interrupted ? "Playback stopped"
+                                       : "Playback failed";
+    strlcpy(state().audioStatusText, status, sizeof(state().audioStatusText));
+    if (!naturalEnd && !interrupted) Serial.println("[audio] playback failed");
 }
 
 bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) const {

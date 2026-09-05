@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.4` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.5` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
 
 ## Foundation
 
@@ -9,10 +9,10 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] local display and touch BSP
 - [x] PSRAM-first allocation policy
 - [x] LVGL canvas in PSRAM with bounded DMA transfer buffers
-- [x] versioned NVS settings skeleton
+- [x] versioned NVS settings, migrations, revision tracking, and debounced persistence
 - [x] unique hardware-derived device identity
-- [x] initial NimBLE peripheral and local WiFi API
-- [x] initial Moonraker HTTP polling
+- [x] secured NimBLE peripheral and authenticated local WiFi API
+- [x] Moonraker WebSocket telemetry with HTTP fallback and integrity audits
 - [x] automated GitHub firmware build
 - [x] harden BLE framing, command queue, and exact JSON parsing
 - [x] secure and pair the local WiFi control API
@@ -25,7 +25,7 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] validated WiFi setup with nearby network selection and connection feedback
 - [x] automatic Snapmaker and Moonraker discovery during first setup
 - [x] modern home dashboard with live printer, progress, temperature, and connectivity state
-- [x] lightweight Home/Settings navigation and initial live Settings controls
+- [x] one-screen-at-a-time navigation and complete live Settings controls
 - [x] LED, ventilation, and sound tabs
 - [x] Coronet, Graphite, Aurora, and Minimal UI skins
 - [x] dark and light mode for every skin
@@ -108,6 +108,8 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] harden rapid sound selection and move growing history persistence away from interactive UI work
 - [x] run the physical LED engine at a real 50 FPS with time-interpolated waves and subpixel motion
 - [x] add bounded missed-frame handling so delayed LED work cannot produce catch-up flashes
+- [x] give LED and audio real-time work priority over display and application workers
+- [x] preserve partial I2S writes and expand the balanced audio DMA safety window
 - [x] fade manual audio stops and track changes to digital silence before releasing I2S
 - [x] keep the display backlight off until the first complete LVGL boot frame is ready
 - [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
@@ -127,7 +129,7 @@ The protocol, hardware details, and release schedule will be published only afte
 
 ### 1.0.0 - Production Qualification Milestone
 
-- [ ] complete long-duration memory, WiFi, BLE, display, audio, LED, and control soak tests
+- [ ] complete long-duration memory, WiFi, BLE, display, audio, LED, and control soak tests with zero LED deadline misses, zero I2S write failures, and zero unresolved partial audio writes
 - [ ] complete repeated disconnect, restart, update, brownout, and power-failure recovery tests
 - [ ] resolve all release-blocking defects and repeat the affected stability tests
 - [x] complete build photography and wiring diagrams
