@@ -161,6 +161,8 @@ Generated firmware binaries are intentionally excluded from Git history. Tested 
 
 ## Open Source
 
+coroNET OS 2 is free of charge for everyone, with no activation fees. Financial support is entirely optional.
+
 coroNET OS 2 is licensed under the [MIT License](LICENSE). Source code, documentation, and project-owned files in this repository may be used, modified, and redistributed under those terms unless a file explicitly states separate third-party terms.
 
 Contributions, hardware validation, documentation corrections, and reproducible bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
@@ -178,3 +180,16 @@ Special thanks to **@wlodeka** on Discord for hardware testing, feedback, and th
 Special thanks to **Bobby Morgan** for building and testing an extensively customized coroNET installation and for contributing the photographs featured in the [Community Showcase](docs/COMMUNITY_SHOWCASE.md).
 
 coroNET is an independent community project and is not affiliated with or endorsed by Snapmaker. Snapmaker and other product names may be trademarks of their respective owners.
+
+## Support development
+
+If you find this project useful, you can support continued development, testing
+and documentation:
+
+- **Buy Me a Coffee:** [Support Damian's projects](https://buymeacoffee.com/damianborkh)
+- **PayPal:** `damianborkowski88@gmail.com` — enter this recipient email in PayPal.
+
+Contributions are voluntary support, not a purchase of an activation key or a
+license, and do not change this project's license or access conditions.
+Bug reports, feedback and sharing the project are also welcome.
+Thank you to everyone who supports these projects!
