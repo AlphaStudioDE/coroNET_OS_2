@@ -2,6 +2,10 @@
 
 This is the native Android reference client for coroNET OS 2. It mirrors structured device state rather than streaming the ESP32 display.
 
+<p align="center">
+  <img src="../docs/media/android-companion/coronet-2-android-showcase.png" alt="coroNET 2 Android companion showcase with all five application areas">
+</p>
+
 ## Current capabilities
 
 - BLE discovery and framed protocol V2 reassembly;

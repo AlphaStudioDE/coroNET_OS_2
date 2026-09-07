@@ -37,18 +37,9 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 
 The Android companion turns coroNET into a mobile printer console. Live telemetry, temperature history, LED animation selection, chamber ventilation, sound assignments, and device settings remain available when you step away from the printer.
 
-<table>
-  <tr>
-    <td width="33%"><img src="docs/media/android-companion/home.jpg" alt="coroNET Android Home screen with live printer telemetry and temperature history"></td>
-    <td width="33%"><img src="docs/media/android-companion/led.jpg" alt="coroNET Android LED screen with animation preview and lighting controls"></td>
-    <td width="33%"><img src="docs/media/android-companion/vent.png" alt="coroNET Android Vent screen with chamber airflow, Panda Breath, drying, and heater controls"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Live printer overview</strong></td>
-    <td align="center"><strong>LED animation control</strong></td>
-    <td align="center"><strong>Automated chamber airflow</strong></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/media/android-companion/coronet-2-android-showcase.png" alt="coroNET 2 Android companion showcase with Home, LED, Vent, Sound, and Settings screens" width="1200">
+</p>
 
 Explore every screen and installation option in the **[Android companion documentation](android/README.md)**.
 
