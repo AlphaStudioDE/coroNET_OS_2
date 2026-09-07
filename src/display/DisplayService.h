@@ -21,7 +21,7 @@ public:
     void requestPage(ui::Page page);
 
 private:
-    void showPage(ui::Page page, bool animate = false);
+    void showPage(ui::Page page, bool animate = false, bool preservePageState = false);
     void reopenSetupWizard();
     void updateTimeService(uint32_t now);
     void updateTheme();

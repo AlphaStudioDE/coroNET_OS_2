@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <lvgl.h>
 
+#include "UiHeader.h"
 #include "UiTheme.h"
 
 namespace coronet {
@@ -41,16 +42,6 @@ lv_obj_t* makeLabel(lv_obj_t* parent,
     return label;
 }
 
-void markTouch() {
-    SystemState& system = state();
-    system.touchCount++;
-    system.lastTouchMs = millis();
-}
-
-void touchEvent(lv_event_t* event) {
-    if (lv_event_get_code(event) == LV_EVENT_PRESSED) markTouch();
-}
-
 int16_t temperatureTenths(float value) {
     if (isnan(value)) return INT16_MIN;
     if (value > 999.9f) value = 999.9f;
@@ -69,6 +60,57 @@ void setTemperature(lv_obj_t* label, int16_t tenths) {
                           tenths < 0 ? "-" : "",
                           static_cast<int>(absolute / 10),
                           static_cast<int>(absolute % 10));
+}
+
+uint32_t interpolateColor(uint32_t from, uint32_t to, uint16_t position, uint16_t range) {
+    if (range == 0 || position >= range) return to;
+    const uint8_t fromRed = static_cast<uint8_t>((from >> 16U) & 0xFFU);
+    const uint8_t fromGreen = static_cast<uint8_t>((from >> 8U) & 0xFFU);
+    const uint8_t fromBlue = static_cast<uint8_t>(from & 0xFFU);
+    const uint8_t toRed = static_cast<uint8_t>((to >> 16U) & 0xFFU);
+    const uint8_t toGreen = static_cast<uint8_t>((to >> 8U) & 0xFFU);
+    const uint8_t toBlue = static_cast<uint8_t>(to & 0xFFU);
+    const auto channel = [position, range](uint8_t start, uint8_t end) {
+        return static_cast<uint8_t>(static_cast<int32_t>(start) +
+                                    (static_cast<int32_t>(end) - start) * position / range);
+    };
+    return (static_cast<uint32_t>(channel(fromRed, toRed)) << 16U) |
+           (static_cast<uint32_t>(channel(fromGreen, toGreen)) << 8U) |
+           static_cast<uint32_t>(channel(fromBlue, toBlue));
+}
+
+uint32_t bedTemperatureColor(int16_t tenths) {
+    constexpr int16_t CoolTenths = 300;
+    constexpr int16_t MidTenths = 650;
+    constexpr int16_t HotTenths = 1000;
+    if (tenths == INT16_MIN) return ui::ColorMuted;
+    if (tenths <= CoolTenths) return ui::ColorGreen;
+    if (tenths >= HotTenths) return ui::ColorRed;
+    if (tenths <= MidTenths) {
+        return interpolateColor(ui::ColorGreen, ui::ColorAmber,
+                                static_cast<uint16_t>(tenths - CoolTenths),
+                                static_cast<uint16_t>(MidTenths - CoolTenths));
+    }
+    return interpolateColor(ui::ColorAmber, ui::ColorRed,
+                            static_cast<uint16_t>(tenths - MidTenths),
+                            static_cast<uint16_t>(HotTenths - MidTenths));
+}
+
+uint32_t chamberTemperatureColor(int16_t tenths) {
+    constexpr int16_t CoolTenths = 300;
+    constexpr int16_t MidTenths = 450;
+    constexpr int16_t HotTenths = 600;
+    if (tenths == INT16_MIN) return ui::ColorMuted;
+    if (tenths <= CoolTenths) return ui::ColorGreen;
+    if (tenths >= HotTenths) return ui::ColorRed;
+    if (tenths <= MidTenths) {
+        return interpolateColor(ui::ColorGreen, ui::ColorAmber,
+                                static_cast<uint16_t>(tenths - CoolTenths),
+                                static_cast<uint16_t>(MidTenths - CoolTenths));
+    }
+    return interpolateColor(ui::ColorAmber, ui::ColorRed,
+                            static_cast<uint16_t>(tenths - MidTenths),
+                            static_cast<uint16_t>(HotTenths - MidTenths));
 }
 
 const char* stateTitle(bool printerConfigured, bool printerConnected, PrinterState printerState) {
@@ -104,10 +146,15 @@ const char* offlineDetail(bool printerConfigured, const char* status) {
     return "Printer connection unavailable";
 }
 
-lv_obj_t* makeMetricCard(lv_obj_t* parent, lv_coord_t x, const char* caption, uint32_t accent) {
+lv_obj_t* makeMetricCard(lv_obj_t* parent,
+                         lv_coord_t x,
+                         lv_coord_t width,
+                         const char* caption,
+                         uint32_t accent,
+                         lv_obj_t** accentLineOut = nullptr) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 144, 82);
-    lv_obj_set_pos(card, x, 160);
+    lv_obj_set_size(card, width, 98);
+    lv_obj_set_pos(card, x, 146);
     stylePanel(card);
 
     lv_obj_t* line = lv_obj_create(card);
@@ -117,6 +164,7 @@ lv_obj_t* makeMetricCard(lv_obj_t* parent, lv_coord_t x, const char* caption, ui
     lv_obj_set_style_border_width(line, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(line, lv_color_hex(accent), LV_PART_MAIN);
     lv_obj_set_style_pad_all(line, 0, LV_PART_MAIN);
+    if (accentLineOut) *accentLineOut = line;
 
     makeLabel(card, caption, ui::ColorMuted, &lv_font_montserrat_10, 12, 21);
     return card;
@@ -140,7 +188,6 @@ void HomeScreen::begin(ui::Navigation::Callback navigationCallback,
     lv_obj_set_style_bg_color(root_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_pad_all(root_, 0, LV_PART_MAIN);
-    lv_obj_add_event_cb(root_, touchEvent, LV_EVENT_PRESSED, nullptr);
 
     buildHeader();
     buildPrinterPanel();
@@ -156,40 +203,13 @@ void HomeScreen::begin(ui::Navigation::Callback navigationCallback,
 }
 
 void HomeScreen::buildHeader() {
-    makeLabel(root_, "coroNET", ui::ColorText, &lv_font_montserrat_22, 18, 11);
-    makeLabel(root_, "HOME", ui::ColorCyan, &lv_font_montserrat_10, 127, 20);
-
-    wifiLabel_ = makeLabel(root_, LV_SYMBOL_WIFI, ui::ColorMuted, &lv_font_montserrat_16, 340, 14, 24);
-    lv_obj_set_style_text_align(wifiLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-
-    bleLabel_ = makeLabel(root_, "BT", ui::ColorMuted, &lv_font_montserrat_12, 375, 17, 28);
-    lv_obj_set_style_text_align(bleLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-
-    printerDot_ = lv_obj_create(root_);
-    lv_obj_set_size(printerDot_, 8, 8);
-    lv_obj_set_pos(printerDot_, 416, 20);
-    lv_obj_set_style_radius(printerDot_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_border_width(printerDot_, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(printerDot_, lv_color_hex(ui::ColorMuted), LV_PART_MAIN);
-    lv_obj_set_style_pad_all(printerDot_, 0, LV_PART_MAIN);
-
-    printerConnectionLabel_ = makeLabel(root_, "PRN", ui::ColorMuted,
-                                        &lv_font_montserrat_10, 430, 18, 32);
-
-    lv_obj_t* divider = lv_obj_create(root_);
-    lv_obj_set_size(divider, 444, 1);
-    lv_obj_set_pos(divider, 18, 49);
-    lv_obj_set_style_radius(divider, 0, LV_PART_MAIN);
-    lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(divider, LV_OPA_70, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
+    header_ = ui::buildHeader(root_, "HOME");
 }
 
 void HomeScreen::buildPrinterPanel() {
     lv_obj_t* panel = lv_obj_create(root_);
     lv_obj_set_size(panel, 448, 94);
-    lv_obj_set_pos(panel, 16, 58);
+    lv_obj_set_pos(panel, 16, 44);
     stylePanel(panel);
 
     statusAccent_ = lv_obj_create(panel);
@@ -225,31 +245,27 @@ void HomeScreen::buildPrinterPanel() {
 }
 
 void HomeScreen::buildMetricCards() {
-    lv_obj_t* toolCard = makeMetricCard(root_, 16, "ACTIVE TOOL", ui::ColorCyan);
-    toolValueLabel_ = makeLabel(toolCard, "T1", ui::ColorText, &lv_font_montserrat_24, 12, 41);
-    toolTempLabel_ = makeLabel(toolCard, "--.- C", ui::ColorMuted,
-                               &lv_font_montserrat_12, 58, 49, 74);
+    lv_obj_t* toolCard = makeMetricCard(root_, 16, 176, "ACTIVE TOOL", ui::ColorMuted,
+                                        &toolFilamentLine_);
+    toolValueLabel_ = makeLabel(toolCard, "T1", ui::ColorText, &lv_font_montserrat_28, 12, 40);
+    toolTempLabel_ = makeLabel(toolCard, "--.- C", ui::ColorText,
+                               &lv_font_montserrat_26, 60, 43, 104);
     lv_obj_set_style_text_align(toolTempLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     materialLabel_ = makeLabel(toolCard, "--", ui::ColorMuted,
-                               &lv_font_montserrat_10, 12, 68, 96);
+                               &lv_font_montserrat_10, 12, 80, 152);
     lv_label_set_long_mode(materialLabel_, LV_LABEL_LONG_DOT);
-    materialSwatch_ = lv_obj_create(toolCard);
-    lv_obj_set_size(materialSwatch_, 10, 10);
-    lv_obj_set_pos(materialSwatch_, 120, 69);
-    lv_obj_set_style_radius(materialSwatch_, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_border_width(materialSwatch_, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(materialSwatch_, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
-    lv_obj_set_style_pad_all(materialSwatch_, 0, LV_PART_MAIN);
 
-    lv_obj_t* bedCard = makeMetricCard(root_, 168, "BED", ui::ColorAmber);
+    lv_obj_t* bedCard = makeMetricCard(root_, 200, 128, "BED", ui::ColorGreen,
+                                      &bedTemperatureLine_);
     bedTempLabel_ = makeLabel(bedCard, "--.- C", ui::ColorText,
-                              &lv_font_montserrat_22, 12, 41, 120);
+                              &lv_font_montserrat_26, 12, 43, 104);
 
-    lv_obj_t* chamberCard = makeMetricCard(root_, 320, "CHAMBER", ui::ColorGreen);
+    lv_obj_t* chamberCard = makeMetricCard(root_, 336, 128, "CHAMBER", ui::ColorGreen,
+                                          &chamberTemperatureLine_);
     chamberTempLabel_ = makeLabel(chamberCard, "--.- C", ui::ColorText,
-                                  &lv_font_montserrat_22, 12, 41, 120);
+                                  &lv_font_montserrat_26, 12, 43, 104);
     ventOutputLabel_ = makeLabel(chamberCard, "F0  V0", ui::ColorMuted,
-                                 &lv_font_montserrat_10, 12, 68, 120);
+                                 &lv_font_montserrat_10, 12, 80, 104);
 }
 
 void HomeScreen::update() {
@@ -281,16 +297,7 @@ void HomeScreen::update() {
     cache_ = next;
     cacheValid_ = true;
 
-    lv_obj_set_style_text_color(wifiLabel_,
-                                lv_color_hex(next.wifiConnected ? ui::ColorCyan : ui::ColorMuted),
-                                LV_PART_MAIN);
-    lv_obj_set_style_text_color(bleLabel_,
-                                lv_color_hex(next.bleConnected ? ui::ColorCyan : ui::ColorMuted),
-                                LV_PART_MAIN);
-
-    const uint32_t connectionColor = next.printerConnected ? ui::ColorGreen : ui::ColorMuted;
-    lv_obj_set_style_bg_color(printerDot_, lv_color_hex(connectionColor), LV_PART_MAIN);
-    lv_obj_set_style_text_color(printerConnectionLabel_, lv_color_hex(connectionColor), LV_PART_MAIN);
+    ui::updateHeader(header_, next.wifiConnected, next.bleConnected, next.printerConnected);
 
     const uint32_t color = stateColor(next.printerConfigured, next.printerConnected,
                                       next.printerState);
@@ -323,7 +330,12 @@ void HomeScreen::update() {
     setTemperature(bedTempLabel_, next.bedTempTenths);
     setTemperature(chamberTempLabel_, next.chamberTempTenths);
     lv_label_set_text(materialLabel_, next.material[0] ? next.material : "MATERIAL --");
-    lv_obj_set_style_bg_color(materialSwatch_, lv_color_hex(next.filamentColorRgb), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(toolFilamentLine_, lv_color_hex(next.filamentColorRgb), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bedTemperatureLine_,
+                              lv_color_hex(bedTemperatureColor(next.bedTempTenths)), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(chamberTemperatureLine_,
+                              lv_color_hex(chamberTemperatureColor(next.chamberTempTenths)),
+                              LV_PART_MAIN);
     lv_label_set_text_fmt(ventOutputLabel_, "F%u  V%u", static_cast<unsigned>(next.fanPercent),
                           static_cast<unsigned>(next.flapPercent));
 }

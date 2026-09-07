@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.7` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closes the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. The remaining path is organized around systematic physical fault finding, recovery testing, defect correction, and formal 1.0 stability qualification.
 
 ## Foundation
 
@@ -119,20 +119,23 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] serialize SD lookup, decoding, rescanning, and OTA handoff through the audio worker
 - [x] validate rapid sound changes and interrupted playback on target hardware without panic or I2S write failures
 - [x] keep the display backlight off until the first complete LVGL boot frame is ready
+- [x] complete the real-time LED, audio, startup, and color-correction refinement pass
+
+### 0.5.x - Experience Complete And Physical Validation
+
+- [x] complete visual and interaction polish on the coroNET touchscreen
+- [x] complete visual and interaction polish in the Android companion
+- [x] complete visual and interaction polish in the local browser panel
+- [x] align the primary wording, hierarchy, feedback, empty states, and error presentation across all three interfaces
+- [x] harden touchscreen sliders and scrolling so vertical gestures cannot accidentally change settings
+- [x] make screen-saver wake gestures safe and preserve the active page position across visual rebuilds
 - [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
 - [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness
 - [ ] test simultaneous control from the touchscreen, Android companion, and browser panel
 - [ ] validate BLE/WiFi recovery, Moonraker reconnect, OTA, SD audio, ventilation, and pairing resets
-- [ ] correct every functional issue found during physical testing
 - [ ] validate Panda Breath discovery and direct control on physical hardware
-
-### 0.5.x - Final Experience Polish
-
-- [ ] complete visual and interaction polish on the coroNET touchscreen
-- [ ] complete visual and interaction polish in the Android companion
-- [ ] complete visual and interaction polish in the local browser panel
-- [ ] finish accessibility, localization, touch-target, and touch-calibration review
-- [ ] align wording, hierarchy, feedback, empty states, and error presentation across all three interfaces
+- [ ] complete accessibility, localization, and touch-calibration review
+- [ ] correct every functional issue found during physical testing
 
 ### 1.0.0 - Production Qualification Milestone
 

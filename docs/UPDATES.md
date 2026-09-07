@@ -1,5 +1,45 @@
 # Development Updates
 
+## 0.5.0
+
+### Touchscreen Interaction
+- Added a shared gesture guard that distinguishes horizontal slider adjustment from vertical page scrolling before committing a setting.
+- Restored the original value whenever a slider gesture becomes a scroll, preventing accidental changes on control-dense pages.
+- Increased slider spacing, usable touch area, and right-edge clearance while keeping the visible knob inside each card.
+- Added consistent slider depth and feedback styling across LED, Vent, Sound, and Settings controls.
+- Preserved the Settings scroll position when changing a theme or returning from the screen saver.
+
+### Compact And Consistent Layout
+- Replaced per-page status headers with one compact header shared by Home, LED, Vent, Sound, and Settings.
+- Kept WiFi, Bluetooth, and printer indicators in stable positions while returning more vertical space to page content.
+- Reorganized the LED animation card so the inside-strip preview sits directly below the Animation heading and renderer changes remain immediately visible.
+- Increased the visible sound-browser rows and refined card spacing across control pages.
+
+### Home Temperature Presentation
+- Enlarged and rebalanced the Active Tool, Bed, and Chamber cards while preserving prominent `T1` through `T4` identification.
+- Made the active-tool temperature as legible as the bed and chamber values and moved filament color to the card's accent line.
+- Added live bed heat coloring from green at or below 30 C through amber to red at 100 C.
+- Added live chamber heat coloring from green at or below 30 C through amber to red at 60 C.
+
+### Screen Saver And Retro Clock
+- Made the first touch anywhere on the clock wake the display without activating the underlying page control.
+- Restarted the inactivity countdown from the latest touch event instead of an earlier page transition.
+- Restored the coroNET 1 seven-segment Retro clock with dim inactive segments, illuminated separators, glow, 12/24-hour handling, and AM/PM support.
+- Linked the Retro clock segments, glow, suffix, and panel detail to the exact accent hue selected in Settings.
+
+### Release Milestone
+- Closed the planned visual and interaction refinement pass across the touchscreen, Android companion, and local browser panel.
+- Moved the active release path to systematic physical workflow, integration, recovery, and long-duration stability testing before `1.0.0`.
+- Built and installed the release firmware on the target JC3248W535 ESP32-S3 and coordinated the matching Android `0.5.0` package.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.5.0_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.4.7...v0.5.0
+
 ## 0.4.7
 
 ### NEW And LEGACY Animation Libraries

@@ -12,14 +12,18 @@
 #include "../settings/SettingsService.h"
 #include "../vent/VentService.h"
 #include "UiTheme.h"
+#include "UiHeader.h"
 
 namespace coronet {
 
 namespace {
 
 constexpr int kCanvasWidth = 420;
-constexpr int kCanvasHeight = 52;
-constexpr uint8_t kSoundBrowserRows = 6;
+constexpr int kOuterPreviewHeight = 16;
+constexpr int kInsidePreviewHeight = 16;
+constexpr int kCardSliderRight = 422;
+constexpr int kSliderClickPadding = 13;
+constexpr uint8_t kSoundBrowserRows = 4;
 
 const char* kCategoryNames[] = {"IDLE", "PRINT", "PAUSE", "ERROR", "FINISH", "OTHER"};
 const char* kSectionNames[] = {"RIGHT", "CENTER", "LEFT", "INSIDE"};
@@ -78,15 +82,6 @@ void styleButton(lv_obj_t* button, bool accent = false) {
     lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
 }
 
-void markTouch() {
-    state().touchCount++;
-    state().lastTouchMs = millis();
-}
-
-void rootTouch(lv_event_t* event) {
-    if (lv_event_get_code(event) == LV_EVENT_PRESSED) markTouch();
-}
-
 }
 
 void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCallback,
@@ -102,7 +97,6 @@ void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCall
     lv_obj_set_style_bg_color(root_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_pad_all(root_, 0, LV_PART_MAIN);
-    lv_obj_add_event_cb(root_, rootTouch, LV_EVENT_PRESSED, nullptr);
     buildHeader();
     if (page == ui::Page::Led) buildLedPage();
     else if (page == ui::Page::Vent) buildVentPage();
@@ -115,23 +109,14 @@ void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCall
 }
 
 void ControlScreen::buildHeader() {
-    makeLabel(root_, "coroNET", ui::ColorText, &lv_font_montserrat_22, 18, 11);
     const char* pageName = page_ == ui::Page::Led ? "LED" : page_ == ui::Page::Vent ? "VENT" : "SOUND";
-    makeLabel(root_, pageName, ui::ColorCyan, &lv_font_montserrat_10, 127, 20);
-    wifiLabel_ = makeLabel(root_, LV_SYMBOL_WIFI, ui::ColorMuted, &lv_font_montserrat_16, 425, 14, 30);
-    lv_obj_set_style_text_align(wifiLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_t* divider = lv_obj_create(root_);
-    lv_obj_set_size(divider, 444, 1);
-    lv_obj_set_pos(divider, 18, 49);
-    lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
-    lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
+    header_ = ui::buildHeader(root_, pageName);
 }
 
 lv_obj_t* ControlScreen::makeContent() {
     lv_obj_t* content = lv_obj_create(root_);
-    lv_obj_set_size(content, 464, 196);
-    lv_obj_set_pos(content, 8, 54);
+    lv_obj_set_size(content, 464, ui::HeaderContentHeight);
+    lv_obj_set_pos(content, 8, ui::HeaderContentTop);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_bg_opa(content, LV_OPA_0, LV_PART_MAIN);
@@ -161,22 +146,6 @@ lv_obj_t* ControlScreen::makeButton(lv_obj_t* parent, int x, int y, int width, i
     lv_obj_t* button = lv_btn_create(parent);
     lv_obj_set_size(button, width, height);
     lv_obj_set_pos(button, x, y);
-    switch (action) {
-        case Action::CategoryPrev:
-        case Action::CategoryNext:
-        case Action::AnimationPrev:
-        case Action::AnimationNext:
-        case Action::SoundPrev:
-        case Action::SoundNext:
-        case Action::SoundBrowserPrev:
-        case Action::SoundBrowserNext:
-        case Action::SoundBrowserFolderPrev:
-        case Action::SoundBrowserFolderNext:
-            lv_obj_set_ext_click_area(button, 8);
-            break;
-        default:
-            break;
-    }
     styleButton(button);
     lv_obj_t* label = lv_label_create(button);
     styleText(label, ui::ColorText, &lv_font_montserrat_12);
@@ -190,67 +159,93 @@ lv_obj_t* ControlScreen::makeButton(lv_obj_t* parent, int x, int y, int width, i
 }
 
 lv_obj_t* ControlScreen::makeSlider(lv_obj_t* parent, int x, int y, int width,
-                                    int minimum, int maximum, int value, Action action) {
+                                    int minimum, int maximum, int value, Action action,
+                                    bool guardVerticalScroll) {
     lv_obj_t* slider = lv_slider_create(parent);
     lv_obj_set_size(slider, width, 18);
     lv_obj_set_pos(slider, x, y);
     lv_slider_set_range(slider, minimum, maximum);
     lv_slider_set_value(slider, value, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider, lv_color_hex(ui::ColorSurfaceRaised), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(slider, lv_color_hex(ui::ColorCyan), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(slider, lv_color_hex(ui::ColorText), LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, 4, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, kSliderClickPadding);
     if (bindingCount_ < 48) {
-        bindings_[bindingCount_] = {this, action};
-        lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_VALUE_CHANGED, &bindings_[bindingCount_]);
-        lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_RELEASED, &bindings_[bindingCount_]);
-        lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_PRESS_LOST, &bindings_[bindingCount_++]);
+        Binding& binding = bindings_[bindingCount_++];
+        binding = {};
+        binding.owner = this;
+        binding.action = action;
+        binding.guardedSlider = guardVerticalScroll;
+        if (guardVerticalScroll) {
+            ui::enableVerticalScrollFromSlider(slider);
+            lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_PRESSED, &binding);
+            lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_PRESSING, &binding);
+        }
+        lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_VALUE_CHANGED, &binding);
+        lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_RELEASED, &binding);
+        lv_obj_add_event_cb(slider, eventHandler, LV_EVENT_PRESS_LOST, &binding);
     }
     return slider;
 }
 
 void ControlScreen::buildLedPage() {
     lv_obj_t* content = makeContent();
-    lv_obj_t* selection = makeCard(content, 0, 154, "ANIMATION");
-    makeButton(selection, 14, 31, 42, 34, LV_SYMBOL_LEFT, Action::CategoryPrev);
-    categoryLabel_ = makeLabel(selection, "IDLE", ui::ColorText, &lv_font_montserrat_14, 64, 40, 316);
-    lv_obj_set_style_text_align(categoryLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    makeButton(selection, 392, 31, 42, 34, LV_SYMBOL_RIGHT, Action::CategoryNext);
-    makeButton(selection, 14, 70, 42, 34, LV_SYMBOL_LEFT, Action::AnimationPrev);
-    animationLabel_ = makeLabel(selection, "Slow Orbit", ui::ColorText, &lv_font_montserrat_14, 64, 79, 218);
-    lv_obj_set_style_text_align(animationLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    libraryButtonLabel_ = makeButton(selection, 290, 74, 88, 28, "NEW", Action::AnimationLibrary);
-    makeButton(selection, 392, 70, 42, 34, LV_SYMBOL_RIGHT, Action::AnimationNext);
+    lv_obj_t* selection = makeCard(content, 0, 180, "ANIMATION");
 
     if (!previewBuffer_) previewBuffer_ = heap_caps_calloc(
-        kCanvasWidth * kCanvasHeight, sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        kCanvasWidth * kOuterPreviewHeight, sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (previewBuffer_) {
         previewCanvas_ = lv_canvas_create(selection);
-        lv_canvas_set_buffer(previewCanvas_, previewBuffer_, kCanvasWidth, kCanvasHeight, LV_IMG_CF_TRUE_COLOR);
-        lv_obj_set_pos(previewCanvas_, 14, 105);
-        lv_obj_set_size(previewCanvas_, kCanvasWidth, 40);
+        lv_canvas_set_buffer(previewCanvas_, previewBuffer_, kCanvasWidth, kOuterPreviewHeight,
+                             LV_IMG_CF_TRUE_COLOR);
+        lv_obj_set_pos(previewCanvas_, 14, 151);
+        lv_obj_set_size(previewCanvas_, kCanvasWidth, kOuterPreviewHeight);
+    }
+    if (!insidePreviewBuffer_) insidePreviewBuffer_ = heap_caps_calloc(
+        kCanvasWidth * kInsidePreviewHeight, sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (insidePreviewBuffer_) {
+        insidePreviewCanvas_ = lv_canvas_create(selection);
+        lv_canvas_set_buffer(insidePreviewCanvas_, insidePreviewBuffer_, kCanvasWidth,
+                             kInsidePreviewHeight, LV_IMG_CF_TRUE_COLOR);
+        lv_obj_set_pos(insidePreviewCanvas_, 14, 31);
+        lv_obj_set_size(insidePreviewCanvas_, kCanvasWidth, kInsidePreviewHeight);
     }
 
-    lv_obj_t* control = makeCard(content, 162, 250, "LED CONTROL");
+    makeButton(selection, 14, 55, 42, 34, LV_SYMBOL_LEFT, Action::CategoryPrev);
+    categoryLabel_ = makeLabel(selection, "IDLE", ui::ColorText, &lv_font_montserrat_14, 64, 64, 316);
+    lv_obj_set_style_text_align(categoryLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    makeButton(selection, 392, 55, 42, 34, LV_SYMBOL_RIGHT, Action::CategoryNext);
+    makeButton(selection, 14, 101, 42, 34, LV_SYMBOL_LEFT, Action::AnimationPrev);
+    animationLabel_ = makeLabel(selection, "Slow Orbit", ui::ColorText, &lv_font_montserrat_14, 64, 110, 218);
+    lv_obj_set_style_text_align(animationLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    libraryButtonLabel_ = makeButton(selection, 290, 104, 88, 28, "NEW", Action::AnimationLibrary);
+    makeButton(selection, 392, 101, 42, 34, LV_SYMBOL_RIGHT, Action::AnimationNext);
+
+    lv_obj_t* control = makeCard(content, 188, 254, "LED CONTROL");
     insideButtonLabel_ = makeButton(control, 14, 33, 126, 36, "INSIDE: WHITE", Action::InsideStyle);
     mirrorButtonLabel_ = makeButton(control, 150, 33, 126, 36, "MIRROR: OFF", Action::Mirror);
     sectionButtonLabel_ = makeButton(control, 286, 33, 148, 36, "SECTION: RIGHT", Action::SectionNext);
-    brightnessLabel_ = makeLabel(control, "BRIGHTNESS 70%", ui::ColorMuted, &lv_font_montserrat_10, 14, 82, 130);
-    brightnessSlider_ = makeSlider(control, 150, 80, 284, 0, 100, 70, Action::Brightness);
-    dimmButtonLabel_ = makeButton(control, 14, 116, 126, 36, "DIMM: OFF", Action::DimmToggle);
-    dimmLabel_ = makeLabel(control, "AFTER 5 MIN 20%", ui::ColorMuted, &lv_font_montserrat_10, 150, 124, 130);
-    dimmSlider_ = makeSlider(control, 286, 120, 148, 0, 100, 20, Action::DimmPercent);
-    makeButton(control, 14, 164, 126, 36, "DEFAULT", Action::RemixDefault);
-    remixLabel_ = makeLabel(control, "COLOR REMIX 0", ui::ColorMuted, &lv_font_montserrat_10, 150, 172, 130);
-    remixSlider_ = makeSlider(control, 286, 168, 148, -180, 180, 0, Action::Remix);
+    brightnessLabel_ = makeLabel(control, "BRIGHTNESS 70%", ui::ColorMuted, &lv_font_montserrat_10, 14, 90, 130);
+    brightnessSlider_ = makeSlider(control, 150, 88, kCardSliderRight - 150,
+                                   0, 100, 70, Action::Brightness);
+    dimmButtonLabel_ = makeButton(control, 14, 128, 126, 36, "DIMM: OFF", Action::DimmToggle);
+    dimmLabel_ = makeLabel(control, "AFTER 5 MIN 20%", ui::ColorMuted, &lv_font_montserrat_10, 150, 136, 130);
+    dimmSlider_ = makeSlider(control, 286, 132, kCardSliderRight - 286,
+                             0, 100, 20, Action::DimmPercent);
+    makeButton(control, 14, 180, 126, 36, "DEFAULT", Action::RemixDefault);
+    remixLabel_ = makeLabel(control, "COLOR REMIX 0", ui::ColorMuted, &lv_font_montserrat_10, 150, 188, 130);
+    remixSlider_ = makeSlider(control, 286, 184, kCardSliderRight - 286,
+                              -180, 180, 0, Action::Remix);
     makeLabel(control, "Remix changes decorative hues only; data colors keep their meaning.",
-              ui::ColorMuted, &lv_font_montserrat_10, 14, 216, 420);
+              ui::ColorMuted, &lv_font_montserrat_10, 14, 231, 420);
 
-    lv_obj_t* calibration = makeCard(content, 420, 96, "COLOR CALIBRATION");
+    lv_obj_t* calibration = makeCard(content, 450, 96, "COLOR CALIBRATION");
     makeButton(calibration, 14, 34, 160, 38, "OPEN CALIBRATION", Action::CalibrationOpen);
     makeLabel(calibration, "Match the physical LED spectrum to the on-screen reference.",
               ui::ColorMuted, &lv_font_montserrat_10, 188, 40, 246);
-    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 524);
+    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 554);
 }
 
 void ControlScreen::buildLedCalibrationOverlay() {
@@ -301,68 +296,77 @@ void ControlScreen::buildLedCalibrationOverlay() {
     calibrationHueLabel_ = makeLabel(calibrationOverlay_, "HUE  +0 DEG", ui::ColorMuted,
                                      &lv_font_montserrat_10, 18, 145, 110);
     calibrationHueSlider_ = makeSlider(calibrationOverlay_, 132, 141, 264,
-                                       -45, 45, 0, Action::CalibrationHue);
+                                       -45, 45, 0, Action::CalibrationHue, false);
     calibrationSaturationLabel_ = makeLabel(calibrationOverlay_, "SATURATION 100%", ui::ColorMuted,
-                                            &lv_font_montserrat_10, 18, 179, 110);
-    calibrationSaturationSlider_ = makeSlider(calibrationOverlay_, 132, 175, 264,
-                                              50, 150, 100, Action::CalibrationSaturation);
+                                            &lv_font_montserrat_10, 18, 189, 110);
+    calibrationSaturationSlider_ = makeSlider(calibrationOverlay_, 132, 185, 264,
+                                              50, 150, 100, Action::CalibrationSaturation, false);
     calibrationBrightnessLabel_ = makeLabel(calibrationOverlay_, "BRIGHTNESS 100%", ui::ColorMuted,
-                                            &lv_font_montserrat_10, 18, 213, 110);
-    calibrationBrightnessSlider_ = makeSlider(calibrationOverlay_, 132, 209, 264,
-                                              50, 150, 100, Action::CalibrationBrightness);
+                                            &lv_font_montserrat_10, 18, 233, 110);
+    calibrationBrightnessSlider_ = makeSlider(calibrationOverlay_, 132, 229, 264,
+                                              50, 150, 100, Action::CalibrationBrightness, false);
 
-    makeButton(calibrationOverlay_, 18, 247, 108, 34, "RESET COLOR", Action::CalibrationResetColor);
-    makeButton(calibrationOverlay_, 134, 247, 96, 34, "RESET ALL", Action::CalibrationResetAll);
-    makeButton(calibrationOverlay_, 270, 247, 88, 34, "CANCEL", Action::CalibrationCancel);
-    makeButton(calibrationOverlay_, 366, 247, 96, 34, "SAVE", Action::CalibrationSave);
+    makeButton(calibrationOverlay_, 18, 267, 108, 34, "RESET COLOR", Action::CalibrationResetColor);
+    makeButton(calibrationOverlay_, 134, 267, 96, 34, "RESET ALL", Action::CalibrationResetAll);
+    makeButton(calibrationOverlay_, 270, 267, 88, 34, "CANCEL", Action::CalibrationCancel);
+    makeButton(calibrationOverlay_, 366, 267, 96, 34, "SAVE", Action::CalibrationSave);
     makeLabel(calibrationOverlay_, "Tune the physical LEDs to the fixed LCD swatch. Intermediate hues are blended automatically.",
-              ui::ColorMuted, &lv_font_montserrat_10, 18, 294, 444);
+              ui::ColorMuted, &lv_font_montserrat_10, 18, 306, 444);
     lv_obj_add_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ControlScreen::buildVentPage() {
     lv_obj_t* content = makeContent();
-    lv_obj_t* local = makeCard(content, 0, 224, "LOCAL VENTILATION");
+    lv_obj_t* local = makeCard(content, 0, 236, "LOCAL VENTILATION");
     ventModeLabels_[0] = makeButton(local, 14, 32, 126, 36, "AUTO", Action::VentAuto);
     ventModeLabels_[1] = makeButton(local, 151, 32, 126, 36, "TARGET", Action::VentTarget);
     ventModeLabels_[2] = makeButton(local, 288, 32, 146, 36, "MANUAL", Action::VentManual);
     ventStatusLabel_ = makeLabel(local, "", ui::ColorMuted, &lv_font_montserrat_10, 14, 77, 420);
     ventTargetLabel_ = makeLabel(local, "TARGET 40 C", ui::ColorMuted, &lv_font_montserrat_10, 14, 103, 120);
-    ventTargetSlider_ = makeSlider(local, 150, 101, 284, 20, 80, 40, Action::VentTargetTemp);
-    fanLabel_ = makeLabel(local, "FAN 0%", ui::ColorMuted, &lv_font_montserrat_10, 14, 139, 120);
-    fanSlider_ = makeSlider(local, 150, 137, 284, 0, 100, 0, Action::ManualFan);
-    flapLabel_ = makeLabel(local, "FLAP 0%", ui::ColorMuted, &lv_font_montserrat_10, 14, 175, 120);
-    flapSlider_ = makeSlider(local, 150, 173, 284, 0, 100, 0, Action::ManualFlap);
+    ventTargetSlider_ = makeSlider(local, 150, 101, kCardSliderRight - 150,
+                                   20, 80, 40, Action::VentTargetTemp);
+    fanLabel_ = makeLabel(local, "FAN 0%", ui::ColorMuted, &lv_font_montserrat_10, 14, 151, 120);
+    fanSlider_ = makeSlider(local, 150, 149, kCardSliderRight - 150,
+                            0, 100, 0, Action::ManualFan);
+    flapLabel_ = makeLabel(local, "FLAP 0%", ui::ColorMuted, &lv_font_montserrat_10, 14, 199, 120);
+    flapSlider_ = makeSlider(local, 150, 197, kCardSliderRight - 150,
+                             0, 100, 0, Action::ManualFlap);
 
-    lv_obj_t* calibration = makeCard(content, 232, 190, "HARDWARE CALIBRATION");
+    lv_obj_t* calibration = makeCard(content, 244, 260, "HARDWARE CALIBRATION");
     servoClosedLabel_ = makeLabel(calibration, "CLOSED 1000 us", ui::ColorMuted, &lv_font_montserrat_10, 14, 38, 150);
-    servoClosedSlider_ = makeSlider(calibration, 170, 34, 264, 500, 2500, 1000, Action::ServoClosed);
-    servoOpenLabel_ = makeLabel(calibration, "OPEN 2000 us", ui::ColorMuted, &lv_font_montserrat_10, 14, 74, 150);
-    servoOpenSlider_ = makeSlider(calibration, 170, 70, 264, 500, 2500, 2000, Action::ServoOpen);
-    fanMinLabel_ = makeLabel(calibration, "FAN MIN 30%", ui::ColorMuted, &lv_font_montserrat_10, 14, 110, 150);
-    fanMinSlider_ = makeSlider(calibration, 170, 106, 264, 0, 100, 30, Action::FanMinimum);
-    fanMaxLabel_ = makeLabel(calibration, "FAN MAX 100%", ui::ColorMuted, &lv_font_montserrat_10, 14, 146, 150);
-    fanMaxSlider_ = makeSlider(calibration, 170, 142, 264, 0, 100, 100, Action::FanMaximum);
-    servoReverseLabel_ = makeButton(calibration, 14, 160, 146, 26, "SERVO: NORMAL", Action::ServoReverse);
+    servoClosedSlider_ = makeSlider(calibration, 170, 34, kCardSliderRight - 170,
+                                    500, 2500, 1000, Action::ServoClosed);
+    servoOpenLabel_ = makeLabel(calibration, "OPEN 2000 us", ui::ColorMuted, &lv_font_montserrat_10, 14, 86, 150);
+    servoOpenSlider_ = makeSlider(calibration, 170, 82, kCardSliderRight - 170,
+                                  500, 2500, 2000, Action::ServoOpen);
+    fanMinLabel_ = makeLabel(calibration, "FAN MIN 30%", ui::ColorMuted, &lv_font_montserrat_10, 14, 134, 150);
+    fanMinSlider_ = makeSlider(calibration, 170, 130, kCardSliderRight - 170,
+                               0, 100, 30, Action::FanMinimum);
+    fanMaxLabel_ = makeLabel(calibration, "FAN MAX 100%", ui::ColorMuted, &lv_font_montserrat_10, 14, 182, 150);
+    fanMaxSlider_ = makeSlider(calibration, 170, 178, kCardSliderRight - 170,
+                               0, 100, 100, Action::FanMaximum);
+    servoReverseLabel_ = makeButton(calibration, 14, 216, 146, 34, "SERVO: NORMAL", Action::ServoReverse);
 
-    lv_obj_t* panda = makeCard(content, 430, 226, "PANDA BREATH");
+    lv_obj_t* panda = makeCard(content, 512, 242, "PANDA BREATH");
     pandaEnabledLabel_ = makeButton(panda, 14, 33, 146, 36, "PANDA: OFF", Action::PandaEnabled);
     pandaModeLabel_ = makeButton(panda, 170, 33, 264, 36, "MODE: OFF", Action::PandaMode);
     pandaStatusLabel_ = makeLabel(panda, "Panda disabled", ui::ColorMuted,
                                   &lv_font_montserrat_10, 14, 80, 420);
     pandaTargetLabel_ = makeLabel(panda, "TARGET 40 C", ui::ColorMuted, &lv_font_montserrat_10, 14, 113, 128);
-    pandaTargetSlider_ = makeSlider(panda, 150, 109, 284, 30, 60, 40, Action::PandaTarget);
-    pandaPresetLabel_ = makeButton(panda, 14, 146, 188, 34, "DRY: PLA", Action::PandaPreset);
-    pandaHoursLabel_ = makeLabel(panda, "12 H", ui::ColorMuted, &lv_font_montserrat_10, 214, 157, 55);
-    pandaHoursSlider_ = makeSlider(panda, 272, 153, 162, 1, 24, 12, Action::PandaHours);
+    pandaTargetSlider_ = makeSlider(panda, 150, 109, kCardSliderRight - 150,
+                                    30, 60, 40, Action::PandaTarget);
+    pandaPresetLabel_ = makeButton(panda, 14, 158, 188, 34, "DRY: PLA", Action::PandaPreset);
+    pandaHoursLabel_ = makeLabel(panda, "12 H", ui::ColorMuted, &lv_font_montserrat_10, 214, 169, 55);
+    pandaHoursSlider_ = makeSlider(panda, 272, 165, kCardSliderRight - 272,
+                                   1, 24, 12, Action::PandaHours);
     pandaHostLabel_ = makeLabel(
         panda,
         settingsService().settings().pandaHost[0] ? settingsService().settings().pandaHost
                                                   : "Panda address not configured",
-        ui::ColorMuted, &lv_font_montserrat_10, 14, 196, 300);
-    pandaDiscoverLabel_ = makeButton(panda, 324, 187, 110, 30, "DISCOVER", Action::PandaDiscover);
+        ui::ColorMuted, &lv_font_montserrat_10, 14, 211, 300);
+    pandaDiscoverLabel_ = makeButton(panda, 324, 202, 110, 30, "DISCOVER", Action::PandaDiscover);
 
-    lv_obj_t* diyHeater = makeCard(content, 664, 126, "DIY CHAMBER HEATER");
+    lv_obj_t* diyHeater = makeCard(content, 762, 126, "DIY CHAMBER HEATER");
     diyHeaterLabel_ = makeButton(diyHeater, 14, 34, 150, 38, "OUTPUT: OFF", Action::DiyHeaterToggle);
     diyHeaterStatusLabel_ = makeLabel(
         diyHeater, "GPIO46 active HIGH, 3.3 V logic only. Use an external relay, MOSFET or optocoupler.",
@@ -370,12 +374,12 @@ void ControlScreen::buildVentPage() {
     lv_label_set_long_mode(diyHeaterStatusLabel_, LV_LABEL_LONG_WRAP);
     makeLabel(diyHeater, "Output is forced LOW during startup and firmware updates.",
               ui::ColorMuted, &lv_font_montserrat_10, 14, 91, 420);
-    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 798);
+    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 896);
 }
 
 void ControlScreen::buildSoundPage() {
     lv_obj_t* content = makeContent();
-    lv_obj_t* sound = makeCard(content, 0, 250, "STATUS SOUND");
+    lv_obj_t* sound = makeCard(content, 0, 276, "STATUS SOUND");
     makeButton(sound, 14, 32, 42, 36, LV_SYMBOL_LEFT, Action::SoundPrev);
     soundScenarioLabel_ = makeLabel(sound, "START", ui::ColorText, &lv_font_montserrat_16, 64, 42, 316);
     lv_obj_set_style_text_align(soundScenarioLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -387,21 +391,22 @@ void ControlScreen::buildSoundPage() {
     lv_obj_set_width(soundPathLabel_, 396);
     lv_label_set_long_mode(soundPathLabel_, LV_LABEL_LONG_DOT);
     soundVolumeLabel_ = makeLabel(sound, "VOLUME 75%", ui::ColorMuted,
-                                  &lv_font_montserrat_10, 14, 160, 120);
-    soundVolumeSlider_ = makeSlider(sound, 150, 156, 284, 0, 100, 75, Action::SoundVolume);
-    soundRepeatLabel_ = makeButton(sound, 14, 188, 126, 34, "REPEAT: OFF", Action::SoundRepeat);
-    makeButton(sound, 150, 188, 136, 34, LV_SYMBOL_PLAY " TEST", Action::SoundPlay);
-    makeButton(sound, 296, 188, 138, 34, LV_SYMBOL_STOP " STOP", Action::SoundStop);
-    soundRuntimeLabel_ = makeLabel(sound, "", ui::ColorMuted, &lv_font_montserrat_10, 14, 230, 420);
+                                  &lv_font_montserrat_10, 14, 174, 120);
+    soundVolumeSlider_ = makeSlider(sound, 150, 170, kCardSliderRight - 150,
+                                    0, 100, 75, Action::SoundVolume);
+    soundRepeatLabel_ = makeButton(sound, 14, 214, 126, 34, "REPEAT: OFF", Action::SoundRepeat);
+    makeButton(sound, 150, 214, 136, 34, LV_SYMBOL_PLAY " TEST", Action::SoundPlay);
+    makeButton(sound, 296, 214, 138, 34, LV_SYMBOL_STOP " STOP", Action::SoundStop);
+    soundRuntimeLabel_ = makeLabel(sound, "", ui::ColorMuted, &lv_font_montserrat_10, 14, 257, 420);
 
-    lv_obj_t* storage = makeCard(content, 258, 116, "AUDIO STORAGE");
+    lv_obj_t* storage = makeCard(content, 284, 116, "AUDIO STORAGE");
     makeLabel(storage, "SD CARD", ui::ColorMuted, &lv_font_montserrat_10, 14, 38);
     soundStorageLabel_ = makeLabel(storage, "", state().sdReady ? ui::ColorGreen : ui::ColorRed,
                                    &lv_font_montserrat_12, 84, 35, 240);
     makeButton(storage, 334, 27, 100, 34, LV_SYMBOL_REFRESH " RESCAN", Action::SoundRescan);
     makeLabel(storage, "Use PCM WAV files in the SD root or /sounds. Audio is streamed through PSRAM.",
               ui::ColorMuted, &lv_font_montserrat_10, 14, 75, 420);
-    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 380);
+    makeLabel(content, "", ui::ColorMuted, &lv_font_montserrat_10, 0, 408);
     buildSoundBrowserOverlay();
 }
 
@@ -431,11 +436,11 @@ void ControlScreen::buildSoundBrowserOverlay() {
 
     static constexpr Action RowActions[kSoundBrowserRows] = {
         Action::SoundBrowserRow0, Action::SoundBrowserRow1, Action::SoundBrowserRow2,
-        Action::SoundBrowserRow3, Action::SoundBrowserRow4, Action::SoundBrowserRow5,
+        Action::SoundBrowserRow3,
     };
     for (uint8_t row = 0; row < kSoundBrowserRows; ++row) {
         soundBrowserRowLabels_[row] = makeButton(
-            soundBrowserOverlay_, 18, 92 + row * 31, 444, 28, "", RowActions[row]);
+            soundBrowserOverlay_, 18, 92 + row * 44, 444, 28, "", RowActions[row]);
         lv_obj_set_width(soundBrowserRowLabels_[row], 420);
         lv_label_set_long_mode(soundBrowserRowLabels_[row], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(soundBrowserRowLabels_[row], LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
@@ -452,7 +457,9 @@ void ControlScreen::buildSoundBrowserOverlay() {
 
 void ControlScreen::update() {
     if (!root_) return;
-    lv_obj_set_style_text_color(wifiLabel_, lv_color_hex(state().wifiConnected ? ui::ColorCyan : ui::ColorMuted), LV_PART_MAIN);
+    const SystemState& system = state();
+    ui::updateHeader(header_, system.wifiConnected, system.bleConnected,
+                     system.printerConnected);
     if (page_ == ui::Page::Led) refreshLed();
     else if (page_ == ui::Page::Vent) refreshVent();
     else refreshSound();
@@ -562,31 +569,46 @@ void ControlScreen::refreshLedCalibration() {
 }
 
 void ControlScreen::refreshLedCanvas() {
-    if (!previewBuffer_ || !previewCanvas_ || millis() - lastCanvasUpdateMs_ < 100U) return;
+    const bool outerReady = previewBuffer_ && previewCanvas_;
+    const bool insideReady = insidePreviewBuffer_ && insidePreviewCanvas_;
+    if ((!outerReady && !insideReady) || millis() - lastCanvasUpdateMs_ < 100U) return;
     lastCanvasUpdateMs_ = millis();
-    lv_color_t* pixels = static_cast<lv_color_t*>(previewBuffer_);
-    for (int i = 0; i < kCanvasWidth * kCanvasHeight; ++i) pixels[i] = lv_color_hex(ui::ColorBackground);
     ledpreview::Frame frame{};
     if (!ledService().copyPreviewFrame(frame)) return;
-    auto draw = [&](int x, int y, int width, int height, uint32_t color) {
+    auto clear = [](void* buffer, int height) {
+        lv_color_t* pixels = static_cast<lv_color_t*>(buffer);
+        for (int i = 0; i < kCanvasWidth * height; ++i) {
+            pixels[i] = lv_color_hex(ui::ColorBackground);
+        }
+    };
+    auto draw = [](void* buffer, int canvasHeight, int x, int y, int width, int height,
+                   uint32_t color) {
+        lv_color_t* pixels = static_cast<lv_color_t*>(buffer);
         const lv_color_t pixel = lv_color_hex(color);
-        for (int py = y; py < y + height && py < kCanvasHeight; ++py)
+        for (int py = y; py < y + height && py < canvasHeight; ++py)
             for (int px = x; px < x + width && px < kCanvasWidth; ++px)
                 if (px >= 0 && py >= 0) pixels[py * kCanvasWidth + px] = pixel;
     };
-    for (uint16_t i = 0; i < hw::OuterCount; ++i) {
-        const uint8_t* rgb = &frame.pixels[i * 3U];
-        draw(2 + i * 10, 4, 8, 8,
-             (static_cast<uint32_t>(rgb[0]) << 16U) |
-             (static_cast<uint32_t>(rgb[1]) << 8U) | rgb[2]);
+    if (outerReady) {
+        clear(previewBuffer_, kOuterPreviewHeight);
+        for (uint16_t i = 0; i < hw::OuterCount; ++i) {
+            const uint8_t* rgb = &frame.pixels[i * 3U];
+            draw(previewBuffer_, kOuterPreviewHeight, 2 + i * 10, 4, 8, 8,
+                 (static_cast<uint32_t>(rgb[0]) << 16U) |
+                 (static_cast<uint32_t>(rgb[1]) << 8U) | rgb[2]);
+        }
+        lv_obj_invalidate(previewCanvas_);
     }
-    for (uint16_t i = 0; i < hw::InsideCount; ++i) {
-        const uint8_t* rgb = &frame.pixels[(hw::OuterCount + i) * 3U];
-        draw(2 + i * 23, 25, 18, 8,
-             (static_cast<uint32_t>(rgb[0]) << 16U) |
-             (static_cast<uint32_t>(rgb[1]) << 8U) | rgb[2]);
+    if (insideReady) {
+        clear(insidePreviewBuffer_, kInsidePreviewHeight);
+        for (uint16_t i = 0; i < hw::InsideCount; ++i) {
+            const uint8_t* rgb = &frame.pixels[(hw::OuterCount + i) * 3U];
+            draw(insidePreviewBuffer_, kInsidePreviewHeight, 2 + i * 23, 4, 18, 8,
+                 (static_cast<uint32_t>(rgb[0]) << 16U) |
+                 (static_cast<uint32_t>(rgb[1]) << 8U) | rgb[2]);
+        }
+        lv_obj_invalidate(insidePreviewCanvas_);
     }
-    lv_obj_invalidate(previewCanvas_);
 }
 
 void ControlScreen::refreshVent() {
@@ -925,9 +947,70 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
     update();
 }
 
+void ControlScreen::previewSlider(Action action, lv_obj_t* slider) {
+    const int value = lv_slider_get_value(slider);
+    switch (action) {
+        case Action::Brightness:
+            lv_label_set_text_fmt(brightnessLabel_, "BRIGHTNESS %d%%", value);
+            break;
+        case Action::DimmPercent:
+            lv_label_set_text_fmt(dimmLabel_, "AFTER 5 MIN %d%%", value);
+            break;
+        case Action::Remix:
+            lv_label_set_text_fmt(remixLabel_, "COLOR REMIX %d", value);
+            break;
+        case Action::VentTargetTemp:
+            lv_label_set_text_fmt(ventTargetLabel_, "TARGET %d C", value);
+            break;
+        case Action::ManualFan:
+            lv_label_set_text_fmt(fanLabel_, "FAN %d%%", value);
+            break;
+        case Action::ManualFlap:
+            lv_label_set_text_fmt(flapLabel_, "FLAP %d%%", value);
+            break;
+        case Action::ServoClosed:
+            lv_label_set_text_fmt(servoClosedLabel_, "CLOSED %d us", value);
+            break;
+        case Action::ServoOpen:
+            lv_label_set_text_fmt(servoOpenLabel_, "OPEN %d us", value);
+            break;
+        case Action::FanMinimum:
+            lv_label_set_text_fmt(fanMinLabel_, "FAN MIN %d%%", value);
+            break;
+        case Action::FanMaximum:
+            lv_label_set_text_fmt(fanMaxLabel_, "FAN MAX %d%%", value);
+            break;
+        case Action::PandaTarget:
+            lv_label_set_text_fmt(pandaTargetLabel_, "TARGET %d C", value);
+            break;
+        case Action::PandaHours:
+            lv_label_set_text_fmt(pandaHoursLabel_, "%d H", value);
+            break;
+        case Action::SoundVolume:
+            lv_label_set_text_fmt(soundVolumeLabel_, "VOLUME %d%%", value);
+            break;
+        default:
+            break;
+    }
+}
+
 void ControlScreen::eventHandler(lv_event_t* event) {
     Binding* binding = static_cast<Binding*>(lv_event_get_user_data(event));
-    if (binding && binding->owner) binding->owner->handleAction(binding->action, event);
+    if (!binding || !binding->owner) return;
+    if (binding->guardedSlider) {
+        lv_obj_t* slider = lv_event_get_target(event);
+        const ui::SliderGestureResult result = ui::processSliderGesture(
+            event, slider, binding->sliderGesture);
+        if (result == ui::SliderGestureResult::Preview) {
+            binding->owner->previewSlider(binding->action, slider);
+        } else if (result == ui::SliderGestureResult::Commit) {
+            binding->owner->handleAction(binding->action, event);
+        } else if (result == ui::SliderGestureResult::Cancel) {
+            binding->owner->update();
+        }
+        return;
+    }
+    binding->owner->handleAction(binding->action, event);
 }
 
 }

@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "UiGestureGuard.h"
+#include "UiHeader.h"
 #include "UiNavigation.h"
 #include "../core/ProductTypes.h"
 
@@ -39,7 +41,12 @@ private:
         SoundBrowserRow3, SoundBrowserRow4, SoundBrowserRow5,
     };
 
-    struct Binding { ControlScreen* owner = nullptr; Action action = Action::AnimationLibrary; };
+    struct Binding {
+        ControlScreen* owner = nullptr;
+        Action action = Action::AnimationLibrary;
+        ui::SliderGestureState sliderGesture{};
+        bool guardedSlider = false;
+    };
 
     void buildHeader();
     void buildLedPage();
@@ -51,8 +58,10 @@ private:
     lv_obj_t* makeButton(lv_obj_t* parent, int x, int y, int width, int height,
                          const char* text, Action action);
     lv_obj_t* makeSlider(lv_obj_t* parent, int x, int y, int width,
-                         int minimum, int maximum, int value, Action action);
+                         int minimum, int maximum, int value, Action action,
+                         bool guardVerticalScroll = true);
     void handleAction(Action action, lv_event_t* event);
+    void previewSlider(Action action, lv_obj_t* slider);
     void refreshLed();
     void refreshVent();
     void refreshSound();
@@ -70,12 +79,14 @@ private:
 
     ui::Page page_ = ui::Page::Home;
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* wifiLabel_ = nullptr;
+    ui::HeaderWidgets header_;
     lv_obj_t* libraryButtonLabel_ = nullptr;
     lv_obj_t* categoryLabel_ = nullptr;
     lv_obj_t* animationLabel_ = nullptr;
     lv_obj_t* previewCanvas_ = nullptr;
     void* previewBuffer_ = nullptr;
+    lv_obj_t* insidePreviewCanvas_ = nullptr;
+    void* insidePreviewBuffer_ = nullptr;
     lv_obj_t* insideButtonLabel_ = nullptr;
     lv_obj_t* mirrorButtonLabel_ = nullptr;
     lv_obj_t* sectionButtonLabel_ = nullptr;

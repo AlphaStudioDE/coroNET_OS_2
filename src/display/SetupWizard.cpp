@@ -101,16 +101,6 @@ void styleInput(lv_obj_t* field) {
     lv_obj_set_style_pad_bottom(field, 7, LV_PART_MAIN);
 }
 
-void markTouch() {
-    SystemState& system = state();
-    system.touchCount++;
-    system.lastTouchMs = millis();
-}
-
-void rootTouchEvent(lv_event_t* event) {
-    if (lv_event_get_code(event) == LV_EVENT_PRESSED) markTouch();
-}
-
 const char* transportName(CompanionTransport transport) {
     switch (transport) {
         case CompanionTransport::Ble: return "Bluetooth LE";
@@ -230,7 +220,6 @@ void SetupWizard::buildRoot() {
     lv_obj_set_style_bg_color(root_, lv_color_hex(ColorBackground), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_pad_all(root_, 0, LV_PART_MAIN);
-    lv_obj_add_event_cb(root_, rootTouchEvent, LV_EVENT_PRESSED, nullptr);
 
     makeLabel(root_, "coroNET", ColorText, &lv_font_montserrat_26, 24, 15);
     makeLabel(root_, "FIRST SETUP", ColorCyan, &lv_font_montserrat_10, 145, 27);
@@ -429,7 +418,7 @@ void SetupWizard::renderNetworkDiscovery() {
     lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(list, lv_color_hex(ColorBorder), LV_PART_MAIN);
     lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(list, 12, LV_PART_MAIN);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
@@ -615,7 +604,7 @@ void SetupWizard::renderPrinterDiscovery() {
     lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(list, lv_color_hex(ColorBorder), LV_PART_MAIN);
     lv_obj_set_style_pad_all(list, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(list, 12, LV_PART_MAIN);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
@@ -921,8 +910,6 @@ void SetupWizard::actionEvent(lv_event_t* event) {
     const Action action = static_cast<Action>(rawAction);
     SetupWizard* wizard = gActiveSetupWizard;
     if (!wizard) return;
-    markTouch();
-
     const uintptr_t printerBase = static_cast<uintptr_t>(Action::PrinterBase);
     if (rawAction >= printerBase) {
         const uint8_t index = static_cast<uint8_t>(rawAction - printerBase);
@@ -1024,7 +1011,6 @@ void SetupWizard::fieldEvent(lv_event_t* event) {
     if (!event || lv_event_get_code(event) != LV_EVENT_FOCUSED) return;
     SetupWizard* wizard = static_cast<SetupWizard*>(lv_event_get_user_data(event));
     if (!wizard) return;
-    markTouch();
     wizard->showKeyboard(lv_event_get_target(event));
 }
 
@@ -1032,7 +1018,6 @@ void SetupWizard::keyboardEvent(lv_event_t* event) {
     if (!event) return;
     SetupWizard* wizard = static_cast<SetupWizard*>(lv_event_get_user_data(event));
     if (!wizard) return;
-    markTouch();
     wizard->hideKeyboard();
 }
 

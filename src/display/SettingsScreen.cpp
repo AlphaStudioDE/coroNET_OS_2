@@ -11,6 +11,7 @@
 #include "../settings/SettingsService.h"
 #include "../update/OtaService.h"
 #include "UiTheme.h"
+#include "UiHeader.h"
 
 namespace coronet {
 
@@ -19,6 +20,8 @@ namespace {
 constexpr uint8_t TimeZonePageSize = 6;
 constexpr uint8_t TimeZonePageCount =
     static_cast<uint8_t>((TimeZoneOptionCount + TimeZonePageSize - 1) / TimeZonePageSize);
+constexpr int kCardSliderRight = 422;
+constexpr int kSliderClickPadding = 13;
 
 void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
     lv_obj_set_style_text_color(object, lv_color_hex(color), LV_PART_MAIN);
@@ -60,16 +63,6 @@ void styleSmallButton(lv_obj_t* button) {
     lv_obj_set_style_border_color(button, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
     lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
-}
-
-void markTouch() {
-    SystemState& system = state();
-    system.touchCount++;
-    system.lastTouchMs = millis();
-}
-
-void rootTouchEvent(lv_event_t* event) {
-    if (lv_event_get_code(event) == LV_EVENT_PRESSED) markTouch();
 }
 
 const char* transportDetail(CompanionTransport transport, bool wifiConnected, bool bleConnected) {
@@ -131,6 +124,7 @@ void styleSlider(lv_obj_t* slider) {
     lv_obj_set_style_bg_color(slider, lv_color_hex(ui::ColorCyan), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(slider, lv_color_hex(ui::ColorText), LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, 4, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, kSliderClickPadding);
 }
 
 }
@@ -138,21 +132,25 @@ void styleSlider(lv_obj_t* slider) {
 void SettingsScreen::begin(ui::Navigation::Callback navigationCallback,
                            SetupCallback setupCallback,
                            void* callbackContext,
-                           bool animate) {
+                           bool animate,
+                           bool preserveScroll) {
     setupCallback_ = setupCallback;
     callbackContext_ = callbackContext;
     cacheValid_ = false;
+    if (!preserveScroll) scrollY_ = 0;
 
     root_ = lv_obj_create(nullptr);
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(root_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(root_, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_pad_all(root_, 0, LV_PART_MAIN);
-    lv_obj_add_event_cb(root_, rootTouchEvent, LV_EVENT_PRESSED, nullptr);
 
     buildHeader();
     buildContent();
     navigation_.build(root_, ui::Page::Settings, navigationCallback, callbackContext);
+
+    lv_obj_update_layout(root_);
+    lv_obj_scroll_to_y(content_, scrollY_, LV_ANIM_OFF);
 
     lv_scr_load_anim(root_,
                      animate ? LV_SCR_LOAD_ANIM_FADE_ON : LV_SCR_LOAD_ANIM_NONE,
@@ -163,30 +161,14 @@ void SettingsScreen::begin(ui::Navigation::Callback navigationCallback,
 }
 
 void SettingsScreen::buildHeader() {
-    makeLabel(root_, "coroNET", ui::ColorText, &lv_font_montserrat_22, 18, 11);
-    makeLabel(root_, "SETTINGS", ui::ColorCyan, &lv_font_montserrat_10, 127, 20);
-
-    wifiLabel_ = makeLabel(root_, LV_SYMBOL_WIFI, ui::ColorMuted,
-                           &lv_font_montserrat_16, 389, 14, 24);
-    lv_obj_set_style_text_align(wifiLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    bleLabel_ = makeLabel(root_, "BT", ui::ColorMuted,
-                          &lv_font_montserrat_12, 425, 17, 32);
-    lv_obj_set_style_text_align(bleLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-
-    lv_obj_t* divider = lv_obj_create(root_);
-    lv_obj_set_size(divider, 444, 1);
-    lv_obj_set_pos(divider, 18, 49);
-    lv_obj_set_style_radius(divider, 0, LV_PART_MAIN);
-    lv_obj_set_style_border_width(divider, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(divider, LV_OPA_70, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(divider, 0, LV_PART_MAIN);
+    header_ = ui::buildHeader(root_, "SETTINGS");
 }
 
 void SettingsScreen::buildContent() {
     lv_obj_t* content = lv_obj_create(root_);
-    lv_obj_set_size(content, 464, 196);
-    lv_obj_set_pos(content, 8, 54);
+    content_ = content;
+    lv_obj_set_size(content, 464, ui::HeaderContentHeight);
+    lv_obj_set_pos(content, 8, ui::HeaderContentTop);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_bg_opa(content, LV_OPA_0, LV_PART_MAIN);
@@ -196,17 +178,18 @@ void SettingsScreen::buildContent() {
     lv_obj_set_style_pad_top(content, 4, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(content, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_row(content, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(content, scrollEvent, LV_EVENT_SCROLL, this);
 
     buildConnectionCard(content, 0);
     buildDeviceCard(content, 176);
     buildSetupCard(content, 320);
     buildAppearanceCard(content, 458);
-    buildQuietCard(content, 824);
-    buildSystemCard(content, 964);
+    buildQuietCard(content, 914);
+    buildSystemCard(content, 1088);
 
     lv_obj_t* endSpacer = lv_obj_create(content);
     lv_obj_set_size(endSpacer, 1, 1);
-    lv_obj_set_pos(endSpacer, 0, 1202);
+    lv_obj_set_pos(endSpacer, 0, 1320);
     lv_obj_set_style_bg_opa(endSpacer, LV_OPA_0, LV_PART_MAIN);
     lv_obj_set_style_border_width(endSpacer, 0, LV_PART_MAIN);
 }
@@ -261,25 +244,13 @@ void SettingsScreen::buildDeviceCard(lv_obj_t* parent, int y) {
     brightnessLabel_ = makeLabel(card, "DISPLAY 80%", ui::ColorMuted,
                                  &lv_font_montserrat_10, 14, 82, 120);
     brightnessSlider_ = lv_slider_create(card);
-    lv_obj_set_size(brightnessSlider_, 282, 18);
+    lv_obj_set_size(brightnessSlider_, kCardSliderRight - 148, 18);
     lv_obj_set_pos(brightnessSlider_, 148, 86);
     lv_slider_set_range(brightnessSlider_, 10, 100);
     lv_slider_set_value(brightnessSlider_, settingsService().settings().displayBrightness,
                         LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(brightnessSlider_, lv_color_hex(ui::ColorSurfaceRaised),
-                              LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(brightnessSlider_, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(brightnessSlider_, lv_color_hex(ui::ColorCyan),
-                              LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(brightnessSlider_, lv_color_hex(ui::ColorText), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(brightnessSlider_, 4, LV_PART_KNOB);
-    actionBindings_[3] = {this, Action::Brightness};
-    lv_obj_add_event_cb(brightnessSlider_, actionEvent, LV_EVENT_VALUE_CHANGED,
-                        &actionBindings_[3]);
-    lv_obj_add_event_cb(brightnessSlider_, actionEvent, LV_EVENT_RELEASED,
-                        &actionBindings_[3]);
-    lv_obj_add_event_cb(brightnessSlider_, actionEvent, LV_EVENT_PRESS_LOST,
-                        &actionBindings_[3]);
+    styleSlider(brightnessSlider_);
+    bindSlider(brightnessSlider_, 3, Action::Brightness);
 }
 
 void SettingsScreen::buildSetupCard(lv_obj_t* parent, int y) {
@@ -313,7 +284,7 @@ void SettingsScreen::buildSetupCard(lv_obj_t* parent, int y) {
 
 void SettingsScreen::buildAppearanceCard(lv_obj_t* parent, int y) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 448, 358);
+    lv_obj_set_size(card, 448, 448);
     lv_obj_set_pos(card, 0, y);
     stylePanel(card);
     makeLabel(card, "APPEARANCE", ui::ColorCyan, &lv_font_montserrat_10, 14, 12);
@@ -323,38 +294,36 @@ void SettingsScreen::buildAppearanceCard(lv_obj_t* parent, int y) {
     };
     for (uint8_t i = 0; i < 9; ++i) {
         makeLabel(card, rowNames[i], ui::ColorMuted, &lv_font_montserrat_10,
-                  14, 39 + i * 36, 180);
+                  14, 39 + i * 48, 180);
     }
 
     lv_obj_t* button = makeActionButton(card, 250, 30, 180, &skinButtonLabel_);
     actionBindings_[5] = {this, Action::SkinNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[5]);
-    button = makeActionButton(card, 250, 66, 180, &colorModeButtonLabel_);
+    button = makeActionButton(card, 250, 78, 180, &colorModeButtonLabel_);
     actionBindings_[6] = {this, Action::ColorModeNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[6]);
 
-    accentLabel_ = makeLabel(card, "190 deg", ui::ColorText, &lv_font_montserrat_10, 168, 111, 72);
+    accentLabel_ = makeLabel(card, "190 deg", ui::ColorText, &lv_font_montserrat_10, 168, 134, 72);
     lv_obj_set_style_text_align(accentLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     accentSlider_ = lv_slider_create(card);
-    lv_obj_set_size(accentSlider_, 180, 16);
-    lv_obj_set_pos(accentSlider_, 250, 103);
+    lv_obj_set_size(accentSlider_, kCardSliderRight - 250, 16);
+    lv_obj_set_pos(accentSlider_, 250, 126);
     lv_slider_set_range(accentSlider_, 0, 359);
     styleSlider(accentSlider_);
-    actionBindings_[7] = {this, Action::AccentHue};
-    lv_obj_add_event_cb(accentSlider_, actionEvent, LV_EVENT_VALUE_CHANGED, &actionBindings_[7]);
-    lv_obj_add_event_cb(accentSlider_, actionEvent, LV_EVENT_RELEASED, &actionBindings_[7]);
+    bindSlider(accentSlider_, 7, Action::AccentHue);
 
-    button = makeActionButton(card, 250, 138, 180, &saverModeButtonLabel_);
+    button = makeActionButton(card, 250, 174, 180, &saverModeButtonLabel_);
     actionBindings_[8] = {this, Action::SaverModeNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[8]);
-    button = makeActionButton(card, 250, 174, 180, &clockStyleButtonLabel_);
+    button = makeActionButton(card, 250, 222, 180, &clockStyleButtonLabel_);
     actionBindings_[9] = {this, Action::ClockStyleNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[9]);
 
-    button = makeActionButton(card, 250, 210, 180, &clockFormatButtonLabel_);
+    button = makeActionButton(card, 250, 270, 180, &clockFormatButtonLabel_);
     actionBindings_[24] = {this, Action::ClockFormatNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[24]);
-    button = makeActionButton(card, 250, 246, 180, &timeZoneButtonLabel_);
+    button = makeActionButton(card, 250, 318, 180, &timeZoneButtonLabel_);
     lv_obj_set_width(timeZoneButtonLabel_, 168);
     lv_label_set_long_mode(timeZoneButtonLabel_, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(timeZoneButtonLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -362,53 +331,47 @@ void SettingsScreen::buildAppearanceCard(lv_obj_t* parent, int y) {
     actionBindings_[23] = {this, Action::TimeZoneOpen};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[23]);
 
-    saverDelayLabel_ = makeLabel(card, "5 min", ui::ColorText, &lv_font_montserrat_10, 168, 291, 72);
+    saverDelayLabel_ = makeLabel(card, "5 min", ui::ColorText, &lv_font_montserrat_10, 168, 374, 72);
     lv_obj_set_style_text_align(saverDelayLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     saverDelaySlider_ = lv_slider_create(card);
-    lv_obj_set_size(saverDelaySlider_, 180, 16);
-    lv_obj_set_pos(saverDelaySlider_, 250, 283);
+    lv_obj_set_size(saverDelaySlider_, kCardSliderRight - 250, 16);
+    lv_obj_set_pos(saverDelaySlider_, 250, 366);
     lv_slider_set_range(saverDelaySlider_, 1, 60);
     styleSlider(saverDelaySlider_);
-    actionBindings_[10] = {this, Action::SaverDelay};
-    lv_obj_add_event_cb(saverDelaySlider_, actionEvent, LV_EVENT_VALUE_CHANGED, &actionBindings_[10]);
-    lv_obj_add_event_cb(saverDelaySlider_, actionEvent, LV_EVENT_RELEASED, &actionBindings_[10]);
+    bindSlider(saverDelaySlider_, 10, Action::SaverDelay);
 
-    clockBrightnessLabel_ = makeLabel(card, "35%", ui::ColorText, &lv_font_montserrat_10, 168, 327, 72);
+    clockBrightnessLabel_ = makeLabel(card, "35%", ui::ColorText, &lv_font_montserrat_10, 168, 422, 72);
     lv_obj_set_style_text_align(clockBrightnessLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     clockBrightnessSlider_ = lv_slider_create(card);
-    lv_obj_set_size(clockBrightnessSlider_, 180, 16);
-    lv_obj_set_pos(clockBrightnessSlider_, 250, 319);
+    lv_obj_set_size(clockBrightnessSlider_, kCardSliderRight - 250, 16);
+    lv_obj_set_pos(clockBrightnessSlider_, 250, 414);
     lv_slider_set_range(clockBrightnessSlider_, 5, 100);
     styleSlider(clockBrightnessSlider_);
-    actionBindings_[11] = {this, Action::ClockBrightness};
-    lv_obj_add_event_cb(clockBrightnessSlider_, actionEvent, LV_EVENT_VALUE_CHANGED, &actionBindings_[11]);
-    lv_obj_add_event_cb(clockBrightnessSlider_, actionEvent, LV_EVENT_RELEASED, &actionBindings_[11]);
+    bindSlider(clockBrightnessSlider_, 11, Action::ClockBrightness);
 }
 
 void SettingsScreen::buildQuietCard(lv_obj_t* parent, int y) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 448, 132);
+    lv_obj_set_size(card, 448, 166);
     lv_obj_set_pos(card, 0, y);
     stylePanel(card);
     makeLabel(card, "QUIET MODE", ui::ColorCyan, &lv_font_montserrat_10, 14, 12);
     makeLabel(card, "TARGET", ui::ColorMuted, &lv_font_montserrat_10, 14, 43);
-    makeLabel(card, "DURATION", ui::ColorMuted, &lv_font_montserrat_10, 14, 79);
-    makeLabel(card, "ERROR ALERTS", ui::ColorMuted, &lv_font_montserrat_10, 14, 111);
+    makeLabel(card, "DURATION", ui::ColorMuted, &lv_font_montserrat_10, 14, 91);
+    makeLabel(card, "ERROR ALERTS", ui::ColorMuted, &lv_font_montserrat_10, 14, 139);
 
     lv_obj_t* button = makeActionButton(card, 250, 30, 180, &quietTargetButtonLabel_);
     actionBindings_[12] = {this, Action::QuietTargetNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[12]);
-    quietDurationLabel_ = makeLabel(card, "60 min", ui::ColorText, &lv_font_montserrat_10, 168, 84, 72);
+    quietDurationLabel_ = makeLabel(card, "60 min", ui::ColorText, &lv_font_montserrat_10, 168, 86, 72);
     lv_obj_set_style_text_align(quietDurationLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     quietDurationSlider_ = lv_slider_create(card);
-    lv_obj_set_size(quietDurationSlider_, 180, 16);
-    lv_obj_set_pos(quietDurationSlider_, 250, 76);
+    lv_obj_set_size(quietDurationSlider_, kCardSliderRight - 250, 16);
+    lv_obj_set_pos(quietDurationSlider_, 250, 78);
     lv_slider_set_range(quietDurationSlider_, 5, 240);
     styleSlider(quietDurationSlider_);
-    actionBindings_[13] = {this, Action::QuietDuration};
-    lv_obj_add_event_cb(quietDurationSlider_, actionEvent, LV_EVENT_VALUE_CHANGED, &actionBindings_[13]);
-    lv_obj_add_event_cb(quietDurationSlider_, actionEvent, LV_EVENT_RELEASED, &actionBindings_[13]);
-    button = makeActionButton(card, 250, 101, 180, &quietErrorsButtonLabel_);
+    bindSlider(quietDurationSlider_, 13, Action::QuietDuration);
+    button = makeActionButton(card, 250, 126, 180, &quietErrorsButtonLabel_);
     actionBindings_[14] = {this, Action::QuietErrorsBypass};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[14]);
 }
@@ -489,14 +452,8 @@ void SettingsScreen::update() {
 
     lv_label_set_text(pairingButtonLabel_, settings.apiPaired ? "PAIR NEW PHONE" : "PAIR PHONE");
 
-    lv_obj_set_style_text_color(wifiLabel_,
-                                lv_color_hex(system.wifiConnected ? ui::ColorCyan
-                                                                 : ui::ColorMuted),
-                                LV_PART_MAIN);
-    lv_obj_set_style_text_color(bleLabel_,
-                                lv_color_hex(system.bleConnected ? ui::ColorCyan
-                                                                : ui::ColorMuted),
-                                LV_PART_MAIN);
+    ui::updateHeader(header_, system.wifiConnected, system.bleConnected,
+                     system.printerConnected);
     lv_label_set_text(connectionDetailLabel_,
                       transportDetail(settings.companionTransport,
                                       system.wifiConnected,
@@ -738,7 +695,7 @@ void SettingsScreen::showTimeZonePicker() {
         const int column = slot % 2;
         const int row = slot / 2;
         lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18 + column * 222,
-                                            45 + row * 58, 210, &timeZoneLabels_[slot]);
+                                            45 + row * 64, 210, &timeZoneLabels_[slot]);
         lv_obj_set_height(button, 48);
         lv_obj_set_width(timeZoneLabels_[slot], 196);
         lv_obj_set_style_text_align(timeZoneLabels_[slot], LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -749,21 +706,21 @@ void SettingsScreen::showTimeZonePicker() {
     }
 
     lv_obj_t* label = nullptr;
-    lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18, 231, 130, &label);
+    lv_obj_t* button = makeActionButton(timeZoneOverlay_, 18, 253, 130, &label);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_label_set_text(label, LV_SYMBOL_LEFT " PREV");
     lv_obj_center(label);
     actionBindings_[25] = {this, Action::TimeZonePrevious};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[25]);
 
-    button = makeActionButton(timeZoneOverlay_, 166, 231, 130, &label);
+    button = makeActionButton(timeZoneOverlay_, 166, 253, 130, &label);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_label_set_text(label, "NEXT " LV_SYMBOL_RIGHT);
     lv_obj_center(label);
     actionBindings_[26] = {this, Action::TimeZoneNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[26]);
 
-    button = makeActionButton(timeZoneOverlay_, 314, 231, 148, &label);
+    button = makeActionButton(timeZoneOverlay_, 314, 253, 148, &label);
     lv_obj_set_style_text_color(label, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_label_set_text(label, "CLOSE");
@@ -814,6 +771,43 @@ void SettingsScreen::selectTimeZone(uint8_t slot) {
     strlcpy(settings.timeZone, TimeZoneOptions[index].spec, sizeof(settings.timeZone));
     settingsService().save();
     closeTimeZonePicker();
+}
+
+void SettingsScreen::bindSlider(lv_obj_t* slider, uint8_t bindingIndex, Action action) {
+    ActionBinding& binding = actionBindings_[bindingIndex];
+    binding = {};
+    binding.owner = this;
+    binding.action = action;
+    binding.guardedSlider = true;
+    ui::enableVerticalScrollFromSlider(slider);
+    lv_obj_add_event_cb(slider, actionEvent, LV_EVENT_PRESSED, &binding);
+    lv_obj_add_event_cb(slider, actionEvent, LV_EVENT_PRESSING, &binding);
+    lv_obj_add_event_cb(slider, actionEvent, LV_EVENT_VALUE_CHANGED, &binding);
+    lv_obj_add_event_cb(slider, actionEvent, LV_EVENT_RELEASED, &binding);
+    lv_obj_add_event_cb(slider, actionEvent, LV_EVENT_PRESS_LOST, &binding);
+}
+
+void SettingsScreen::previewSlider(Action action, lv_obj_t* slider) {
+    const int value = lv_slider_get_value(slider);
+    switch (action) {
+        case Action::Brightness:
+            lv_label_set_text_fmt(brightnessLabel_, "DISPLAY %d%%", value);
+            break;
+        case Action::AccentHue:
+            lv_label_set_text_fmt(accentLabel_, "%d deg", value);
+            break;
+        case Action::SaverDelay:
+            lv_label_set_text_fmt(saverDelayLabel_, "%d min", value);
+            break;
+        case Action::ClockBrightness:
+            lv_label_set_text_fmt(clockBrightnessLabel_, "%d%%", value);
+            break;
+        case Action::QuietDuration:
+            lv_label_set_text_fmt(quietDurationLabel_, "%d min", value);
+            break;
+        default:
+            break;
+    }
 }
 
 void SettingsScreen::refreshTransportButtons() {
@@ -975,7 +969,28 @@ void SettingsScreen::handleAction(Action action, lv_event_t* event) {
 void SettingsScreen::actionEvent(lv_event_t* event) {
     ActionBinding* binding = static_cast<ActionBinding*>(lv_event_get_user_data(event));
     if (!binding || !binding->owner) return;
+    if (binding->guardedSlider) {
+        lv_obj_t* slider = lv_event_get_target(event);
+        const ui::SliderGestureResult result = ui::processSliderGesture(
+            event, slider, binding->sliderGesture);
+        if (result == ui::SliderGestureResult::Preview) {
+            binding->owner->previewSlider(binding->action, slider);
+        } else if (result == ui::SliderGestureResult::Commit) {
+            binding->owner->handleAction(binding->action, event);
+        } else if (result == ui::SliderGestureResult::Cancel) {
+            binding->owner->update();
+        }
+        return;
+    }
     binding->owner->handleAction(binding->action, event);
+}
+
+void SettingsScreen::scrollEvent(lv_event_t* event) {
+    SettingsScreen* screen = static_cast<SettingsScreen*>(lv_event_get_user_data(event));
+    lv_obj_t* content = lv_event_get_target(event);
+    if (!screen || !content) return;
+    const int32_t scrollY = lv_obj_get_scroll_y(content);
+    screen->scrollY_ = scrollY > 0 ? scrollY : 0;
 }
 
 void SettingsScreen::timeZoneEvent(lv_event_t* event) {

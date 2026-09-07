@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "../core/SystemState.h"
+#include "UiHeader.h"
 #include "UiNavigation.h"
 
 struct _lv_obj_t;
@@ -46,10 +47,7 @@ private:
     bool stateChanged(const ViewCache& next) const;
 
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* wifiLabel_ = nullptr;
-    lv_obj_t* bleLabel_ = nullptr;
-    lv_obj_t* printerDot_ = nullptr;
-    lv_obj_t* printerConnectionLabel_ = nullptr;
+    ui::HeaderWidgets header_;
     lv_obj_t* stateLabel_ = nullptr;
     lv_obj_t* detailLabel_ = nullptr;
     lv_obj_t* progressLabel_ = nullptr;
@@ -60,7 +58,9 @@ private:
     lv_obj_t* bedTempLabel_ = nullptr;
     lv_obj_t* chamberTempLabel_ = nullptr;
     lv_obj_t* materialLabel_ = nullptr;
-    lv_obj_t* materialSwatch_ = nullptr;
+    lv_obj_t* toolFilamentLine_ = nullptr;
+    lv_obj_t* bedTemperatureLine_ = nullptr;
+    lv_obj_t* chamberTemperatureLine_ = nullptr;
     lv_obj_t* ventOutputLabel_ = nullptr;
 
     ui::Navigation navigation_;

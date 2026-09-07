@@ -97,7 +97,7 @@ Featured installations built and photographed by **@wlodeka on Discord** and **B
 
 ## Current Development Status
 
-The current public firmware and Android companion release is **coroNET OS 2 0.4.7**. It combines the stable feature-complete OS 2 platform with selectable NEW and preserved coroNET 1 LEGACY animation renderers, a true 50 FPS presentation path, measured physical color calibration, protected real-time scheduling, and the proven native-rate stereo WAV playback model from coroNET 1 with serialized SD access. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
+The current public firmware and Android companion release is **coroNET OS 2 0.5.0**. It combines the stable feature-complete OS 2 platform with selectable NEW and preserved coroNET 1 LEGACY animation renderers, a true 50 FPS presentation path, measured physical color calibration, protected real-time scheduling, the proven native-rate stereo WAV playback model from coroNET 1, and the completed visual and interaction refinement pass across the touchscreen, Android companion, and browser panel. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
 
 | Area | Status |
 | --- | --- |
@@ -120,11 +120,11 @@ The current public firmware and Android companion release is **coroNET OS 2 0.4.
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.4.7 release, Flash Tool package, checksums, and Android APK published together |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.5.0 release, Flash Tool package, checksums, and Android APK published together |
 
-Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development focuses on tuning, optimization, and experience refinement.
+Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development now focuses on systematic physical fault finding, recovery validation, and long-duration stability qualification.
 
-The path to `1.0.0` is deliberately staged. Firmware `0.4.x` is focused on real-hardware tuning and corrections, while `0.5.x` is reserved for final visual and interaction polish across the coroNET touchscreen, Android companion, and local browser panel. Version `1.0.0` will mark completion of extended endurance and recovery qualification.
+The path to `1.0.0` is deliberately staged. Release `0.5.0` closes the planned visual and interaction refinement pass. Subsequent `0.5.x` builds are reserved for defects found during complete physical workflow, recovery, and integration testing. Version `1.0.0` will mark completion of extended endurance and recovery qualification.
 
 ## Hardware
 

@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "UiGestureGuard.h"
+#include "UiHeader.h"
 #include "UiNavigation.h"
 #include "../core/ProductTypes.h"
 
@@ -19,7 +21,8 @@ public:
     void begin(ui::Navigation::Callback navigationCallback,
                SetupCallback setupCallback,
                void* callbackContext,
-               bool animate = false);
+               bool animate = false,
+               bool preserveScroll = false);
     void update();
 
 private:
@@ -58,6 +61,8 @@ private:
     struct ActionBinding {
         SettingsScreen* owner = nullptr;
         Action action = Action::TransportAuto;
+        ui::SliderGestureState sliderGesture{};
+        bool guardedSlider = false;
     };
 
     struct TimeZoneBinding {
@@ -81,13 +86,16 @@ private:
     void refreshTimeZonePicker();
     void closeTimeZonePicker();
     void selectTimeZone(uint8_t slot);
+    void bindSlider(lv_obj_t* slider, uint8_t bindingIndex, Action action);
+    void previewSlider(Action action, lv_obj_t* slider);
     void handleAction(Action action, lv_event_t* event);
     static void actionEvent(lv_event_t* event);
+    static void scrollEvent(lv_event_t* event);
     static void timeZoneEvent(lv_event_t* event);
 
     lv_obj_t* root_ = nullptr;
-    lv_obj_t* wifiLabel_ = nullptr;
-    lv_obj_t* bleLabel_ = nullptr;
+    lv_obj_t* content_ = nullptr;
+    ui::HeaderWidgets header_;
     lv_obj_t* transportButtons_[3] = {};
     lv_obj_t* connectionDetailLabel_ = nullptr;
     lv_obj_t* pairingButtonLabel_ = nullptr;
@@ -145,6 +153,7 @@ private:
     OtaState otaStateSeen_ = OtaState::Idle;
     uint8_t otaProgressSeen_ = 0;
     uint32_t factoryConfirmUntilMs_ = 0;
+    int32_t scrollY_ = 0;
     bool cacheValid_ = false;
 };
 

@@ -20,6 +20,23 @@ constexpr uint32_t kUiUpdateIntervalMs = 250;
 constexpr uint32_t kLvglLockTimeoutMs = 1000;
 constexpr uint32_t kFirstFrameSettleMs = 25;
 
+void touchFeedback(lv_indev_drv_t*, uint8_t rawCode) {
+    const lv_event_code_t code = static_cast<lv_event_code_t>(rawCode);
+    SystemState& system = state();
+    if (code == LV_EVENT_PRESSED) system.touchCount++;
+
+    const bool touchActivity = code == LV_EVENT_PRESSED ||
+                               code == LV_EVENT_PRESSING ||
+                               code == LV_EVENT_RELEASED ||
+                               code == LV_EVENT_PRESS_LOST;
+    if (!touchActivity) return;
+
+    // While waking, wait for the whole gesture to end before rebuilding the UI.
+    if (system.screenSaverActive &&
+        code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
+    system.lastTouchMs = millis();
+}
+
 }
 
 void DisplayService::begin() {
@@ -43,10 +60,12 @@ void DisplayService::begin() {
     }
 
     state().displayReady = true;
-    state().touchReady = (bsp_display_get_input_dev() != nullptr);
+    lv_indev_t* touchInput = bsp_display_get_input_dev();
+    state().touchReady = touchInput != nullptr;
 
     bool firstFrameReady = false;
     if (bsp_display_lock(kLvglLockTimeoutMs)) {
+        if (touchInput && touchInput->driver) touchInput->driver->feedback_cb = touchFeedback;
         state().setupDone = settingsService().settings().setupDone;
         bootScreen_.begin();
         bootActive_ = true;
@@ -247,7 +266,7 @@ void DisplayService::updateTheme() {
     if (!started_ || !wasApplied || bootActive_ || wizardActive_ || state().displaySleeping) return;
     if (bsp_display_lock(100)) {
         if (screenSaverActive_ && screenSaverClock_) clockScreen_.begin(settings.clockStyle);
-        else if (!screenSaverActive_) showPage(activePage_, false);
+        else if (!screenSaverActive_) showPage(activePage_, false, true);
         bsp_display_unlock();
     }
 }
@@ -332,7 +351,7 @@ void DisplayService::leaveScreenSaver(bool rebuildPage) {
     if (now - lastScreenTransitionMs_ < 350U) return;
     if (rebuildPage) {
         if (!bsp_display_lock(100)) return;
-        showPage(activePage_, false);
+        showPage(activePage_, false, true);
         bsp_display_unlock();
     }
     screenSaverActive_ = false;
@@ -350,13 +369,14 @@ void DisplayService::requestPage(ui::Page page) {
     pageRequestPending_ = true;
 }
 
-void DisplayService::showPage(ui::Page page, bool animate) {
+void DisplayService::showPage(ui::Page page, bool animate, bool preservePageState) {
     if (page >= ui::Page::Count) return;
     activePage_ = page;
     if (page == ui::Page::Home) {
         homeScreen_.begin(navigationRequested, this, animate);
     } else if (page == ui::Page::Settings) {
-        settingsScreen_.begin(navigationRequested, setupRequested, this, animate);
+        settingsScreen_.begin(navigationRequested, setupRequested, this, animate,
+                              preservePageState);
     } else {
         controlScreen_.begin(page, navigationRequested, this, animate);
     }
