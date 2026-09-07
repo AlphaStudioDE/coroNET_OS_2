@@ -486,6 +486,7 @@ void WebControlService::handleSettings() {
     doc["quietErrorsBypass"] = cfg.quietErrorsBypass;
     doc["ledEnabled"] = cfg.ledEnabled;
     doc["ledOtherMode"] = cfg.ledOtherMode;
+    doc["ledLegacyAnimations"] = cfg.ledLegacyAnimations;
     doc["insideColorStyle"] = static_cast<uint8_t>(cfg.insideColorStyle);
     doc["mirrorLedLayout"] = cfg.mirrorLedLayout;
     JsonArray ledBrightness = doc["ledBrightness"].to<JsonArray>();
@@ -495,8 +496,13 @@ void WebControlService::handleSettings() {
         ledBrightness.add(cfg.ledBrightness[i]); ledDimmEnabled.add(cfg.ledDimmEnabled[i]); ledDimmPercent.add(cfg.ledDimmPercent[i]);
     }
     JsonArray animations = doc["ledAnimation"].to<JsonArray>();
+    JsonArray legacyAnimations = doc["ledLegacyAnimation"].to<JsonArray>();
     JsonArray remix = doc["ledColorRemixDegrees"].to<JsonArray>();
-    for (uint8_t i = 0; i < enumCount(LedCategory{}); ++i) { animations.add(cfg.ledAnimation[i]); remix.add(cfg.ledColorRemixDegrees[i]); }
+    for (uint8_t i = 0; i < enumCount(LedCategory{}); ++i) {
+        animations.add(cfg.ledAnimation[i]);
+        legacyAnimations.add(cfg.ledAnimation[i]);
+        remix.add(cfg.ledColorRemixDegrees[i]);
+    }
     JsonArray calibrationHue = doc["ledCalibrationHue"].to<JsonArray>();
     JsonArray calibrationSaturation = doc["ledCalibrationSaturation"].to<JsonArray>();
     JsonArray calibrationBrightness = doc["ledCalibrationBrightness"].to<JsonArray>();
@@ -620,6 +626,7 @@ void WebControlService::handleUpdateSettings() {
     if (doc["quietErrorsBypass"].is<bool>()) cfg.quietErrorsBypass = doc["quietErrorsBypass"].as<bool>();
     if (doc["ledEnabled"].is<bool>()) cfg.ledEnabled = doc["ledEnabled"].as<bool>();
     if (doc["ledOtherMode"].is<bool>()) cfg.ledOtherMode = doc["ledOtherMode"].as<bool>();
+    if (doc["ledLegacyAnimations"].is<bool>()) cfg.ledLegacyAnimations = doc["ledLegacyAnimations"].as<bool>();
     if (doc["insideColorStyle"].is<int>()) cfg.insideColorStyle = static_cast<InsideColorStyle>(constrain(doc["insideColorStyle"].as<int>(), 0, 1));
     if (doc["mirrorLedLayout"].is<bool>()) cfg.mirrorLedLayout = doc["mirrorLedLayout"].as<bool>();
     auto copyPercentArray = [](JsonArrayConst source, uint8_t* target, uint8_t count) {
@@ -637,6 +644,17 @@ void WebControlService::handleUpdateSettings() {
             const int animation = values[i].as<int>();
             if (animation < 0 || animation >= ledAnimationCount(static_cast<LedCategory>(i))) {
                 sendJson(400, "{\"ok\":false,\"error\":\"led_animation_invalid\"}");
+                return;
+            }
+            cfg.ledAnimation[i] = static_cast<uint8_t>(animation);
+        }
+    }
+    if (doc["ledLegacyAnimation"].is<JsonArrayConst>()) {
+        JsonArrayConst values = doc["ledLegacyAnimation"].as<JsonArrayConst>();
+        for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) {
+            const int animation = values[i].as<int>();
+            if (animation < 0 || animation >= ledAnimationCount(static_cast<LedCategory>(i))) {
+                sendJson(400, "{\"ok\":false,\"error\":\"led_legacy_animation_invalid\"}");
                 return;
             }
             cfg.ledAnimation[i] = static_cast<uint8_t>(animation);
@@ -818,13 +836,15 @@ void WebControlService::handleLedPreview() {
     }
     const int category = doc["category"].as<int>();
     const int animation = doc["animation"].as<int>();
+    const bool legacy = doc["legacy"] | settingsService().snapshot().ledLegacyAnimations;
     const uint32_t durationMs = constrain(doc["durationMs"] | 10000U, 1000U, 30000U);
     if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 ||
         animation >= ledAnimationCount(static_cast<LedCategory>(category))) {
         sendJson(400, "{\"ok\":false,\"error\":\"preview_out_of_range\"}");
         return;
     }
-    const bool started = ledService().requestPreview(static_cast<LedCategory>(category), static_cast<uint8_t>(animation), durationMs);
+    const bool started = ledService().requestPreview(static_cast<LedCategory>(category),
+        static_cast<uint8_t>(animation), durationMs, legacy);
     sendJson(started ? 202 : 409, started ? "{\"ok\":true,\"preview\":true}" : "{\"ok\":false,\"error\":\"led_unavailable\"}");
 }
 

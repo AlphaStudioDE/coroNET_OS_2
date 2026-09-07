@@ -1,5 +1,9 @@
 package de.alphastudio.coronet2.model
 
+val DefaultLedCalibrationHue = listOf(0, -20, -30, 0, 0, 0, 0, 0)
+const val DefaultLedCalibrationSaturation = 115
+const val DefaultLedCalibrationBrightness = 100
+
 enum class ConnectionKind { Offline, Ble, Wifi }
 
 data class CoronetDevice(
@@ -121,16 +125,18 @@ data class DeviceSettings(
     val quietErrorsBypass: Boolean = true,
     val ledEnabled: Boolean = true,
     val ledOtherMode: Boolean = false,
+    val ledLegacyAnimations: Boolean = false,
     val ledBrightness: List<Int> = listOf(70, 70, 70, 70),
     val ledDimmEnabled: List<Boolean> = listOf(false, false, false, false),
     val ledDimmPercent: List<Int> = listOf(20, 20, 20, 20),
     val insideColorStyle: Int = 0,
     val mirrorLedLayout: Boolean = false,
     val ledAnimation: List<Int> = List(6) { 0 },
+    val ledLegacyAnimation: List<Int> = List(6) { 0 },
     val ledColorRemixDegrees: List<Int> = List(6) { 0 },
-    val ledCalibrationHue: List<Int> = List(8) { 0 },
-    val ledCalibrationSaturation: List<Int> = List(8) { 100 },
-    val ledCalibrationBrightness: List<Int> = List(8) { 100 },
+    val ledCalibrationHue: List<Int> = DefaultLedCalibrationHue,
+    val ledCalibrationSaturation: List<Int> = List(8) { DefaultLedCalibrationSaturation },
+    val ledCalibrationBrightness: List<Int> = List(8) { DefaultLedCalibrationBrightness },
     val soundVolume: List<Int> = listOf(75, 75, 85, 70, 60),
     val soundRepeat: List<Boolean> = listOf(false, false, true, false, false),
     val soundPath: List<String> = List(5) { "" },

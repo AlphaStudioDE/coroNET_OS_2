@@ -31,18 +31,18 @@ class LedService {
 public:
     void begin();
     void loop();
-    bool requestPreview(LedCategory category, uint8_t animation, uint32_t durationMs = 10000);
+    bool requestPreview(LedCategory category, uint8_t animation,
+                        uint32_t durationMs = 10000, bool legacy = false);
     void cancelPreview();
     bool startColorCalibration(LedCalibrationColor color = LedCalibrationColor::Red);
     void setColorCalibrationColor(LedCalibrationColor color);
     void stopColorCalibration();
     bool copyFrame(RgbwColor* output, size_t count) const;
     bool copyPreviewFrame(ledpreview::Frame& output) const;
-    void logStatus() const;
+    void logStatus();
 
 private:
     static constexpr uint32_t FrameIntervalMs = 20;
-    static constexpr uint32_t SmoothingReferenceMs = 20;
     static constexpr uint32_t SpiClockHz = 3200000;
     static constexpr uint32_t TaskStackBytes = 3584;
     // LED deadlines outrank LVGL (priority 16); system WiFi/BT tasks remain higher.
@@ -59,7 +59,7 @@ private:
     void renderBoot(uint32_t elapsedMs, bool full, bool performanceStarted,
                     const AppSettings& settings);
     void renderCategory(LedCategory category, uint8_t animation,
-                        const LedAnimationContext& context);
+                        const LedAnimationContext& context, bool legacy = false);
     void renderIdle(uint8_t animation, const LedAnimationContext& context);
     void renderPrint(uint8_t animation, const LedAnimationContext& context);
     void renderPause(uint8_t animation, const LedAnimationContext& context);
@@ -68,9 +68,9 @@ private:
     void renderOther(uint8_t animation, const LedAnimationContext& context);
     void applyInsidePolicy(const AppSettings& settings);
     void applyOutputPolicies(const AppSettings& settings);
-    bool smoothAndShow(const AppSettings& settings, bool immediate = false);
+    bool smoothAndEncode(const AppSettings& settings, bool immediate = false);
     void encodeFrame();
-    void transmitEncodedFrame();
+    void transmitEncodedFrame(int64_t deadlineUs = 0);
 
     void clearTarget();
     void setPhysical(uint16_t index, const RgbwColor& color);
@@ -79,7 +79,8 @@ private:
     void addSectionSubpixel(LedSection section, uint32_t positionQ8,
                             const RgbwColor& color, bool wrap = false);
     void setOuterVisualPathPixel(uint16_t path, const RgbwColor& color);
-    void addOuterVisualPathSubpixel(uint32_t pathQ8, const RgbwColor& color);
+    void addOuterVisualPathSubpixel(uint32_t pathQ8, const RgbwColor& color,
+                                    bool wrap = true);
     void fillSection(LedSection section, const RgbwColor& color);
     uint16_t sectionCount(LedSection section) const;
     uint16_t sectionPhysicalIndex(LedSection section, uint16_t logical) const;
@@ -100,6 +101,7 @@ private:
     bool started_ = false;
     bool bootActive_ = false;
     bool previewActive_ = false;
+    bool previewLegacy_ = false;
     bool colorCalibrationActive_ = false;
     bool frameMirror_ = false;
     int16_t frameColorRemixDegrees_[enumCount(LedCategory{})] = {};
@@ -110,9 +112,17 @@ private:
     uint32_t previewUntilMs_ = 0;
     LedCalibrationColor colorCalibrationColor_ = LedCalibrationColor::Red;
     uint32_t lastFrameMs_ = 0;
-    uint32_t lastSmoothingMs_ = 0;
     uint32_t shows_ = 0;
     uint32_t skippedShows_ = 0;
+    uint32_t lastFrameStartedUs_ = 0;
+    uint32_t frameIntervalMinUs_ = 0;
+    uint32_t frameIntervalMaxUs_ = 0;
+    uint32_t frameIntervalAverageUs_ = 0;
+    uint32_t maxRenderUs_ = 0;
+    uint32_t lastTransmitUs_ = 0;
+    uint32_t transmitIntervalMinUs_ = 0;
+    uint32_t transmitIntervalMaxUs_ = 0;
+    uint32_t maxTransmitUs_ = 0;
     UBaseType_t appliedTaskPriority_ = TaskPriority;
     uint32_t lastPrinterEventSequence_ = 0;
     bool snakeFinishActive_ = false;

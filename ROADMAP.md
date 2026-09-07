@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.6` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.7` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
 
 ## Foundation
 
@@ -108,6 +108,10 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] harden rapid sound selection and move growing history persistence away from interactive UI work
 - [x] run the physical LED engine at a real 50 FPS with time-interpolated waves and subpixel motion
 - [x] add bounded missed-frame handling so delayed LED work cannot produce catch-up flashes
+- [x] pace physical LED presentation on microsecond deadlines and latch every frame like coroNET 1
+- [x] restore the fixed coroNET 1 RGBW smoothing step after calibration and perceptual conversion
+- [x] rebuild step-quantized continuous movers across startup and all six animation categories with subpixel positions and continuously evolving light fields while preserving deliberately discrete effects
+- [x] preserve all 336 coroNET 1 renderers as a separately selectable LEGACY library sharing the corresponding per-category animation position with NEW
 - [x] give LED and audio real-time work priority over display and application workers
 - [x] preserve partial I2S writes and expand the balanced audio DMA safety window
 - [x] fade manual audio stops and track changes to digital silence before releasing I2S

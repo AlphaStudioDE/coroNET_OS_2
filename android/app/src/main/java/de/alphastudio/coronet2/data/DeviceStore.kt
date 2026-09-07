@@ -145,16 +145,24 @@ class DeviceStore(context: Context) {
                 quietErrorsBypass = settings.optBoolean("quietErrorsBypass", true),
                 ledEnabled = settings.optBoolean("ledEnabled", true),
                 ledOtherMode = settings.optBoolean("ledOtherMode"),
+                ledLegacyAnimations = settings.optBoolean("ledLegacyAnimations"),
                 ledBrightness = settings.optIntList("ledBrightness", listOf(70, 70, 70, 70)),
                 ledDimmEnabled = settings.optBooleanList("ledDimmEnabled", List(4) { false }),
                 ledDimmPercent = settings.optIntList("ledDimmPercent", List(4) { 20 }),
                 insideColorStyle = settings.optInt("insideColorStyle"),
                 mirrorLedLayout = settings.optBoolean("mirrorLedLayout"),
                 ledAnimation = settings.optIntList("ledAnimation", List(6) { 0 }),
+                ledLegacyAnimation = settings.optIntList("ledLegacyAnimation", List(6) { 0 }),
                 ledColorRemixDegrees = settings.optIntList("ledColorRemixDegrees", List(6) { 0 }),
-                ledCalibrationHue = settings.optIntList("ledCalibrationHue", List(8) { 0 }),
-                ledCalibrationSaturation = settings.optIntList("ledCalibrationSaturation", List(8) { 100 }),
-                ledCalibrationBrightness = settings.optIntList("ledCalibrationBrightness", List(8) { 100 }),
+                ledCalibrationHue = settings.optIntList("ledCalibrationHue", DefaultLedCalibrationHue),
+                ledCalibrationSaturation = settings.optIntList(
+                    "ledCalibrationSaturation",
+                    List(8) { DefaultLedCalibrationSaturation },
+                ),
+                ledCalibrationBrightness = settings.optIntList(
+                    "ledCalibrationBrightness",
+                    List(8) { DefaultLedCalibrationBrightness },
+                ),
                 soundVolume = settings.optIntList("soundVolume", listOf(75, 75, 85, 70, 60)),
                 soundRepeat = settings.optBooleanList("soundRepeat", listOf(false, false, true, false, false)),
                 soundPath = settings.optStringList("soundPath", List(5) { "" }),
@@ -225,11 +233,13 @@ class DeviceStore(context: Context) {
                 .put("quietTarget", settings.quietTarget).put("quietDurationMinutes", settings.quietDurationMinutes)
                 .put("quietErrorsBypass", settings.quietErrorsBypass)
                 .put("ledEnabled", settings.ledEnabled).put("ledOtherMode", settings.ledOtherMode)
+                .put("ledLegacyAnimations", settings.ledLegacyAnimations)
                 .put("ledBrightness", JSONArray(settings.ledBrightness))
                 .put("ledDimmEnabled", JSONArray(settings.ledDimmEnabled))
                 .put("ledDimmPercent", JSONArray(settings.ledDimmPercent))
                 .put("insideColorStyle", settings.insideColorStyle).put("mirrorLedLayout", settings.mirrorLedLayout)
                 .put("ledAnimation", JSONArray(settings.ledAnimation))
+                .put("ledLegacyAnimation", JSONArray(settings.ledLegacyAnimation))
                 .put("ledColorRemixDegrees", JSONArray(settings.ledColorRemixDegrees))
                 .put("ledCalibrationHue", JSONArray(settings.ledCalibrationHue))
                 .put("ledCalibrationSaturation", JSONArray(settings.ledCalibrationSaturation))

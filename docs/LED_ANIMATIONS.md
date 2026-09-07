@@ -17,13 +17,15 @@ Animations draw through logical section and visual-path helpers. This keeps thei
 
 The following behavior is shared by the entire catalog:
 
+- **Animation Library** switches between the rebuilt coroNET OS 2 renderers (`NEW`) and the preserved coroNET 1 renderers (`LEGACY`). Both libraries expose the same 336 names and share the corresponding selected position within each of the six status categories.
 - **Inside White** keeps the Inside section white, independent of the selected animation.
 - **Inside Ambient** derives a spatially matched aura from nearby outer LEDs.
 - **Color Remix** rotates decorative hues while preserving semantic data colors such as filament and temperature colors.
 - **Color Calibration** lets each device correct hue, saturation, and brightness at eight color anchors. Corrections are interpolated around the color wheel and applied only to physical LEDs, so the LCD remains a stable visual reference.
 - **Brightness and DIMM** are applied after rendering, independently for each section.
-- **Preview** uses representative printer data so telemetry-aware animations remain visible before a print starts.
+- **Preview** starts automatically when the renderer, status category, or animation changes and uses representative printer data so telemetry-aware animations remain visible before a print starts.
 - Smooth frame blending prevents abrupt transitions between status animations and previews.
+- Continuous movers use fractional LED positions and share their light between adjacent pixels. Deliberately digital scenes such as Tetris and explicit alert flashes retain hard steps where those steps carry meaning.
 
 ## Catalog Status
 
@@ -35,6 +37,8 @@ The following behavior is shared by the entire catalog:
 | Idle | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Finish | 50 | Rebuilt and hardware-tested on the OS 2 engine |
 | Other | 82 | Rebuilt and hardware-tested on the OS 2 engine |
+
+The table describes the `NEW` implementations. `LEGACY` keeps the original coroNET 1 movement and timing available for direct visual comparison and personal preference.
 
 ## Print
 
@@ -220,7 +224,7 @@ Idle animations provide useful ready-state cues and lower-motion ambient scenes.
 | 1 | Rainbow | A complete, slowly rotating and fully saturated spectrum follows the full visual OUTER route; a short pure-red plateau keeps red distinct through the physical diffuser. |
 | 2 | Fireplace | Independent layered flames move through both sides while Center holds a lower amber ember bed. |
 | 3 | Ocean | Two differently paced cyan and blue wave fields combine into broad swells and smaller surface ripples. |
-| 4 | Star Pulse | A softly shaped star-like field breathes from Center while its color advances only once per long cycle. |
+| 4 | Star Pulse | A softly shaped star-like field breathes from Center while its color drifts continuously through one deliberately long cycle. |
 | 5 | Meteor | A saturated meteor with a long fading tail crosses the complete OUTER path, rests in darkness, and returns on a controlled seven-color spectrum with an unambiguous pure-red pass. |
 | 6 | Twinkle | Sparse warm-white stars appear and decay deterministically over darkness without a retained particle buffer. |
 | 7 | Larson | A classic saturated red scanner bounces end to end across all 42 OUTER LEDs with a long directional tail. |

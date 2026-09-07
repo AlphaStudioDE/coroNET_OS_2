@@ -546,12 +546,14 @@ void BleService::handleCommand(const char* command, size_t length) {
         const int category = doc["category"] | -1;
         const int animation = doc["animation"] | -1;
         const uint32_t durationMs = constrain(doc["durationMs"] | 10000U, 1000U, 30000U);
+        const bool legacy = doc["legacy"] | settingsService().snapshot().ledLegacyAnimations;
         if (category < 0 || category >= static_cast<int>(LedCategory::Count) || animation < 0 ||
             animation >= ledAnimationCount(static_cast<LedCategory>(category))) {
             publishEvent("error", "led_preview_invalid");
             return;
         }
-        const bool started = ledService().requestPreview(static_cast<LedCategory>(category), static_cast<uint8_t>(animation), durationMs);
+        const bool started = ledService().requestPreview(static_cast<LedCategory>(category),
+            static_cast<uint8_t>(animation), durationMs, legacy);
         publishEvent(started ? "ack" : "error", started ? "led_preview_started" : "led_unavailable");
         return;
     }
@@ -733,6 +735,7 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["quietErrorsBypass"].is<bool>()) cfg.quietErrorsBypass = doc["quietErrorsBypass"].as<bool>();
         if (doc["ledEnabled"].is<bool>()) cfg.ledEnabled = doc["ledEnabled"].as<bool>();
         if (doc["ledOtherMode"].is<bool>()) cfg.ledOtherMode = doc["ledOtherMode"].as<bool>();
+        if (doc["ledLegacyAnimations"].is<bool>()) cfg.ledLegacyAnimations = doc["ledLegacyAnimations"].as<bool>();
         if (doc["insideColorStyle"].is<int>()) cfg.insideColorStyle = static_cast<InsideColorStyle>(constrain(doc["insideColorStyle"].as<int>(), 0, 1));
         if (doc["mirrorLedLayout"].is<bool>()) cfg.mirrorLedLayout = doc["mirrorLedLayout"].as<bool>();
         if (doc["ledBrightness"].is<JsonArrayConst>()) {
@@ -753,6 +756,17 @@ void BleService::handleCommand(const char* command, size_t length) {
                 const int animation = values[i].as<int>();
                 if (animation < 0 || animation >= ledAnimationCount(static_cast<LedCategory>(i))) {
                     publishEvent("error", "led_animation_invalid");
+                    return;
+                }
+                cfg.ledAnimation[i] = static_cast<uint8_t>(animation);
+            }
+        }
+        if (doc["ledLegacyAnimation"].is<JsonArrayConst>()) {
+            JsonArrayConst values = doc["ledLegacyAnimation"].as<JsonArrayConst>();
+            for (uint8_t i = 0; i < enumCount(LedCategory{}) && i < values.size(); ++i) {
+                const int animation = values[i].as<int>();
+                if (animation < 0 || animation >= ledAnimationCount(static_cast<LedCategory>(i))) {
+                    publishEvent("error", "led_legacy_animation_invalid");
                     return;
                 }
                 cfg.ledAnimation[i] = static_cast<uint8_t>(animation);
@@ -919,7 +933,7 @@ void BleService::publishSettings() {
     jsonStringCopy(cfg.printerHost, safePrinterHost, sizeof(safePrinterHost));
     jsonStringCopy(cfg.timeZone, safeTimeZone, sizeof(safeTimeZone));
 
-    char payload[512];
+    char payload[640];
     auto sendPayload = [this, &payload](int written) {
         if (written <= 0 || static_cast<size_t>(written) >= sizeof(payload)) {
             publishEvent("error", "settings_too_large");
@@ -973,18 +987,21 @@ void BleService::publishSettings() {
 
     written = snprintf(payload, sizeof(payload),
                        "{\"v\":%u,\"t\":\"settings\",\"group\":\"led\",\"sr\":%lu,\"ledEnabled\":%s,"
-                       "\"ledOtherMode\":%s,\"ledBrightness\":[%u,%u,%u,%u],"
+                       "\"ledOtherMode\":%s,\"ledLegacyAnimations\":%s,\"ledBrightness\":[%u,%u,%u,%u],"
                        "\"ledDimmEnabled\":[%s,%s,%s,%s],\"ledDimmPercent\":[%u,%u,%u,%u],"
                        "\"insideColorStyle\":%u,\"mirrorLedLayout\":%s,"
-                       "\"ledAnimation\":[%u,%u,%u,%u,%u,%u],"
+                       "\"ledAnimation\":[%u,%u,%u,%u,%u,%u],\"ledLegacyAnimation\":[%u,%u,%u,%u,%u,%u],"
                        "\"ledColorRemixDegrees\":[%d,%d,%d,%d,%d,%d]}",
                        bleprotocol::Version, settingsRevision, cfg.ledEnabled ? "true" : "false", cfg.ledOtherMode ? "true" : "false",
+                       cfg.ledLegacyAnimations ? "true" : "false",
                        cfg.ledBrightness[0], cfg.ledBrightness[1], cfg.ledBrightness[2], cfg.ledBrightness[3],
                        cfg.ledDimmEnabled[0] ? "true" : "false", cfg.ledDimmEnabled[1] ? "true" : "false",
                        cfg.ledDimmEnabled[2] ? "true" : "false", cfg.ledDimmEnabled[3] ? "true" : "false",
                        cfg.ledDimmPercent[0], cfg.ledDimmPercent[1], cfg.ledDimmPercent[2], cfg.ledDimmPercent[3],
                        static_cast<unsigned>(cfg.insideColorStyle), cfg.mirrorLedLayout ? "true" : "false",
                        cfg.ledAnimation[0], cfg.ledAnimation[1], cfg.ledAnimation[2], cfg.ledAnimation[3], cfg.ledAnimation[4], cfg.ledAnimation[5],
+                       cfg.ledAnimation[0], cfg.ledAnimation[1], cfg.ledAnimation[2],
+                       cfg.ledAnimation[3], cfg.ledAnimation[4], cfg.ledAnimation[5],
                        cfg.ledColorRemixDegrees[0], cfg.ledColorRemixDegrees[1], cfg.ledColorRemixDegrees[2],
                        cfg.ledColorRemixDegrees[3], cfg.ledColorRemixDegrees[4], cfg.ledColorRemixDegrees[5]);
     if (!sendPayload(written)) return;

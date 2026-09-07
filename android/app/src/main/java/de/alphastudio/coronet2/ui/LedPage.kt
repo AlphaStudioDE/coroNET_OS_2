@@ -12,7 +12,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ColorLens
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -37,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.alphastudio.coronet2.model.DeviceSettings
 import de.alphastudio.coronet2.model.DeviceSnapshot
+import de.alphastudio.coronet2.model.DefaultLedCalibrationBrightness
+import de.alphastudio.coronet2.model.DefaultLedCalibrationHue
+import de.alphastudio.coronet2.model.DefaultLedCalibrationSaturation
 import de.alphastudio.coronet2.model.LedFrame
 
 @Composable
@@ -46,7 +48,7 @@ internal fun LedPage(
     deviceCatalog: List<List<String>>,
     ledFrame: LedFrame,
     send: (String) -> Unit,
-    preview: (Int, Int) -> Unit,
+    preview: (Int, Int, Boolean) -> Unit,
     calibrate: (Boolean, Int) -> Unit,
 ) {
     var category by rememberSaveable { mutableIntStateOf(categoryForState(snapshot.printer.state, settings.ledOtherMode)) }
@@ -54,19 +56,37 @@ internal fun LedPage(
     var showCalibration by remember { mutableStateOf(false) }
     val animations = deviceCatalog.getOrElse(category) { emptyList() }
         .ifEmpty { fallbackLedAnimationCatalog.getOrElse(category) { emptyList() } }
-    val animationIndex = settings.ledAnimation.getOrElse(category) { 0 }.coerceIn(0, (animations.size - 1).coerceAtLeast(0))
+    val selectedAnimations = settings.ledAnimation
+    val animationIndex = selectedAnimations.getOrElse(category) { 0 }
+        .coerceIn(0, (animations.size - 1).coerceAtLeast(0))
     val animationName = animationDisplayName(animations.getOrElse(animationIndex) { "None" })
 
     AdaptivePage(
         primary = {
             SectionPanel("Animation") {
-                CompactChoices(ledCategoryNames, category) { category = it }
+                ChoiceButton(
+                    "Animation library",
+                    if (settings.ledLegacyAnimations) "LEGACY" else "NEW",
+                ) {
+                    val legacy = !settings.ledLegacyAnimations
+                    send(jsonSetting("ledLegacyAnimations", legacy))
+                    preview(category, animationIndex, legacy)
+                }
+                CompactChoices(ledCategoryNames, category) { nextCategory ->
+                    category = nextCategory
+                    preview(
+                        nextCategory,
+                        selectedAnimations.getOrElse(nextCategory) { 0 },
+                        settings.ledLegacyAnimations,
+                    )
+                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
                             if (animations.isNotEmpty()) {
                                 val next = (animationIndex - 1 + animations.size) % animations.size
-                                send(intArraySetting("ledAnimation", settings.ledAnimation, 6, category, next, 0))
+                                send(intArraySetting("ledAnimation", selectedAnimations, 6, category, next, 0))
+                                preview(category, next, settings.ledLegacyAnimations)
                             }
                         },
                         modifier = Modifier.size(52.dp),
@@ -83,7 +103,8 @@ internal fun LedPage(
                         onClick = {
                             if (animations.isNotEmpty()) {
                                 val next = (animationIndex + 1) % animations.size
-                                send(intArraySetting("ledAnimation", settings.ledAnimation, 6, category, next, 0))
+                                send(intArraySetting("ledAnimation", selectedAnimations, 6, category, next, 0))
+                                preview(category, next, settings.ledLegacyAnimations)
                             }
                         },
                         modifier = Modifier.size(52.dp),
@@ -97,14 +118,6 @@ internal fun LedPage(
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = { preview(category, animationIndex) },
-                    enabled = snapshot.device != null && snapshot.connection != de.alphastudio.coronet2.model.ConnectionKind.Offline,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("  PREVIEW 10 S")
-                }
             }
             SectionPanel("Color remix") {
                 val remix = settings.ledColorRemixDegrees.getOrElse(category) { 0 }
@@ -188,14 +201,14 @@ private fun LedCalibrationDialog(
                 CompactChoices(calibrationColorNames.take(4), if (color < 4) color else -1) { color = it; calibrate(true, color) }
                 CompactChoices(calibrationColorNames.drop(4), if (color >= 4) color - 4 else -1) { color = it + 4; calibrate(true, color) }
                 Text(calibrationColorNames[color], color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                ValueSlider("Hue correction", settings.ledCalibrationHue.getOrElse(color) { 0 }, -45..45, " deg") {
-                    send(intArraySetting("ledCalibrationHue", settings.ledCalibrationHue, 8, color, it, 0))
+                ValueSlider("Hue correction", settings.ledCalibrationHue.getOrElse(color) { DefaultLedCalibrationHue[color] }, -45..45, " deg") {
+                    send(intArraySetting("ledCalibrationHue", settings.ledCalibrationHue, 8, color, it, DefaultLedCalibrationHue[color]))
                 }
-                ValueSlider("Saturation", settings.ledCalibrationSaturation.getOrElse(color) { 100 }, 50..150, "%") {
-                    send(intArraySetting("ledCalibrationSaturation", settings.ledCalibrationSaturation, 8, color, it, 100))
+                ValueSlider("Saturation", settings.ledCalibrationSaturation.getOrElse(color) { DefaultLedCalibrationSaturation }, 50..150, "%") {
+                    send(intArraySetting("ledCalibrationSaturation", settings.ledCalibrationSaturation, 8, color, it, DefaultLedCalibrationSaturation))
                 }
-                ValueSlider("Brightness", settings.ledCalibrationBrightness.getOrElse(color) { 100 }, 50..150, "%") {
-                    send(intArraySetting("ledCalibrationBrightness", settings.ledCalibrationBrightness, 8, color, it, 100))
+                ValueSlider("Brightness", settings.ledCalibrationBrightness.getOrElse(color) { DefaultLedCalibrationBrightness }, 50..150, "%") {
+                    send(intArraySetting("ledCalibrationBrightness", settings.ledCalibrationBrightness, 8, color, it, DefaultLedCalibrationBrightness))
                 }
             }
         },

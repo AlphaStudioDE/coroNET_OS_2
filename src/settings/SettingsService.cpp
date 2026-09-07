@@ -10,7 +10,7 @@ namespace coronet {
 
 namespace {
 constexpr const char* Namespace = "coronet2";
-constexpr uint16_t CurrentSchema = 7;
+constexpr uint16_t CurrentSchema = 9;
 
 uint16_t sanePort(uint16_t port) {
     return port == 0 ? 7125 : port;
@@ -25,6 +25,17 @@ T clampValue(T value, T minimum, T maximum) {
 
 void readExactBytes(Preferences& prefs, const char* key, void* target, size_t size) {
     if (prefs.getBytesLength(key) == size) prefs.getBytes(key, target, size);
+}
+
+bool usesLegacyLedCalibrationDefaults(const AppSettings& settings) {
+    for (uint8_t index = 0; index < 8U; ++index) {
+        if (settings.ledCalibrationHue[index] != 0 ||
+            settings.ledCalibrationSaturation[index] != 100U ||
+            settings.ledCalibrationBrightness[index] != 100U) {
+            return false;
+        }
+    }
+    return true;
 }
 }
 
@@ -75,6 +86,7 @@ void SettingsService::load() {
 
     settings_.ledEnabled = prefs.getBool("ledEn", settings_.ledEnabled);
     settings_.ledOtherMode = prefs.getBool("ledOther", settings_.ledOtherMode);
+    settings_.ledLegacyAnimations = prefs.getBool("ledLegacy", false);
     readExactBytes(prefs, "ledBr", settings_.ledBrightness, sizeof(settings_.ledBrightness));
     readExactBytes(prefs, "ledDimEn", settings_.ledDimmEnabled, sizeof(settings_.ledDimmEnabled));
     readExactBytes(prefs, "ledDimPct", settings_.ledDimmPercent, sizeof(settings_.ledDimmPercent));
@@ -82,6 +94,10 @@ void SettingsService::load() {
         prefs.getUChar("inStyle", static_cast<uint8_t>(settings_.insideColorStyle)));
     settings_.mirrorLedLayout = prefs.getBool("ledMirror", settings_.mirrorLedLayout);
     readExactBytes(prefs, "ledAnim", settings_.ledAnimation, sizeof(settings_.ledAnimation));
+    // NEW and LEGACY are two renderers for the same catalog selection.
+    // Keep the old field mirrored for compatibility with 0.4.6 clients.
+    memcpy(settings_.ledLegacyAnimation, settings_.ledAnimation,
+           sizeof(settings_.ledLegacyAnimation));
     readExactBytes(prefs, "ledRemix", settings_.ledColorRemixDegrees,
                    sizeof(settings_.ledColorRemixDegrees));
     readExactBytes(prefs, "ledCalHue", settings_.ledCalibrationHue,
@@ -153,6 +169,14 @@ void SettingsService::load() {
         return;
     }
 
+    if (settings_.schemaVersion < 9U && usesLegacyLedCalibrationDefaults(settings_)) {
+        for (uint8_t index = 0; index < 8U; ++index) {
+            settings_.ledCalibrationHue[index] = DefaultLedCalibrationHue[index];
+            settings_.ledCalibrationSaturation[index] = DefaultLedCalibrationSaturation;
+            settings_.ledCalibrationBrightness[index] = DefaultLedCalibrationBrightness;
+        }
+    }
+
     deviceName.toCharArray(settings_.deviceName, sizeof(settings_.deviceName));
     ssid.toCharArray(settings_.wifiSsid, sizeof(settings_.wifiSsid));
     pass.toCharArray(settings_.wifiPassword, sizeof(settings_.wifiPassword));
@@ -181,6 +205,7 @@ void SettingsService::load() {
     for (uint8_t index = 0; index < enumCount(LedCategory{}); ++index) {
         const LedCategory category = static_cast<LedCategory>(index);
         settings_.ledAnimation[index] = normalizeLedAnimation(category, settings_.ledAnimation[index]);
+        settings_.ledLegacyAnimation[index] = settings_.ledAnimation[index];
         int16_t remix = settings_.ledColorRemixDegrees[index] % 360;
         if (remix > 180) remix -= 360;
         if (remix < -180) remix += 360;
@@ -251,6 +276,8 @@ void SettingsService::load() {
 }
 
 void SettingsService::save() {
+    memcpy(settings_.ledLegacyAnimation, settings_.ledAnimation,
+           sizeof(settings_.ledLegacyAnimation));
     const uint32_t now = millis();
     if (!savePending_) dirtySinceMs_ = now;
     lastChangeMs_ = now;
@@ -297,12 +324,15 @@ void SettingsService::saveNow() {
 
     prefs.putBool("ledEn", settings_.ledEnabled);
     prefs.putBool("ledOther", settings_.ledOtherMode);
+    prefs.putBool("ledLegacy", settings_.ledLegacyAnimations);
     prefs.putBytes("ledBr", settings_.ledBrightness, sizeof(settings_.ledBrightness));
     prefs.putBytes("ledDimEn", settings_.ledDimmEnabled, sizeof(settings_.ledDimmEnabled));
     prefs.putBytes("ledDimPct", settings_.ledDimmPercent, sizeof(settings_.ledDimmPercent));
     prefs.putUChar("inStyle", static_cast<uint8_t>(settings_.insideColorStyle));
     prefs.putBool("ledMirror", settings_.mirrorLedLayout);
     prefs.putBytes("ledAnim", settings_.ledAnimation, sizeof(settings_.ledAnimation));
+    prefs.putBytes("ledLegAnim", settings_.ledLegacyAnimation,
+                   sizeof(settings_.ledLegacyAnimation));
     prefs.putBytes("ledRemix", settings_.ledColorRemixDegrees, sizeof(settings_.ledColorRemixDegrees));
     prefs.putBytes("ledCalHue", settings_.ledCalibrationHue, sizeof(settings_.ledCalibrationHue));
     prefs.putBytes("ledCalSat", settings_.ledCalibrationSaturation,

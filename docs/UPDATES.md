@@ -1,5 +1,41 @@
 # Development Updates
 
+## 0.4.7
+
+### NEW And LEGACY Animation Libraries
+- Added a selectable `NEW`/`LEGACY` renderer switch to the coroNET touchscreen, Android companion, and local browser panel.
+- Preserved all 336 original coroNET 1 renderers beside the 336 rebuilt coroNET OS 2 implementations while keeping one corresponding animation position for each printer-status category.
+- Made renderer, category, and animation changes start the real ten-second hardware preview automatically, removing the separate play action from animation selection.
+- Routed both libraries through the same brightness, DIMM, mirroring, ambient-inside, remix, physical calibration, and live-preview policies.
+
+### LED Motion And Presentation
+- Restored coroNET 1-style microsecond frame deadlines, unconditional 50 FPS latching, and fixed per-frame RGBW smoothing after calibration and perceptual conversion.
+- Reworked continuous NEW-library movers and long color cycles with fractional LED positions and interpolated light fields while retaining intentional hard steps in digital scenes and warning flashes.
+- Expanded the catalog validator so every one of the 336 positions must be implemented and reachable in both renderer libraries.
+
+### Physical LED Color Defaults
+- Set the factory RGBW calibration to 115% saturation and 100% brightness for all eight reference colors, with hue corrections of -20 degrees for orange and -30 degrees for yellow.
+- Made per-color reset, full reset, Android fallbacks, and browser fallbacks restore the same measured defaults.
+- Migrated only untouched legacy `0/100/100` profiles during OTA, preserving every user-adjusted calibration.
+- Applied the same saved color calibration to full and daily boot animations instead of overriding full-boot saturation separately.
+
+### Companion And Protocol Alignment
+- Added the renderer selection and explicit preview mode to BLE, Wi-Fi, Android persistence, conflict resolution, and protocol tests.
+- Kept the former legacy-animation array mirrored for backward compatibility while making the current shared selection authoritative.
+
+### Validation
+- Built and installed the release firmware on the target JC3248W535 ESP32-S3 and confirmed the local control panel returned after restart.
+- Validated all 336 catalog entries in both renderer libraries and completed Android unit tests and lint.
+- Verified the exact eight-color calibration through the running device API after installation.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.4.7_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.4.6...v0.4.7
+
 ## 0.4.6
 
 ### Native-Rate Stereo Audio
@@ -248,7 +284,7 @@
 - Applied time-zone changes immediately to the local clock, including while the device is temporarily offline, and added clear AM/PM presentation in 12-hour mode.
 
 ### Boot Color Presentation
-- Set the full first-run LED Boot Experience to a fixed 150% saturation calibration while leaving daily boot and normal animation calibration under user control.
+- Initially set the full first-run LED Boot Experience to a fixed 150% saturation calibration while leaving daily boot and normal animation calibration under user control; 0.4.7 later unified both boot paths with the saved physical calibration.
 
 ### Moonraker Realtime Telemetry
 - Added Moonraker WebSocket identification, object discovery, status subscription, stale-session detection, and automatic reconnect handling.

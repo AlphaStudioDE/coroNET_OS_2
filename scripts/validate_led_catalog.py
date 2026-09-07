@@ -38,6 +38,22 @@ def parse_enum_members(header: str, category: str) -> list[str]:
     return members
 
 
+def parse_legacy_enum_members(source: str, category: str) -> list[str]:
+    match = re.search(
+        rf"enum {category}Animation\s*\{{(.*?)\n\}};",
+        source,
+        re.DOTALL,
+    )
+    if not match:
+        raise AssertionError(f"Missing legacy {category}Animation enum")
+    prefix = category.upper()
+    return [
+        member
+        for member in re.findall(rf"\b({prefix}_[A-Z0-9_]+)\s*(?:=|,)", match.group(1))
+        if member != f"{prefix}_COUNT"
+    ]
+
+
 def parse_documented_names(document: str, category: str) -> list[str]:
     match = re.search(
         rf"^## {category}\s*$\n(.*?)(?=^## |\Z)",
@@ -56,6 +72,7 @@ def main() -> None:
     catalog_source = (ROOT / "src/led/LedAnimations.cpp").read_text(encoding="utf-8")
     header = (ROOT / "src/led/LedAnimations.h").read_text(encoding="utf-8")
     renderer = (ROOT / "src/led/LedService.cpp").read_text(encoding="utf-8")
+    legacy_renderer = (ROOT / "src/led/LegacyLedRenderer.cpp").read_text(encoding="utf-8")
     document = (ROOT / "docs/LED_ANIMATIONS.md").read_text(encoding="utf-8")
 
     total = 0
@@ -72,10 +89,24 @@ def main() -> None:
             raise AssertionError(f"{category}: missing render cases: {', '.join(missing)}")
         if len(names) != len(set(names)):
             raise AssertionError(f"{category}: duplicate display names")
+        legacy_members = parse_legacy_enum_members(legacy_renderer, category)
+        if len(legacy_members) != len(names):
+            raise AssertionError(
+                f"{category}: {len(names)} catalog entries but "
+                f"{len(legacy_members)} legacy enum members"
+            )
+        missing_legacy = [
+            member for member in legacy_members
+            if f"case {member}:" not in legacy_renderer
+        ]
+        if missing_legacy:
+            raise AssertionError(
+                f"{category}: missing legacy render cases: {', '.join(missing_legacy)}"
+            )
         total += len(names)
         print(f"{category}: {len(names)} animations")
 
-    print(f"LED catalog validated: {total} animations")
+    print(f"LED catalog validated: {total} animations in each of 2 renderer libraries")
 
 
 if __name__ == "__main__":

@@ -97,7 +97,7 @@ Featured installations built and photographed by **@wlodeka on Discord** and **B
 
 ## Current Development Status
 
-The current public firmware and Android companion release is **coroNET OS 2 0.4.6**. It combines the stable feature-complete OS 2 platform with a true 50 FPS LED motion engine, protected real-time scheduling, and the proven native-rate stereo WAV playback model from coroNET 1 with serialized SD access. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
+The current public firmware and Android companion release is **coroNET OS 2 0.4.7**. It combines the stable feature-complete OS 2 platform with selectable NEW and preserved coroNET 1 LEGACY animation renderers, a true 50 FPS presentation path, measured physical color calibration, protected real-time scheduling, and the proven native-rate stereo WAV playback model from coroNET 1 with serialized SD access. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
 
 | Area | Status |
 | --- | --- |
@@ -116,11 +116,11 @@ The current public firmware and Android companion release is **coroNET OS 2 0.4.
 | LED, ventilation, and sound tabs | Working on reference hardware |
 | Four UI skins, dark/light modes, clocks, and screen saver | Working on reference hardware |
 | Android companion app for OS 2 | Public signed APK with a phone-native portrait UI, live 2 FPS LED output over BLE/WiFi, reconnect, offline cache, local temperature history, conflict handling, SD sound browsing, and shared device controls |
-| Layered RGBW LED engine | Working at a measured 50 FPS with ambient, dimming, mirror, calibration, previews, and deadline protection |
+| Layered RGBW LED engine | Working at a measured 50 FPS with 336 NEW and 336 matching LEGACY renderers, automatic previews, ambient, dimming, mirror, physical color calibration, and deadline protection |
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.4.6 release, Flash Tool package, checksums, and Android APK published together |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.4.7 release, Flash Tool package, checksums, and Android APK published together |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development focuses on tuning, optimization, and experience refinement.
 

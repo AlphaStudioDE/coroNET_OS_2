@@ -1,6 +1,8 @@
 #include "LedService.h"
+#include "LegacyLedRenderer.h"
 
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <time.h>
 
 #include "../config/HardwareConfig.h"
@@ -210,6 +212,16 @@ uint32_t loopingPixelPositionQ8(uint32_t now, uint16_t msPerPixel,
     return static_cast<uint32_t>((travelledQ8 + offsetQ8) % cycleQ8);
 }
 
+uint32_t pingPongPixelPositionQ8(uint32_t now, uint16_t msPerPixel,
+                                 uint16_t pixelCount) {
+    if (!msPerPixel || pixelCount < 2U) return 0U;
+    const uint32_t spanQ8 = static_cast<uint32_t>(pixelCount - 1U) << 8U;
+    const uint32_t cycleQ8 = spanQ8 * 2U;
+    const uint32_t travelledQ8 = static_cast<uint32_t>(
+        ((static_cast<uint64_t>(now) << 8U) / msPerPixel) % cycleQ8);
+    return travelledQ8 <= spanQ8 ? travelledQ8 : cycleQ8 - travelledQ8;
+}
+
 uint32_t trailingDistanceQ8(uint32_t headQ8, uint16_t pixel,
                             uint16_t pixelCount) {
     const uint32_t cycleQ8 = static_cast<uint32_t>(pixelCount) << 8U;
@@ -237,6 +249,18 @@ uint8_t hash8(uint32_t value) {
     value *= 0x846CA68BU;
     value ^= value >> 16U;
     return static_cast<uint8_t>(value);
+}
+
+uint8_t evolvingHash8(uint32_t now, uint16_t intervalMs, uint32_t seed) {
+    if (!intervalMs) return hash8(seed);
+    const uint32_t tick = now / intervalMs;
+    const uint16_t fraction = static_cast<uint16_t>(now % intervalMs);
+    const uint8_t first = hash8(tick * 0x9E3779B9U + seed);
+    const uint8_t second = hash8((tick + 1U) * 0x9E3779B9U + seed);
+    return static_cast<uint8_t>(
+        (static_cast<uint32_t>(first) * (intervalMs - fraction) +
+         static_cast<uint32_t>(second) * fraction + intervalMs / 2U) /
+        intervalMs);
 }
 
 RgbwColor hsv(uint8_t hue, uint8_t saturation, uint8_t value) {
@@ -324,8 +348,7 @@ uint16_t interpolateUnsigned(uint16_t first, uint16_t second,
 }
 
 RgbwColor applyUserColorCalibration(const RgbwColor& color,
-                                    const AppSettings& settings,
-                                    uint16_t saturationScaleOverride = 0U) {
+                                    const AppSettings& settings) {
     const uint8_t peak = max(color.r, max(color.g, color.b));
     const uint8_t low = min(color.r, min(color.g, color.b));
     const uint8_t delta = static_cast<uint8_t>(peak - low);
@@ -349,11 +372,9 @@ RgbwColor applyUserColorCalibration(const RgbwColor& color,
     const int16_t hueDegrees = interpolateSigned(
         settings.ledCalibrationHue[left], settings.ledCalibrationHue[right],
         position, span);
-    const uint16_t saturationScale = saturationScaleOverride
-        ? saturationScaleOverride
-        : interpolateUnsigned(
-              settings.ledCalibrationSaturation[left], settings.ledCalibrationSaturation[right],
-              position, span);
+    const uint16_t saturationScale = interpolateUnsigned(
+        settings.ledCalibrationSaturation[left], settings.ledCalibrationSaturation[right],
+        position, span);
     const uint16_t brightnessScale = interpolateUnsigned(
         settings.ledCalibrationBrightness[left], settings.ledCalibrationBrightness[right],
         position, span);
@@ -593,12 +614,14 @@ void LedService::loop() {
     }
 }
 
-bool LedService::requestPreview(LedCategory category, uint8_t animation, uint32_t durationMs) {
+bool LedService::requestPreview(LedCategory category, uint8_t animation,
+                                uint32_t durationMs, bool legacy) {
     if (!started_ || category >= LedCategory::Count) return false;
     if (durationMs < 1000U) durationMs = 1000U;
     if (durationMs > 30000U) durationMs = 30000U;
     previewCategory_ = category;
     previewAnimation_ = normalizeLedAnimation(category, animation);
+    previewLegacy_ = legacy;
     previewStartedMs_ = millis();
     previewDurationMs_ = durationMs;
     previewUntilMs_ = previewStartedMs_ + durationMs;
@@ -664,9 +687,9 @@ bool LedService::copyPreviewFrame(ledpreview::Frame& output) const {
     return true;
 }
 
-void LedService::logStatus() const {
+void LedService::logStatus() {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
-    Serial.printf("[led] up=%lums ready=%u boot=%u preview=%u calibration=%u mirror=%u shows=%lu skipped=%lu frames=%lu dropped=%lu stackHeadroom=%uB\n",
+    Serial.printf("[led] up=%lums ready=%u boot=%u preview=%u calibration=%u mirror=%u shows=%lu unchanged=%lu frames=%lu dropped=%lu frameUs=%lu/%lu/%lu renderMax=%luus txGapUs=%lu/%lu txMax=%luus stackHeadroom=%uB\n",
                   static_cast<unsigned long>(millis()),
                   started_ ? 1U : 0U, bootActive_ ? 1U : 0U, previewActive_ ? 1U : 0U,
                   colorCalibrationActive_ ? 1U : 0U,
@@ -674,7 +697,21 @@ void LedService::logStatus() const {
                   static_cast<unsigned long>(shows_), static_cast<unsigned long>(skippedShows_),
                   static_cast<unsigned long>(state().ledFrameCount),
                   static_cast<unsigned long>(state().ledDroppedFrames),
+                  static_cast<unsigned long>(frameIntervalMinUs_),
+                  static_cast<unsigned long>(frameIntervalAverageUs_),
+                  static_cast<unsigned long>(frameIntervalMaxUs_),
+                  static_cast<unsigned long>(maxRenderUs_),
+                  static_cast<unsigned long>(transmitIntervalMinUs_),
+                  static_cast<unsigned long>(transmitIntervalMaxUs_),
+                  static_cast<unsigned long>(maxTransmitUs_),
                   static_cast<unsigned>(stackHeadroom));
+    frameIntervalMinUs_ = 0;
+    frameIntervalMaxUs_ = 0;
+    frameIntervalAverageUs_ = 0;
+    maxRenderUs_ = 0;
+    transmitIntervalMinUs_ = 0;
+    transmitIntervalMaxUs_ = 0;
+    maxTransmitUs_ = 0;
 }
 
 void LedService::taskEntry(void* context) {
@@ -682,9 +719,21 @@ void LedService::taskEntry(void* context) {
 }
 
 void LedService::taskLoop() {
-    TickType_t wake = xTaskGetTickCount();
-    const TickType_t interval = pdMS_TO_TICKS(FrameIntervalMs);
+    constexpr uint32_t FrameIntervalUs = FrameIntervalMs * 1000U;
+    int64_t presentationDeadlineUs = esp_timer_get_time() + FrameIntervalUs;
     for (;;) {
+        const uint32_t frameStartedUs = static_cast<uint32_t>(esp_timer_get_time());
+        if (lastFrameStartedUs_) {
+            const uint32_t frameIntervalUs = frameStartedUs - lastFrameStartedUs_;
+            if (!frameIntervalMinUs_ || frameIntervalUs < frameIntervalMinUs_) {
+                frameIntervalMinUs_ = frameIntervalUs;
+            }
+            frameIntervalMaxUs_ = max(frameIntervalMaxUs_, frameIntervalUs);
+            frameIntervalAverageUs_ = frameIntervalAverageUs_
+                ? (frameIntervalAverageUs_ * 31U + frameIntervalUs + 16U) / 32U
+                : frameIntervalUs;
+        }
+        lastFrameStartedUs_ = frameStartedUs;
         const uint32_t now = millis();
         const UBaseType_t desiredPriority = bootExperience().active()
             ? BootTaskPriority : TaskPriority;
@@ -693,17 +742,35 @@ void LedService::taskLoop() {
             appliedTaskPriority_ = desiredPriority;
         }
         render(now);
+        maxRenderUs_ = max(maxRenderUs_,
+            static_cast<uint32_t>(esp_timer_get_time()) - frameStartedUs);
+
+        int64_t remainingUs = presentationDeadlineUs - esp_timer_get_time();
+        while (remainingUs > 300) {
+            if (remainingUs > 2000) {
+                const TickType_t coarseTicks = pdMS_TO_TICKS(
+                    static_cast<uint32_t>((remainingUs - 1000) / 1000));
+                if (coarseTicks) vTaskDelay(coarseTicks);
+            } else {
+                delayMicroseconds(static_cast<uint32_t>(remainingUs - 250));
+            }
+            remainingUs = presentationDeadlineUs - esp_timer_get_time();
+        }
+
+        const int64_t latenessUs = esp_timer_get_time() - presentationDeadlineUs;
+        if (latenessUs >= static_cast<int64_t>(FrameIntervalUs)) {
+            const uint32_t missed = static_cast<uint32_t>(latenessUs / FrameIntervalUs);
+            state().ledDroppedFrames += missed;
+            presentationDeadlineUs += static_cast<int64_t>(missed) * FrameIntervalUs;
+        }
+
+        // Match coroNET 1's stable refresh behaviour: latch every frame at a
+        // fixed cadence even when 8-bit quantisation produced identical bytes.
+        transmitEncodedFrame(presentationDeadlineUs);
+        ++shows_;
         ++state().ledFrameCount;
         lastFrameMs_ = now;
-
-        const TickType_t finished = xTaskGetTickCount();
-        const TickType_t deadline = wake + interval;
-        if (static_cast<int32_t>(finished - deadline) >= 0) {
-            const TickType_t missed = 1U + (finished - deadline) / interval;
-            state().ledDroppedFrames += missed;
-            wake += missed * interval;
-        }
-        vTaskDelayUntil(&wake, interval);
+        presentationDeadlineUs += FrameIntervalUs;
     }
 }
 
@@ -742,7 +809,7 @@ void LedService::render(uint32_t now) {
 
     if (renderColorCalibration(now)) {
         bootActive_ = false;
-        smoothAndShow(settings, true);
+        smoothAndEncode(settings, true);
         return;
     }
 
@@ -768,7 +835,7 @@ void LedService::render(uint32_t now) {
 
     if (!settings.ledEnabled || quietSuppressesLeds(settings, system)) {
         bootActive_ = false;
-        smoothAndShow(settings);
+        smoothAndEncode(settings);
         return;
     }
 
@@ -783,6 +850,7 @@ void LedService::render(uint32_t now) {
         const LedCategory category = snakeFinishActive_ ? LedCategory::Print
             : (preview ? previewCategory_
                        : (settings.ledOtherMode ? LedCategory::Other : categoryForState(system)));
+        const bool legacy = preview ? previewLegacy_ : settings.ledLegacyAnimations;
         const uint8_t animation = snakeFinishActive_
             ? static_cast<uint8_t>(PrintAnimation::Snake)
             : (preview ? previewAnimation_
@@ -846,12 +914,12 @@ void LedService::render(uint32_t now) {
             context.printerTelemetryAgeMs = 0U;
             context.lastTouchAgeMs = 0U;
         }
-        renderCategory(category, animation, context);
+        renderCategory(category, animation, context, legacy);
         applyInsidePolicy(settings);
     }
 
     applyOutputPolicies(settings);
-    smoothAndShow(settings, bootActive_ && bootElapsed < 300U);
+    smoothAndEncode(settings, bootActive_ && bootElapsed < 300U);
 }
 
 bool LedService::renderColorCalibration(uint32_t now) {
@@ -950,8 +1018,8 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
                 ? context.nowMs - system.lastPrinterUpdateMs : UINT32_MAX;
             context.lastTouchAgeMs = system.lastTouchMs
                 ? context.nowMs - system.lastTouchMs : UINT32_MAX;
-            renderCategory(category,
-                           settings.ledAnimation[static_cast<uint8_t>(category)], context);
+            renderCategory(category, settings.ledAnimation[static_cast<uint8_t>(category)],
+                           context, settings.ledLegacyAnimations);
             applyInsidePolicy(settings);
         }
         for (uint16_t i = 0; i < hw::LedCount; ++i) {
@@ -990,14 +1058,18 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
         const uint16_t physical = outerPhysical(path);
         targetFrame_[physical] = saturatingAdd(targetFrame_[physical], scaled(color, power));
     };
-    auto addComet = [&](uint16_t head, const RgbwColor& color, uint8_t power,
+    auto addComet = [&](uint32_t headQ8, const RgbwColor& color, uint8_t power,
                         uint8_t tailLength, bool reverse) {
+        const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
         for (uint8_t tail = 0; tail < tailLength; ++tail) {
-            const uint16_t path = reverse
-                ? static_cast<uint16_t>((head + tail) % hw::OuterCount)
-                : static_cast<uint16_t>((head + hw::OuterCount - tail) % hw::OuterCount);
-            addOuter(path, color, static_cast<uint8_t>(
-                static_cast<uint16_t>(power) * (tailLength - tail) / tailLength));
+            const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+            const uint32_t pathQ8 = reverse
+                ? (headQ8 + tailQ8) % cycleQ8
+                : (headQ8 + cycleQ8 - tailQ8) % cycleQ8;
+            addOuterVisualPathSubpixel(pathQ8,
+                scaled(color, static_cast<uint8_t>(
+                    static_cast<uint16_t>(power) * (tailLength - tail) / tailLength)),
+                true);
         }
     };
 
@@ -1021,10 +1093,10 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
     // A single breathing core remains visible throughout the show. Every later
     // movement grows out of this rhythm instead of replacing it with a new scene.
     const uint32_t breathDivisor = 42U - static_cast<uint32_t>(rise) * 24U / 255U;
-    const uint8_t coreBreath = wave8(static_cast<uint8_t>(elapsedMs / max<uint32_t>(18U, breathDivisor)));
+    const uint8_t coreBreath = wave8At(
+        elapsedMs, static_cast<uint16_t>(max<uint32_t>(18U, breathDivisor)));
     for (uint16_t i = 0; i < hw::InsideCount; ++i) {
-        const uint8_t phase = static_cast<uint8_t>(elapsedMs / 24U + i * 17U);
-        const uint8_t localWave = wave8(phase);
+        const uint8_t localWave = wave8At(elapsedMs, 24U, i * 17U);
         uint8_t value = static_cast<uint8_t>(12U + rise / 4U + coreBreath / 4U + localWave / 7U);
         if (powerEnv) value = static_cast<uint8_t>(min<uint16_t>(225U, value + static_cast<uint16_t>(powerEnv) * (35U + localWave / 5U) / 255U));
         const RgbwColor local = blend(engineColor, hsv(static_cast<uint8_t>(elapsedMs / 17U + i * 12U), 245U, 255U),
@@ -1035,7 +1107,7 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
     // Low-frequency aura: deliberately dim and nearly monochromatic. It is the
     // connective tissue under the waves, not a full-ring rainbow effect.
     for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-        const uint8_t aura = wave8(static_cast<uint8_t>(elapsedMs / 49U + path * 8U));
+        const uint8_t aura = wave8At(elapsedMs, 49U, path * 8U);
         const uint8_t value = static_cast<uint8_t>((5U + aura / 18U) * (65U + rise / 2U) / 255U);
         setOuterVisualPathPixel(path, scaled(engineColor, value));
     }
@@ -1043,24 +1115,30 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
     // Mirrored ignition waves leave the center as one movement, gradually curl
     // around the outer path, and then tighten into the orbit below.
     if (resonanceEnv) {
-        const uint16_t center = hw::OuterCount / 2U;
-        const uint16_t travel = static_cast<uint16_t>((elapsedMs * (hw::OuterCount + 16UL)) / 5200UL);
+        const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
+        const uint32_t centerQ8 = static_cast<uint32_t>(hw::OuterCount / 2U) << 8U;
+        const uint32_t travelQ8 = static_cast<uint32_t>(
+            (static_cast<uint64_t>(elapsedMs) * (hw::OuterCount + 16UL) * 256U) / 5200UL);
         for (uint8_t tail = 0; tail < 11U; ++tail) {
-            const uint16_t offset = (travel + hw::OuterCount - tail) % hw::OuterCount;
-            const uint16_t left = (center + hw::OuterCount - offset) % hw::OuterCount;
-            const uint16_t right = (center + offset) % hw::OuterCount;
+            const uint32_t offsetQ8 = (travelQ8 + cycleQ8 -
+                (static_cast<uint32_t>(tail) << 8U)) % cycleQ8;
+            const uint32_t leftQ8 = (centerQ8 + cycleQ8 - offsetQ8) % cycleQ8;
+            const uint32_t rightQ8 = (centerQ8 + offsetQ8) % cycleQ8;
             const uint8_t power = static_cast<uint8_t>(static_cast<uint16_t>(resonanceEnv) * (11U - tail) / 11U);
-            addOuter(left, engineColor, power);
-            addOuter(right, engineColor, power);
+            addOuterVisualPathSubpixel(leftQ8, scaled(engineColor, power), true);
+            addOuterVisualPathSubpixel(rightQ8, scaled(engineColor, power), true);
         }
     }
 
     if (orbitEnv) {
         const uint32_t period = 1760U - static_cast<uint32_t>(powerEnv) * 820U / 255U;
-        const uint16_t head = static_cast<uint16_t>((elapsedMs * hw::OuterCount) / max<uint32_t>(760U, period));
+        const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
+        const uint32_t headQ8 = static_cast<uint32_t>(
+            (static_cast<uint64_t>(elapsedMs) * hw::OuterCount * 256U) /
+            max<uint32_t>(760U, period)) % cycleQ8;
         const uint8_t cometPower = static_cast<uint8_t>(static_cast<uint16_t>(orbitEnv) * (175U + powerEnv / 4U) / 255U);
-        addComet(head % hw::OuterCount, blend(engineColor, cyan, 80U), cometPower, 10U, false);
-        addComet((head + hw::OuterCount / 2U) % hw::OuterCount,
+        addComet(headQ8, blend(engineColor, cyan, 80U), cometPower, 10U, false);
+        addComet((headQ8 + (static_cast<uint32_t>(hw::OuterCount / 2U) << 8U)) % cycleQ8,
                  blend(engineColor, orange, 105U), static_cast<uint8_t>(cometPower * 9U / 10U), 9U, true);
     }
 
@@ -1070,8 +1148,8 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
         const uint8_t drift = static_cast<uint8_t>(elapsedMs / 34U);
         for (uint16_t path = 0; path < hw::OuterCount; ++path) {
             const uint8_t position = static_cast<uint8_t>(path * 255U / hw::OuterCount);
-            const uint8_t ribbonA = wave8(static_cast<uint8_t>(position * 2U - elapsedMs / 12U));
-            const uint8_t ribbonB = wave8(static_cast<uint8_t>(position * 3U + elapsedMs / 18U));
+            const uint8_t ribbonA = wave8AtReverse(elapsedMs, 12U, position * 2U);
+            const uint8_t ribbonB = wave8At(elapsedMs, 18U, position * 3U);
             const uint8_t crest = max(ribbonA, static_cast<uint8_t>(ribbonB * 4U / 5U));
             const uint8_t shaped = static_cast<uint8_t>(static_cast<uint16_t>(crest) * crest / 255U);
             const uint8_t value = static_cast<uint8_t>(static_cast<uint16_t>(spectrumEnv) * (9U + shaped * 105U / 255U) / 255U);
@@ -1095,8 +1173,10 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
     // Full power adds a third orbit and restrained beat surges. These reinforce
     // the existing engine motion instead of flashing unrelated pixels.
     if (powerEnv) {
-        const uint16_t fastHead = static_cast<uint16_t>((elapsedMs * hw::OuterCount) / 690U);
-        addComet((fastHead + hw::OuterCount / 3U) % hw::OuterCount,
+        const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
+        const uint32_t fastHeadQ8 = static_cast<uint32_t>(
+            (static_cast<uint64_t>(elapsedMs) * hw::OuterCount * 256U) / 690U) % cycleQ8;
+        addComet((fastHeadQ8 + (static_cast<uint32_t>(hw::OuterCount / 3U) << 8U)) % cycleQ8,
                  hsv(static_cast<uint8_t>(elapsedMs / 15U + 90U), 255U, 255U),
                  static_cast<uint8_t>(static_cast<uint16_t>(powerEnv) * 205U / 255U), 8U, false);
         const uint16_t beatPhase = static_cast<uint16_t>((elapsedMs - 22000U) % 840U);
@@ -1157,16 +1237,22 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
             ? context.nowMs - system.lastPrinterUpdateMs : UINT32_MAX;
         context.lastTouchAgeMs = system.lastTouchMs
             ? context.nowMs - system.lastTouchMs : UINT32_MAX;
-        renderCategory(category,
-                       settings.ledAnimation[static_cast<uint8_t>(category)], context);
+        renderCategory(category, settings.ledAnimation[static_cast<uint8_t>(category)],
+                       context, settings.ledLegacyAnimations);
         applyInsidePolicy(settings);
         for (uint16_t i = 0; i < hw::LedCount; ++i) targetFrame_[i] = blend(signature[i], targetFrame_[i], handoff);
     }
 }
 
 void LedService::renderCategory(LedCategory category, uint8_t animation,
-                                const LedAnimationContext& context) {
+                                const LedAnimationContext& context, bool legacy) {
     animation = normalizeLedAnimation(category, animation);
+    if (legacy) {
+        renderLegacyLedAnimation(category, animation, context,
+                                 frameColorRemixDegrees_[static_cast<uint8_t>(category)],
+                                 targetFrame_, hw::LedCount);
+        return;
+    }
     switch (category) {
         case LedCategory::Print: renderPrint(animation, context); break;
         case LedCategory::Pause: renderPause(animation, context); break;
@@ -1193,7 +1279,6 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Fireplace: {
-            const uint32_t tick = now / 58U;
             constexpr LedSection sides[2] = {LedSection::Left, LedSection::Right};
             for (uint8_t sideIndex = 0; sideIndex < 2U; ++sideIndex) {
                 const LedSection section = sides[sideIndex];
@@ -1201,9 +1286,10 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint8_t height = static_cast<uint8_t>(
                         i * 255U / max<uint16_t>(1U, count - 1U));
-                    const uint8_t flameA = wave8(static_cast<uint8_t>(tick * 5U +
-                        i * 29U + sideIndex * 83U));
-                    const uint8_t flameB = hash8(tick * 37U + i * 97U + sideIndex * 503U);
+                    const uint8_t flameA = wave8At(now, 12U,
+                        i * 29U + sideIndex * 83U);
+                    const uint8_t flameB = evolvingHash8(now, 58U,
+                        i * 97U + sideIndex * 503U);
                     const uint8_t heat = static_cast<uint8_t>(max<int>(12,
                         230 - height * 145 / 255 + flameA / 4 + flameB / 7));
                     const uint8_t hue = static_cast<uint8_t>(2U + heat * 34U / 255U);
@@ -1235,7 +1321,9 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
         }
         case IdleAnimation::StarPulse: {
             const uint8_t pulse = wave8At(now, 54U);
-            const uint8_t hue = static_cast<uint8_t>((now / 3200U) * 29U);
+            const uint32_t hueCycle = now % 28248U;
+            const uint8_t hue = static_cast<uint8_t>(
+                static_cast<uint64_t>(hueCycle) * 256U / 28248U);
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
@@ -1250,8 +1338,8 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
         }
         case IdleAnimation::Meteor: {
             const uint16_t route = hw::OuterCount + 12U;
-            const uint16_t rawHead = static_cast<uint16_t>((now / 46U) % route);
-            if (rawHead < hw::OuterCount) {
+            const uint32_t headQ8 = loopingPixelPositionQ8(now, 46U, route);
+            if (headQ8 < (static_cast<uint32_t>(hw::OuterCount) << 8U)) {
                 // Step through deliberate spectral anchors. Incrementing an
                 // 8-bit hue by 43 drifted around the wheel and eventually made
                 // the nominal red pass land in pink/magenta territory.
@@ -1268,11 +1356,12 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const uint8_t hue = MeteorHues[pass %
                     (sizeof(MeteorHues) / sizeof(MeteorHues[0]))];
                 for (uint8_t tail = 0; tail < 11U; ++tail) {
-                    if (rawHead < tail) continue;
-                    const uint16_t path = rawHead - tail;
+                    const uint32_t tailOffsetQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (headQ8 < tailOffsetQ8) continue;
+                    const uint32_t pathQ8 = headQ8 - tailOffsetQ8;
                     const uint8_t value = static_cast<uint8_t>(245U - tail * 21U);
-                    setOuterVisualPathPixel(path,
-                        decorativeHsv(LedCategory::Idle, hue, 255U, value));
+                    addOuterVisualPathSubpixel(pathQ8,
+                        decorativeHsv(LedCategory::Idle, hue, 255U, value), false);
                 }
             }
             break;
@@ -1291,13 +1380,13 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Larson: {
-            const uint16_t span = hw::OuterCount - 1U;
-            const uint16_t phase = static_cast<uint16_t>((now / 27U) % (span * 2U));
-            const uint16_t head = phase <= span ? phase : span * 2U - phase;
+            const uint32_t headQ8 = pingPongPixelPositionQ8(now, 27U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > head ? path - head : head - path;
-                if (distance > 8U) continue;
-                const uint8_t value = static_cast<uint8_t>(245U - distance * 27U);
+                const uint32_t pathQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t distanceQ8 = pathQ8 > headQ8
+                    ? pathQ8 - headQ8 : headQ8 - pathQ8;
+                if (distanceQ8 > (8U << 8U)) continue;
+                const uint8_t value = q8Falloff(245U, 27U, distanceQ8);
                 setOuterVisualPathPixel(path, RgbwColor(value, 0U, 0U));
             }
             break;
@@ -1319,14 +1408,24 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Gradient: {
-            const uint8_t drift = static_cast<uint8_t>(now / 82U);
-            const uint8_t hueA = static_cast<uint8_t>(drift / 3U);
+            constexpr uint16_t HueStepMs = 246U;
+            const uint8_t hueA = static_cast<uint8_t>(now / HueStepMs);
             const uint8_t hueB = static_cast<uint8_t>(hueA + 92U);
+            const uint8_t hueFraction = static_cast<uint8_t>(
+                static_cast<uint32_t>(now % HueStepMs) * 255U / HueStepMs);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t amount = static_cast<uint8_t>(
                     path * 255U / max<uint16_t>(1U, hw::OuterCount - 1U));
-                const RgbwColor first = decorativeHsv(LedCategory::Idle, hueA, 255U, 145U);
-                const RgbwColor second = decorativeHsv(LedCategory::Idle, hueB, 255U, 145U);
+                const RgbwColor first = blend(
+                    decorativeHsv(LedCategory::Idle, hueA, 255U, 145U),
+                    decorativeHsv(LedCategory::Idle,
+                        static_cast<uint8_t>(hueA + 1U), 255U, 145U),
+                    hueFraction);
+                const RgbwColor second = blend(
+                    decorativeHsv(LedCategory::Idle, hueB, 255U, 145U),
+                    decorativeHsv(LedCategory::Idle,
+                        static_cast<uint8_t>(hueB + 1U), 255U, 145U),
+                    hueFraction);
                 setOuterVisualPathPixel(path, blend(first, second, amount));
             }
             break;
@@ -1348,8 +1447,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
         case IdleAnimation::SectionBreathe: {
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
-                const uint8_t breath = wave8(static_cast<uint8_t>(
-                    now / 58U + sectionIndex * 85U));
+                const uint8_t breath = wave8At(now, 58U, sectionIndex * 85U);
                 const uint8_t value = static_cast<uint8_t>(38U + breath * 125U / 255U);
                 const uint8_t hue = static_cast<uint8_t>(24U + sectionIndex * 13U);
                 fillSection(section,
@@ -1406,12 +1504,12 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Moonlight: {
-            const uint16_t moon = static_cast<uint16_t>((now / 135U) % hw::OuterCount);
+            const uint32_t moonQ8 = loopingPixelPositionQ8(now, 135U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t direct = path > moon ? path - moon : moon - path;
-                const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
-                const uint8_t halo = distance < 9U
-                    ? static_cast<uint8_t>(150U - distance * 11U) : 44U;
+                const uint32_t distanceQ8 = circularDistanceQ8(
+                    moonQ8, path, hw::OuterCount);
+                const uint8_t halo = distanceQ8 < (9U << 8U)
+                    ? max<uint8_t>(44U, q8Falloff(150U, 11U, distanceQ8)) : 44U;
                 const uint8_t ripple = wave8At(now, 79U, path * 5U);
                 const uint8_t value = static_cast<uint8_t>(halo + ripple / 10U);
                 setOuterVisualPathPixel(path,
@@ -1439,11 +1537,19 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Running: {
-            const uint16_t shift = static_cast<uint16_t>(now / 72U);
+            constexpr uint8_t LaneValues[6] = {195U, 195U, 75U, 12U, 12U, 12U};
+            const uint16_t shiftQ8 = static_cast<uint16_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 72U) % (6U << 8U));
             const uint8_t hue = static_cast<uint8_t>(now / 42U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t lane = static_cast<uint8_t>((path + shift) % 6U);
-                const uint8_t value = lane < 2U ? 195U : lane == 2U ? 75U : 12U;
+                const uint16_t laneQ8 = static_cast<uint16_t>(
+                    ((static_cast<uint32_t>(path) << 8U) + shiftQ8) % (6U << 8U));
+                const uint8_t lane = static_cast<uint8_t>(laneQ8 >> 8U);
+                const uint8_t nextLane = static_cast<uint8_t>((lane + 1U) % 6U);
+                const uint8_t fraction = static_cast<uint8_t>(laneQ8 & 0xFFU);
+                const uint8_t value = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(LaneValues[lane]) * (255U - fraction) +
+                     static_cast<uint16_t>(LaneValues[nextLane]) * fraction + 127U) / 255U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Idle, hue, 255U, value));
             }
@@ -1489,10 +1595,9 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Candle: {
-            const uint32_t tick = now / 62U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t slow = wave8At(now, 83U, path * 7U);
-                const uint8_t noise = hash8(tick * 73U + path * 101U);
+                const uint8_t noise = evolvingHash8(now, 62U, path * 101U);
                 const uint8_t value = static_cast<uint8_t>(75U + slow / 5U + noise / 4U);
                 const uint8_t hue = static_cast<uint8_t>(17U + noise / 24U);
                 setOuterVisualPathPixel(path,
@@ -1501,11 +1606,13 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::Starfield: {
-            const uint8_t drift = static_cast<uint8_t>(now / 170U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t identity = hash8(path * 127U + 29U);
-                const uint8_t twinkle = wave8(static_cast<uint8_t>(
-                    now / (56U + identity % 59U) + identity + drift));
+                const uint16_t twinklePeriod = static_cast<uint16_t>(56U + identity % 59U);
+                const uint16_t combinedPeriod = static_cast<uint16_t>(
+                    static_cast<uint32_t>(twinklePeriod) * 170U /
+                    (twinklePeriod + 170U));
+                const uint8_t twinkle = wave8At(now, combinedPeriod, identity);
                 const uint8_t floor = static_cast<uint8_t>(identity / 12U);
                 const uint8_t value = static_cast<uint8_t>(floor + twinkle *
                     (65U + identity / 2U) / 255U);
@@ -1561,7 +1668,7 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t folded = path > center ? hw::OuterCount - 1U - path : path;
                 const uint8_t facet = static_cast<uint8_t>((folded % 6U) * 42U);
-                const uint8_t pulse = wave8(static_cast<uint8_t>(rotation + folded * 24U));
+                const uint8_t pulse = wave8At(now, 39U, folded * 24U);
                 const uint8_t hue = static_cast<uint8_t>(rotation / 3U + facet);
                 const uint8_t value = static_cast<uint8_t>(52U + pulse * 145U / 255U);
                 setOuterVisualPathPixel(path,
@@ -1571,21 +1678,22 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
         }
         case IdleAnimation::BreathingOrbit: {
             const uint8_t breath = static_cast<uint8_t>(45U + wave8At(now, 68U) * 185U / 255U);
-            const uint16_t first = static_cast<uint16_t>((now / 92U) % hw::OuterCount);
-            const uint16_t second = static_cast<uint16_t>((first + hw::OuterCount / 2U) % hw::OuterCount);
+            const uint32_t firstQ8 = loopingPixelPositionQ8(now, 92U, hw::OuterCount);
+            const uint32_t secondQ8 = (firstQ8 +
+                (static_cast<uint32_t>(hw::OuterCount / 2U) << 8U)) %
+                (static_cast<uint32_t>(hw::OuterCount) << 8U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t firstDirect = path > first ? path - first : first - path;
-                const uint16_t secondDirect = path > second ? path - second : second - path;
-                const uint16_t distance = min<uint16_t>(
-                    min<uint16_t>(firstDirect, hw::OuterCount - firstDirect),
-                    min<uint16_t>(secondDirect, hw::OuterCount - secondDirect));
-                const uint8_t shape = distance <= 6U
-                    ? static_cast<uint8_t>(255U - distance * 34U) : 10U;
+                const uint32_t distanceQ8 = min<uint32_t>(
+                    circularDistanceQ8(firstQ8, path, hw::OuterCount),
+                    circularDistanceQ8(secondQ8, path, hw::OuterCount));
+                const uint8_t shape = distanceQ8 <= (6U << 8U)
+                    ? q8Falloff(255U, 34U, distanceQ8) : 10U;
                 const uint8_t value = static_cast<uint8_t>(
                     static_cast<uint16_t>(shape) * breath / 255U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Idle,
-                        distance == 0U ? 180U : 167U, 185U, value));
+                        static_cast<uint8_t>(167U + q8Falloff(13U, 3U, distanceQ8)),
+                        185U, value));
             }
             break;
         }
@@ -1595,31 +1703,44 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 setOuterVisualPathPixel(path, dusk);
             }
             const uint32_t epoch = now / 1450U;
-            const uint8_t travel = static_cast<uint8_t>((now % 1450U) * 255U / 1450U);
+            const uint16_t travel = static_cast<uint16_t>((now % 1450U) * 256U / 1450U);
+            const int32_t cycleQ8 = static_cast<int32_t>(hw::OuterCount) << 8U;
             for (uint8_t fly = 0; fly < 6U; ++fly) {
                 const int16_t from = hash8(epoch * 101U + fly * 59U) % hw::OuterCount;
                 const int16_t to = hash8((epoch + 1U) * 101U + fly * 59U) % hw::OuterCount;
                 int16_t delta = to - from;
                 if (delta > static_cast<int16_t>(hw::OuterCount / 2U)) delta -= hw::OuterCount;
                 if (delta < -static_cast<int16_t>(hw::OuterCount / 2U)) delta += hw::OuterCount;
-                int16_t position = from + delta * travel / 255;
-                while (position < 0) position += hw::OuterCount;
-                while (position >= static_cast<int16_t>(hw::OuterCount)) position -= hw::OuterCount;
+                int32_t positionQ8 = (static_cast<int32_t>(from) << 8U) + delta * travel;
+                while (positionQ8 < 0) positionQ8 += cycleQ8;
+                while (positionQ8 >= cycleQ8) positionQ8 -= cycleQ8;
                 const uint8_t pulse = static_cast<uint8_t>(125U +
                     wave8At(now, static_cast<uint16_t>(27U + fly * 4U), fly * 37U) / 2U);
-                setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                addOuterVisualPathSubpixel(static_cast<uint32_t>(positionQ8),
                     decorativeHsv(LedCategory::Idle,
                         static_cast<uint8_t>(48U + fly * 5U), 220U, pulse));
-                const uint16_t neighbor = static_cast<uint16_t>((position + hw::OuterCount - 1U) % hw::OuterCount);
-                setOuterVisualPathPixel(neighbor,
+                const uint32_t glowQ8 = static_cast<uint32_t>(
+                    (positionQ8 + cycleQ8 - 256) % cycleQ8);
+                addOuterVisualPathSubpixel(glowQ8,
                     decorativeHsv(LedCategory::Idle, 58U, 205U, pulse / 4U));
             }
             break;
         }
         case IdleAnimation::CosmicDust: {
-            const uint32_t drift = now / 180U;
+            const uint32_t driftQ8 = static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 180U) %
+                (static_cast<uint32_t>(hw::OuterCount) << 8U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t grain = hash8((path + drift) * 109U + (drift / 7U) * 43U);
+                const uint32_t sampleQ8 = ((static_cast<uint32_t>(path) << 8U) + driftQ8) %
+                    (static_cast<uint32_t>(hw::OuterCount) << 8U);
+                const uint16_t first = static_cast<uint16_t>(sampleQ8 >> 8U);
+                const uint16_t second = static_cast<uint16_t>((first + 1U) % hw::OuterCount);
+                const uint8_t fraction = static_cast<uint8_t>(sampleQ8 & 0xFFU);
+                const uint8_t firstGrain = hash8(first * 109U + 43U);
+                const uint8_t secondGrain = hash8(second * 109U + 43U);
+                const uint8_t grain = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(firstGrain) * (255U - fraction) +
+                     static_cast<uint16_t>(secondGrain) * fraction + 127U) / 255U);
                 const uint8_t cloud = wave8At(now, 119U, path * 6U);
                 const uint8_t value = static_cast<uint8_t>(8U + grain / 7U + cloud / 8U);
                 const uint8_t hue = static_cast<uint8_t>(177U + grain / 7U);
@@ -1629,12 +1750,20 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             break;
         }
         case IdleAnimation::TheaterGlow: {
-            const uint16_t shift = static_cast<uint16_t>(now / 130U);
+            constexpr uint8_t BulbValues[5] = {185U, 95U, 0U, 0U, 0U};
+            const uint16_t shiftQ8 = static_cast<uint16_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 130U) % (5U << 8U));
             const uint8_t breath = static_cast<uint8_t>(62U + wave8At(now, 82U) / 5U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t bulb = static_cast<uint8_t>((path + shift) % 5U);
-                const uint8_t value = bulb == 0U ? 185U
-                    : bulb == 1U ? 95U : breath / 3U;
+                const uint16_t bulbQ8 = static_cast<uint16_t>(
+                    ((static_cast<uint32_t>(path) << 8U) + shiftQ8) % (5U << 8U));
+                const uint8_t bulb = static_cast<uint8_t>(bulbQ8 >> 8U);
+                const uint8_t nextBulb = static_cast<uint8_t>((bulb + 1U) % 5U);
+                const uint8_t fraction = static_cast<uint8_t>(bulbQ8 & 0xFFU);
+                const uint8_t moving = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(BulbValues[bulb]) * (255U - fraction) +
+                     static_cast<uint16_t>(BulbValues[nextBulb]) * fraction + 127U) / 255U);
+                const uint8_t value = max<uint8_t>(moving, breath / 3U);
                 const uint8_t hue = static_cast<uint8_t>(130U + (path / 5U) * 9U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Idle, hue, 175U, value));
@@ -1646,12 +1775,17 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 const uint16_t origin = (count - 1U) / 2U;
-                const uint8_t radius = static_cast<uint8_t>((now / 105U + sectionIndex * 4U) % (count + 5U));
+                const uint32_t radiusQ8 = static_cast<uint32_t>(
+                    (((static_cast<uint64_t>(now) << 8U) / 105U +
+                      (static_cast<uint32_t>(sectionIndex * 4U) << 8U)) %
+                     (static_cast<uint32_t>(count + 5U) << 8U)));
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint16_t distance = i > origin ? i - origin : origin - i;
-                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                    const uint8_t value = delta <= 2U
-                        ? static_cast<uint8_t>(175U - delta * 55U) : 24U;
+                    const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                    const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                        ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                    const uint8_t value = deltaQ8 <= (2U << 8U)
+                        ? q8Falloff(175U, 55U, deltaQ8) : 24U;
                     const uint8_t hue = static_cast<uint8_t>(132U + sectionIndex * 8U + distance * 2U);
                     setSection(section, i,
                         decorativeHsv(LedCategory::Idle, hue, 210U, value));
@@ -1743,13 +1877,15 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             fillSection(LedSection::Left, scaled(filament, breath));
             fillSection(LedSection::Right, scaled(filament, breath));
             const uint8_t remembered = context.progress ? min<uint8_t>(context.progress, 100U) : 100U;
-            const uint16_t echo = static_cast<uint16_t>((now / 145U) % hw::CenterCount);
+            const uint32_t echoQ8 = loopingPixelPositionQ8(now, 145U, hw::CenterCount);
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t coverage = progressCoverage(remembered, hw::CenterCount, i);
-                const uint16_t distance = i > echo ? i - echo : echo - i;
+                const uint32_t distanceQ8 = circularDistanceQ8(
+                    echoQ8, i, hw::CenterCount);
                 uint8_t value = coverage ? static_cast<uint8_t>(42U + coverage / 4U) : 4U;
-                if (distance <= 3U) value = max<uint8_t>(value,
-                    static_cast<uint8_t>(175U - distance * 42U));
+                if (distanceQ8 <= (3U << 8U)) {
+                    value = max<uint8_t>(value, q8Falloff(175U, 42U, distanceQ8));
+                }
                 setSection(LedSection::Center, i, scaled(filament, value));
             }
             break;
@@ -1852,11 +1988,21 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             const RgbwColor ready = context.printerOnline
                 ? decorativeHsv(LedCategory::Idle, 96U, 230U, 255U)
                 : decorativeHsv(LedCategory::Idle, 24U, 230U, 255U);
-            const uint16_t shift = static_cast<uint16_t>(now / (context.printerOnline ? 145U : 78U));
+            constexpr uint8_t LaneValues[7] = {185U, 185U, 185U, 24U, 24U, 24U, 24U};
+            const uint16_t speed = context.printerOnline ? 145U : 78U;
+            const uint16_t shiftQ8 = static_cast<uint16_t>(
+                ((static_cast<uint64_t>(now) << 8U) / speed) % (7U << 8U));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint8_t lane = static_cast<uint8_t>((i + shift) % 7U);
+                const uint16_t laneQ8 = static_cast<uint16_t>(
+                    ((static_cast<uint32_t>(i) << 8U) + shiftQ8) % (7U << 8U));
+                const uint8_t lane = static_cast<uint8_t>(laneQ8 >> 8U);
+                const uint8_t nextLane = static_cast<uint8_t>((lane + 1U) % 7U);
+                const uint8_t fraction = static_cast<uint8_t>(laneQ8 & 0xFFU);
+                const uint8_t value = static_cast<uint8_t>(
+                    (static_cast<uint16_t>(LaneValues[lane]) * (255U - fraction) +
+                     static_cast<uint16_t>(LaneValues[nextLane]) * fraction + 127U) / 255U);
                 setSection(LedSection::Center, i,
-                    scaled(ready, lane < 3U ? 185U : 24U));
+                    scaled(ready, value));
             }
             break;
         }
@@ -1885,11 +2031,12 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
                     : decorativeHsv(LedCategory::Idle, 91U, 145U, 28U);
                 fillSection(section, sand);
                 for (uint8_t stone = 0; stone < 2U; ++stone) {
-                    const uint8_t orbit = wave8(static_cast<uint8_t>(
-                        now / (122U + stone * 31U) + sectionIndex * 73U + stone * 109U));
-                    const uint16_t position = static_cast<uint16_t>(
-                        orbit * max<uint16_t>(1U, count - 1U) / 255U);
-                    setSection(section, position,
+                    const uint8_t orbit = wave8At(
+                        now, static_cast<uint16_t>(122U + stone * 31U),
+                        sectionIndex * 73U + stone * 109U);
+                    const uint32_t positionQ8 = static_cast<uint32_t>(orbit) *
+                        max<uint16_t>(1U, count - 1U) * 256U / 255U;
+                    addSectionSubpixel(section, positionQ8,
                         decorativeHsv(LedCategory::Idle,
                             static_cast<uint8_t>(72U + stone * 12U), 105U, 118U));
                 }
@@ -1948,17 +2095,21 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             for (uint8_t curtain = 0; curtain < 6U; ++curtain) {
                 const uint16_t anchor = static_cast<uint16_t>(
                     curtain * hw::OuterCount / 6U);
-                const int8_t sway = static_cast<int8_t>(
-                    wave8At(now, static_cast<uint16_t>(121U + curtain * 13U), curtain * 39U) / 42U) - 3;
+                const int32_t swayQ8 =
+                    (static_cast<int32_t>(wave8At(now,
+                        static_cast<uint16_t>(121U + curtain * 13U),
+                        curtain * 39U)) - 128) * 6 * 256 / 255;
                 const uint8_t hue = static_cast<uint8_t>(96U + curtain * 13U);
                 const uint8_t breath = static_cast<uint8_t>(54U +
                     wave8At(now, 151U, curtain * 31U) / 3U);
                 for (int8_t width = -2; width <= 2; ++width) {
-                    int16_t position = static_cast<int16_t>(anchor) + sway + width;
-                    while (position < 0) position += hw::OuterCount;
-                    position %= hw::OuterCount;
+                    int32_t positionQ8 =
+                        ((static_cast<int32_t>(anchor) + width) * 256) + swayQ8;
+                    const int32_t cycleQ8 = static_cast<int32_t>(hw::OuterCount) << 8U;
+                    while (positionQ8 < 0) positionQ8 += cycleQ8;
+                    positionQ8 %= cycleQ8;
                     const uint8_t shape = static_cast<uint8_t>(255U - abs(width) * 73U);
-                    setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                    addOuterVisualPathSubpixel(static_cast<uint32_t>(positionQ8),
                         decorativeHsv(LedCategory::Idle, hue, 190U,
                             static_cast<uint8_t>(static_cast<uint16_t>(breath) * shape / 255U)));
                 }
@@ -2017,15 +2168,16 @@ void LedService::renderIdle(uint8_t animation, const LedAnimationContext& contex
             constexpr uint32_t RestMs = 2600U;
             const uint32_t cycle = now % (TravelMs + RestMs);
             if (cycle < TravelMs) {
-                const uint16_t head = static_cast<uint16_t>(
-                    static_cast<uint64_t>(cycle) * (hw::OuterCount + 12U) / TravelMs);
+                const int32_t headQ8 = static_cast<int32_t>(
+                    static_cast<uint64_t>(cycle) * (hw::OuterCount + 12U) * 256U /
+                    TravelMs) - 6 * 256;
                 for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                    const int16_t distance = static_cast<int16_t>(head) -
-                        static_cast<int16_t>(path + 6U);
-                    if (distance < -3 || distance > 8) continue;
-                    const uint8_t shape = distance <= 0
-                        ? static_cast<uint8_t>(220U + distance * 42)
-                        : static_cast<uint8_t>(220U - distance * 25U);
+                    const int32_t distanceQ8 = headQ8 -
+                        (static_cast<int32_t>(path) << 8U);
+                    if (distanceQ8 < -3 * 256 || distanceQ8 > 8 * 256) continue;
+                    const uint8_t shape = distanceQ8 <= 0
+                        ? clampByte(220 + distanceQ8 * 42 / 256)
+                        : clampByte(220 - distanceQ8 * 25 / 256);
                     setOuterVisualPathPixel(path,
                         decorativeHsv(LedCategory::Idle, 118U, 125U, shape));
                 }
@@ -2158,8 +2310,8 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             fillSection(LedSection::Right, scaled(filament, 30U));
             const uint16_t marker = min<uint16_t>(hw::CenterCount - 1U,
                 static_cast<uint16_t>(progress * (hw::CenterCount - 1U) / 100U));
-            const uint16_t pulseRadius = lit
-                ? static_cast<uint16_t>((now / 72U) % (lit + 5U)) : 0U;
+            const uint32_t pulseRadiusQ8 = lit
+                ? loopingPixelPositionQ8(now, 72U, static_cast<uint16_t>(lit + 5U)) : 0U;
             RgbwColor pulseColor = complementary(filament);
             if (pulseColor.r == 0U && pulseColor.g == 0U && pulseColor.b == 0U) {
                 pulseColor = decorativeHsv(LedCategory::Print, 145U, 235U, 255U);
@@ -2169,15 +2321,16 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 if (!coverage) continue;
                 RgbwColor color = scaled(filament,
                     static_cast<uint8_t>(35U + coverage * 70U / 255U));
-                const uint16_t distance = marker > i ? marker - i : i - marker;
-                const uint16_t ringDistance = distance > pulseRadius
-                    ? distance - pulseRadius : pulseRadius - distance;
-                if (i <= marker && ringDistance <= 1U) {
-                    color = scaled(pulseColor, ringDistance ? 120U : 245U);
+                const uint32_t distanceQ8 =
+                    static_cast<uint32_t>(marker - min<uint16_t>(marker, i)) << 8U;
+                const uint32_t ringDistanceQ8 = distanceQ8 > pulseRadiusQ8
+                    ? distanceQ8 - pulseRadiusQ8 : pulseRadiusQ8 - distanceQ8;
+                if (i <= marker && ringDistanceQ8 <= (2U << 8U)) {
+                    color = scaled(pulseColor, q8Falloff(245U, 90U, ringDistanceQ8));
                 }
                 setSection(LedSection::Center, i, color);
             }
-            if ((now / 72U) % max<uint16_t>(1U, lit + 5U) < 2U) {
+            if (pulseRadiusQ8 < (2U << 8U)) {
                 fillSection(LedSection::Left, scaled(filament, 105U));
                 fillSection(LedSection::Right, scaled(filament, 105U));
             }
@@ -2190,32 +2343,43 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             const uint16_t workingSpan = max<uint16_t>(2U, lit);
             const uint16_t travelSpan = workingSpan - 1U;
             const uint16_t cycle = max<uint16_t>(1U, travelSpan * 2U);
-            const uint16_t phase = static_cast<uint16_t>((now / 54U) % cycle);
-            const uint16_t head = phase <= travelSpan ? phase : cycle - phase;
-            const bool forward = phase <= travelSpan;
+            const uint32_t cycleQ8 = static_cast<uint32_t>(cycle) << 8U;
+            const uint32_t phaseQ8 = static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 54U) % cycleQ8);
+            const uint32_t travelSpanQ8 = static_cast<uint32_t>(travelSpan) << 8U;
+            const uint32_t headQ8 = phaseQ8 <= travelSpanQ8
+                ? phaseQ8 : cycleQ8 - phaseQ8;
+            const bool forward = phaseQ8 <= travelSpanQ8;
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
                 if (coverage) setSection(LedSection::Center, i,
                     scaled(filament, static_cast<uint8_t>(16U + coverage * 42U / 255U)));
-                const uint16_t distance = i > head ? i - head : head - i;
-                if (distance <= 4U && ((forward && i <= head) || (!forward && i >= head))) {
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > headQ8
+                    ? pixelQ8 - headQ8 : headQ8 - pixelQ8;
+                if (distanceQ8 <= (4U << 8U) &&
+                    ((forward && pixelQ8 <= headQ8) || (!forward && pixelQ8 >= headQ8))) {
                     setSection(LedSection::Center, i,
-                               scaled(filament, static_cast<uint8_t>(255U - distance * 46U)));
+                               scaled(filament, q8Falloff(255U, 46U, distanceQ8)));
                 }
             }
             constexpr uint8_t EchoDelays[4] = {3U, 7U, 12U, 18U};
             for (uint8_t echo = 0; echo < 4U; ++echo) {
-                const uint16_t delayedPhase = static_cast<uint16_t>(
-                    (phase + cycle - EchoDelays[echo] % cycle) % cycle);
-                const uint16_t delayedHead = delayedPhase <= travelSpan
-                    ? delayedPhase : cycle - delayedPhase;
-                const uint16_t sidePosition = static_cast<uint16_t>(
-                    static_cast<uint32_t>(delayedHead) * (hw::LeftCount - 1U) /
-                    max<uint16_t>(1U, travelSpan));
+                const uint32_t delayQ8 =
+                    (static_cast<uint32_t>(EchoDelays[echo]) << 8U) % cycleQ8;
+                const uint32_t delayedPhaseQ8 =
+                    (phaseQ8 + cycleQ8 - delayQ8) % cycleQ8;
+                const uint32_t delayedHeadQ8 = delayedPhaseQ8 <= travelSpanQ8
+                    ? delayedPhaseQ8 : cycleQ8 - delayedPhaseQ8;
+                const uint32_t sidePositionQ8 = delayedHeadQ8 * (hw::LeftCount - 1U) /
+                    max<uint16_t>(1U, travelSpan);
                 const uint8_t value = static_cast<uint8_t>(170U - echo * 32U);
-                setSection(LedSection::Left, sidePosition, scaled(filament, value));
-                setSection(LedSection::Right, hw::RightCount - 1U - sidePosition,
-                           scaled(filament, value));
+                addSectionSubpixel(LedSection::Left, sidePositionQ8,
+                                   scaled(filament, value));
+                addSectionSubpixel(
+                    LedSection::Right,
+                    (static_cast<uint32_t>(hw::RightCount - 1U) << 8U) - sidePositionQ8,
+                    scaled(filament, value));
             }
             break;
         }
@@ -2275,13 +2439,12 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 setOuterVisualPathPixel(path, scaled(filament, 8U));
             }
-            const uint16_t step = static_cast<uint16_t>(now / 82U);
+            const uint32_t headQ8 = loopingPixelPositionQ8(now, 82U, hw::OuterCount);
             for (uint8_t bead = 0; bead < 8U; ++bead) {
-                const uint16_t path = static_cast<uint16_t>((step + bead * 6U) % hw::OuterCount);
                 const uint8_t paletteIndex = bead & 3U;
-                setOuterVisualPathPixel(path, scaled(filamentPalette[paletteIndex], 235U));
-                const uint16_t neighbor = static_cast<uint16_t>((path + 1U) % hw::OuterCount);
-                setOuterVisualPathPixel(neighbor, scaled(filamentPalette[paletteIndex], 52U));
+                addOuterVisualPathSubpixel(
+                    headQ8 + (static_cast<uint32_t>(bead * 6U) << 8U),
+                    scaled(filamentPalette[paletteIndex], 235U));
             }
             const uint16_t fixedBeads = static_cast<uint16_t>(progress * 5U / 100U);
             for (uint16_t bead = 0; bead < fixedBeads; ++bead) {
@@ -2320,9 +2483,12 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                                     : scaled(remainingColor, 12U));
             }
             const uint16_t period = static_cast<uint16_t>(45U + remainingPercent);
-            const uint16_t droplet = static_cast<uint16_t>((now / period) % hw::OuterCount);
-            setOuterVisualPathPixel(hw::OuterCount - 1U - droplet,
-                                   blend(filament, remainingColor, 128U));
+            const uint32_t dropletQ8 = loopingPixelPositionQ8(now, period, hw::OuterCount);
+            addOuterVisualPathSubpixel(
+                ((static_cast<uint32_t>(hw::OuterCount) << 8U) +
+                 (static_cast<uint32_t>(hw::OuterCount - 1U) << 8U) - dropletQ8) %
+                    (static_cast<uint32_t>(hw::OuterCount) << 8U),
+                blend(filament, remainingColor, 128U));
             break;
         }
 
@@ -2502,21 +2668,21 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 coreColor = decorativeHsv(LedCategory::Print, 138U, 245U, 255U);
             }
             const uint16_t half = hw::CenterCount / 2U;
-            const uint16_t travelSpan = max<uint16_t>(1U, half - 1U);
-            const uint16_t cycle = travelSpan * 2U;
-            const uint16_t phase = static_cast<uint16_t>((now / 78U) % cycle);
-            const uint16_t travel = phase <= travelSpan ? phase : cycle - phase;
-            const uint16_t leftCore = travel;
-            const uint16_t rightCore = hw::CenterCount - 1U - travel;
+            const uint32_t leftCoreQ8 = pingPongPixelPositionQ8(now, 78U, half);
+            const uint32_t rightCoreQ8 =
+                (static_cast<uint32_t>(hw::CenterCount - 1U) << 8U) - leftCoreQ8;
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
                 setSection(LedSection::Center, i,
                            scaled(filament, static_cast<uint8_t>(16U + coverage * 55U / 255U)));
-                const uint16_t leftDistance = i > leftCore ? i - leftCore : leftCore - i;
-                const uint16_t rightDistance = i > rightCore ? i - rightCore : rightCore - i;
-                const uint16_t distance = min<uint16_t>(leftDistance, rightDistance);
-                if (distance <= 3U) {
-                    const uint8_t value = static_cast<uint8_t>(255U - distance * 64U);
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t leftDistanceQ8 = pixelQ8 > leftCoreQ8
+                    ? pixelQ8 - leftCoreQ8 : leftCoreQ8 - pixelQ8;
+                const uint32_t rightDistanceQ8 = pixelQ8 > rightCoreQ8
+                    ? pixelQ8 - rightCoreQ8 : rightCoreQ8 - pixelQ8;
+                const uint32_t distanceQ8 = min<uint32_t>(leftDistanceQ8, rightDistanceQ8);
+                if (distanceQ8 <= (3U << 8U)) {
+                    const uint8_t value = q8Falloff(255U, 64U, distanceQ8);
                     setSection(LedSection::Center, i,
                                blend(scaled(filament, value), scaled(coreColor, value), 120U));
                 }
@@ -2606,18 +2772,20 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 setSection(LedSection::Right, i,
                            scaled(rightCoil < 2U ? phaseColor : filament, rightCoil < 2U ? 220U : 24U));
             }
-            const uint16_t activeLayer = lit
-                ? static_cast<uint16_t>((now / 92U) % lit) : 0U;
+            const uint32_t activeLayerQ8 = lit
+                ? loopingPixelPositionQ8(now, 92U, lit) : 0U;
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
                 if (!coverage) continue;
                 const bool seam = ((i + phase / 3U) % 4U) == 0U;
                 uint8_t value = static_cast<uint8_t>(32U + coverage * (seam ? 88U : 48U) / 255U);
-                const uint16_t distance = i > activeLayer ? i - activeLayer : activeLayer - i;
-                if (distance <= 2U) value = max<uint8_t>(value,
-                    static_cast<uint8_t>(238U - distance * 66U));
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > activeLayerQ8
+                    ? pixelQ8 - activeLayerQ8 : activeLayerQ8 - pixelQ8;
+                if (distanceQ8 <= (2U << 8U)) value = max<uint8_t>(
+                    value, q8Falloff(238U, 66U, distanceQ8));
                 setSection(LedSection::Center, i,
-                           scaled(distance == 0U ? phaseColor : filament, value));
+                           scaled(distanceQ8 < 128U ? phaseColor : filament, value));
             }
             break;
         }
@@ -2629,7 +2797,8 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                     context.printEtaSec * 100U / totalSeconds))
                 : static_cast<uint8_t>(100U - progress);
             const uint16_t stepMs = static_cast<uint16_t>(38U + remainingPercent);
-            const uint8_t phase = static_cast<uint8_t>(now / stepMs);
+            const uint32_t phaseQ8 = static_cast<uint32_t>(
+                (static_cast<uint64_t>(now) << 8U) / stepMs);
             RgbwColor horizon = complementary(filament);
             if (horizon.r == 0U && horizon.g == 0U && horizon.b == 0U) {
                 horizon = decorativeHsv(LedCategory::Print, 24U, 240U, 255U);
@@ -2637,13 +2806,20 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint8_t band = static_cast<uint8_t>((distance * 3U + phase) % 12U);
+                const uint32_t bandQ8 =
+                    ((static_cast<uint32_t>(distance * 3U) << 8U) + phaseQ8) %
+                    (12U << 8U);
                 const uint8_t depth = static_cast<uint8_t>(255U -
                     min<uint16_t>(210U, distance * 210U / max<uint16_t>(1U, center)));
-                const uint8_t value = band < 3U
-                    ? static_cast<uint8_t>(70U + depth * (3U - band) / 3U)
+                const uint8_t value = bandQ8 < (3U << 8U)
+                    ? static_cast<uint8_t>(70U +
+                        static_cast<uint32_t>(depth) * ((3U << 8U) - bandQ8) /
+                        (3U << 8U))
                     : static_cast<uint8_t>(10U + depth / 10U);
-                setOuterVisualPathPixel(path, scaled(band == 0U ? horizon : filament, value));
+                const uint8_t horizonMix = bandQ8 < (1U << 8U)
+                    ? static_cast<uint8_t>(255U - bandQ8 * 255U / 256U) : 0U;
+                setOuterVisualPathPixel(path,
+                    scaled(blend(filament, horizon, horizonMix), value));
             }
             break;
         }
@@ -2690,17 +2866,22 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                     scaled(filamentPalette[active], static_cast<uint8_t>(20U + coverage * 62U / 255U)));
             }
             const uint16_t source = Sources[active];
-            const uint8_t travel = static_cast<uint8_t>((now / 18U) & 0xFFU);
             const int32_t span = static_cast<int32_t>(destination) - source;
-            const int32_t headRaw = static_cast<int32_t>(source) + span * travel / 255;
-            const uint16_t head = static_cast<uint16_t>(max<int32_t>(0,
-                min<int32_t>(hw::OuterCount - 1U, headRaw)));
+            constexpr uint32_t TravelMs = 18U * 256U;
+            const uint32_t travelQ16 = static_cast<uint32_t>(
+                static_cast<uint64_t>(now % TravelMs) * 65535U / TravelMs);
+            const int32_t headQ8 = (static_cast<int32_t>(source) << 8U) +
+                static_cast<int32_t>(static_cast<int64_t>(span) * 256LL * travelQ16 / 65535LL);
             const int8_t direction = span >= 0 ? 1 : -1;
             for (uint8_t tail = 0; tail < 5U; ++tail) {
-                const int32_t position = static_cast<int32_t>(head) - direction * tail;
-                if (position < 0 || position >= hw::OuterCount) continue;
-                setOuterVisualPathPixel(static_cast<uint16_t>(position),
-                    scaled(filamentPalette[active], static_cast<uint8_t>(255U - tail * 45U)));
+                const int32_t positionQ8 = headQ8 -
+                    static_cast<int32_t>(direction) * (static_cast<int32_t>(tail) << 8U);
+                if (positionQ8 < 0 ||
+                    positionQ8 >= static_cast<int32_t>(hw::OuterCount << 8U)) continue;
+                addOuterVisualPathSubpixel(
+                    static_cast<uint32_t>(positionQ8),
+                    scaled(filamentPalette[active], static_cast<uint8_t>(255U - tail * 45U)),
+                    false);
             }
             break;
         }
@@ -2728,8 +2909,9 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 setSection(LedSection::Center, i,
                            coverage ? scaled(progressColor, coverage) : RgbwColor(2U, 2U, 2U));
             }
-            const uint16_t handoff = static_cast<uint16_t>((now / 105U) % hw::OuterCount);
-            setOuterVisualPathPixel(handoff, RgbwColor(230U, 230U, 230U));
+            addOuterVisualPathSubpixel(
+                loopingPixelPositionQ8(now, 105U, hw::OuterCount),
+                RgbwColor(230U, 230U, 230U));
             break;
         }
 
@@ -2750,9 +2932,11 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 const uint8_t baseline = static_cast<uint8_t>((healthy ? 24U : 10U) + coverage / 4U);
                 setSection(LedSection::Center, i, scaled(status, baseline));
             }
-            const uint16_t sweep = static_cast<uint16_t>((now / (healthy ? 135U : 62U)) % hw::CenterCount);
-            setSection(LedSection::Center, sweep,
-                       healthy ? RgbwColor(120U, 255U, 205U) : RgbwColor(255U, 120U, 0U));
+            addSectionSubpixel(
+                LedSection::Center,
+                loopingPixelPositionQ8(now, healthy ? 135U : 62U, hw::CenterCount),
+                healthy ? RgbwColor(120U, 255U, 205U) : RgbwColor(255U, 120U, 0U),
+                true);
             break;
         }
 
@@ -2797,19 +2981,18 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 if (coverage) setSection(LedSection::Center, i,
                     scaled(filament, static_cast<uint8_t>(32U + coverage * 80U / 255U)));
             }
-            const uint16_t span = hw::OuterCount - 1U;
-            const uint16_t cycle = span * 2U;
-            const uint16_t phase = static_cast<uint16_t>((now / 46U) % cycle);
-            const uint16_t scan = phase <= span ? phase : cycle - phase;
+            const uint32_t scanQ8 = pingPongPixelPositionQ8(now, 46U, hw::OuterCount);
             RgbwColor scanColor = complementary(filament);
             if (scanColor.r == 0U && scanColor.g == 0U && scanColor.b == 0U) {
                 scanColor = decorativeHsv(LedCategory::Print, 132U, 220U, 255U);
             }
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > scan ? path - scan : scan - path;
-                if (distance <= 2U) {
+                const uint32_t pathQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t distanceQ8 = pathQ8 > scanQ8
+                    ? pathQ8 - scanQ8 : scanQ8 - pathQ8;
+                if (distanceQ8 <= (3U << 8U)) {
                     setOuterVisualPathPixel(path, scaled(scanColor,
-                        static_cast<uint8_t>(255U - distance * 82U)));
+                        q8Falloff(255U, 82U, distanceQ8)));
                 }
             }
             break;
@@ -2825,7 +3008,7 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             const uint16_t marker = min<uint16_t>(hw::CenterCount - 1U,
                 static_cast<uint16_t>(progress * (hw::CenterCount - 1U) / 100U));
             const uint16_t origin = hw::LeftCount + marker;
-            const uint8_t ripplePhase = static_cast<uint8_t>((now / 58U) % 11U);
+            const uint32_t ripplePhaseQ8 = loopingPixelPositionQ8(now, 58U, 11U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 RgbwColor base;
                 if (path < hw::LeftCount) base = scaled(bed, 28U);
@@ -2834,9 +3017,11 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                     base = scaled(filament, progressCoverage(progress, hw::CenterCount, centerIndex) / 4U);
                 } else base = scaled(chamber, 28U);
                 const uint16_t distance = path > origin ? path - origin : origin - path;
-                const uint8_t band = static_cast<uint8_t>((distance + 11U - ripplePhase) % 11U);
-                const uint8_t ripple = band <= 2U
-                    ? static_cast<uint8_t>(210U - band * 72U) : 0U;
+                const uint32_t bandQ8 =
+                    ((static_cast<uint32_t>(distance + 11U) << 8U) - ripplePhaseQ8) %
+                    (11U << 8U);
+                const uint8_t ripple = bandQ8 <= (3U << 8U)
+                    ? q8Falloff(210U, 72U, bandQ8) : 0U;
                 setOuterVisualPathPixel(path, ripple ? blend(base, tool, ripple) : base);
             }
             break;
@@ -2895,23 +3080,26 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             fillSection(LedSection::Left, scaled(heat, 34U));
             fillSection(LedSection::Right, scaled(heat, 34U));
             const uint16_t scanCount = max<uint16_t>(1U, lit);
-            const uint16_t span = scanCount > 1U ? scanCount - 1U : 0U;
-            const uint16_t cycle = max<uint16_t>(1U, span * 2U);
-            const uint16_t phase = static_cast<uint16_t>((now / 64U) % cycle);
-            const uint16_t nozzle = span == 0U ? 0U : (phase <= span ? phase : cycle - phase);
-            const bool movingForward = span == 0U || phase <= span;
+            const uint32_t spanQ8 = static_cast<uint32_t>(scanCount - 1U) << 8U;
+            const uint32_t cycleQ8 = max<uint32_t>(1U, spanQ8 * 2U);
+            const uint32_t phaseQ8 = scanCount <= 1U ? 0U : static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 64U) % cycleQ8);
+            const uint32_t nozzleQ8 = phaseQ8 <= spanQ8 ? phaseQ8 : cycleQ8 - phaseQ8;
+            const bool movingForward = scanCount <= 1U || phaseQ8 <= spanQ8;
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t coverage = progressCoverage(progress, hw::CenterCount, i);
                 if (coverage) setSection(LedSection::Center, i,
                     scaled(filament, static_cast<uint8_t>(28U + coverage * 72U / 255U)));
-                const bool behind = movingForward ? i <= nozzle : i >= nozzle;
-                const uint16_t distance = i > nozzle ? i - nozzle : nozzle - i;
-                if (i < scanCount && behind && distance <= 5U) {
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const bool behind = movingForward ? pixelQ8 <= nozzleQ8 : pixelQ8 >= nozzleQ8;
+                const uint32_t distanceQ8 = pixelQ8 > nozzleQ8
+                    ? pixelQ8 - nozzleQ8 : nozzleQ8 - pixelQ8;
+                if (i < scanCount && behind && distanceQ8 <= (6U << 8U)) {
                     setSection(LedSection::Center, i, scaled(filament,
-                        static_cast<uint8_t>(210U - distance * 28U)));
+                        q8Falloff(210U, 28U, distanceQ8)));
                 }
             }
-            setSection(LedSection::Center, min<uint16_t>(nozzle, hw::CenterCount - 1U), heat);
+            addSectionSubpixel(LedSection::Center, nozzleQ8, heat);
             break;
         }
 
@@ -3001,25 +3189,26 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             }
             const uint8_t active = context.activeTool & 3U;
             const uint16_t anchor = Anchors[active];
-            const uint8_t localPhase = static_cast<uint8_t>((now / 62U) % 16U);
-            const int8_t localOffset = localPhase < 8U
-                ? static_cast<int8_t>(localPhase) - 4
-                : static_cast<int8_t>(11 - localPhase);
-            const int16_t rawOrbit = static_cast<int16_t>(anchor) + localOffset;
-            const uint16_t orbit = static_cast<uint16_t>(
-                (rawOrbit + static_cast<int16_t>(hw::OuterCount)) % hw::OuterCount);
+            const int32_t localOffsetQ8 =
+                static_cast<int32_t>(pingPongPixelPositionQ8(now, 62U, 8U)) - (4 << 8U);
+            int32_t orbitQ8 = (static_cast<int32_t>(anchor) << 8U) + localOffsetQ8;
+            const int32_t outerCycleQ8 = static_cast<int32_t>(hw::OuterCount) << 8U;
+            while (orbitQ8 < 0) orbitQ8 += outerCycleQ8;
+            orbitQ8 %= outerCycleQ8;
             const uint8_t toolPercent = temperaturePercent(context.activeToolTempC, 20.0f, 300.0f, 68U);
-            setOuterVisualPathPixel(orbit, temperatureColor(toolPercent));
-            const uint16_t previous = static_cast<uint16_t>(
-                (orbit + hw::OuterCount - (localOffset >= 0 ? 1U : hw::OuterCount - 1U)) % hw::OuterCount);
-            setOuterVisualPathPixel(previous, scaled(filamentPalette[active], 110U));
+            addOuterVisualPathSubpixel(static_cast<uint32_t>(orbitQ8), temperatureColor(toolPercent));
+            int32_t trailQ8 = orbitQ8 + (localOffsetQ8 >= 0 ? -256 : 256);
+            while (trailQ8 < 0) trailQ8 += outerCycleQ8;
+            trailQ8 %= outerCycleQ8;
+            addOuterVisualPathSubpixel(
+                static_cast<uint32_t>(trailQ8), scaled(filamentPalette[active], 110U));
             break;
         }
 
         case PrintAnimation::Wipe: {
             for (uint16_t i = 0; i < hw::LeftCount; ++i) {
-                const uint8_t value = static_cast<uint8_t>(165U + wave8(
-                    static_cast<uint8_t>(now / 34U + i * 16U)) * 90U / 255U);
+                const uint8_t value = static_cast<uint8_t>(165U +
+                    wave8At(now, 34U, i * 16U) * 90U / 255U);
                 setSection(LedSection::Left, i, scaled(filament, value));
                 setSection(LedSection::Right, i, scaled(filament, value));
             }
@@ -3210,9 +3399,8 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
                 strandB = decorativeHsv(LedCategory::Print, 232U, 255U, 255U);
             }
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t phase = static_cast<uint8_t>(now / 22U + path * 31U);
-                const uint8_t helixA = wave8(phase);
-                const uint8_t helixB = wave8(static_cast<uint8_t>(phase + 128U));
+                const uint8_t helixA = wave8At(now, 22U, path * 31U);
+                const uint8_t helixB = wave8At(now, 22U, path * 31U + 128U);
                 const bool useA = helixA >= helixB;
                 const uint8_t value = static_cast<uint8_t>(48U + max<uint8_t>(helixA, helixB) * 207U / 255U);
                 setOuterVisualPathPixel(path, scaled(useA ? strandA : strandB, value));
@@ -3222,20 +3410,23 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
 
         case PrintAnimation::PixelRain: {
             constexpr LedSection Sides[2] = {LedSection::Left, LedSection::Right};
-            const uint32_t tick = now / 85U;
             for (uint8_t sideIndex = 0; sideIndex < 2U; ++sideIndex) {
                 const LedSection section = Sides[sideIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint8_t drop = 0; drop < 4U; ++drop) {
                     const uint16_t cycle = count + 7U;
-                    const uint16_t head = static_cast<uint16_t>((tick * (drop + 1U) +
-                        hash8(drop * 71U + sideIndex * 137U)) % cycle);
+                    const uint32_t cycleQ8 = static_cast<uint32_t>(cycle) << 8U;
+                    const uint32_t headQ8 = static_cast<uint32_t>(
+                        (((static_cast<uint64_t>(now) << 8U) * (drop + 1U) / 85U) +
+                         (static_cast<uint32_t>(hash8(drop * 71U + sideIndex * 137U)) << 8U)) %
+                        cycleQ8);
                     for (uint8_t tail = 0; tail < 4U; ++tail) {
-                        if (head < tail) continue;
-                        const uint16_t position = head - tail;
-                        if (position >= count) continue;
+                        const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                        if (headQ8 < tailQ8) continue;
+                        const uint32_t positionQ8 = headQ8 - tailQ8;
+                        if (positionQ8 >= (static_cast<uint32_t>(count) << 8U)) continue;
                         const uint8_t value = static_cast<uint8_t>(235U - tail * 55U);
-                        setSection(section, position, scaled(filament, value));
+                        addSectionSubpixel(section, positionQ8, scaled(filament, value));
                     }
                 }
             }
@@ -3253,17 +3444,17 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
 
         case PrintAnimation::Orbit: {
             const uint16_t period = max<uint16_t>(38U, static_cast<uint16_t>(92U - progress / 2U));
-            const uint16_t first = static_cast<uint16_t>((now / period) % hw::OuterCount);
-            const uint16_t second = static_cast<uint16_t>((first + hw::OuterCount / 2U) % hw::OuterCount);
+            const uint32_t firstQ8 = loopingPixelPositionQ8(now, period, hw::OuterCount);
+            const uint32_t secondQ8 = (firstQ8 +
+                (static_cast<uint32_t>(hw::OuterCount / 2U) << 8U)) %
+                (static_cast<uint32_t>(hw::OuterCount) << 8U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t d1raw = path > first ? path - first : first - path;
-                const uint16_t d2raw = path > second ? path - second : second - path;
-                const uint16_t d1 = min<uint16_t>(d1raw, hw::OuterCount - d1raw);
-                const uint16_t d2 = min<uint16_t>(d2raw, hw::OuterCount - d2raw);
-                const uint16_t distance = min<uint16_t>(d1, d2);
-                const uint8_t value = distance > 3U ? 18U
-                    : static_cast<uint8_t>(255U - distance * 63U);
-                const RgbwColor color = distance == 0U
+                const uint32_t d1Q8 = circularDistanceQ8(firstQ8, path, hw::OuterCount);
+                const uint32_t d2Q8 = circularDistanceQ8(secondQ8, path, hw::OuterCount);
+                const uint32_t distanceQ8 = min<uint32_t>(d1Q8, d2Q8);
+                const uint8_t value = distanceQ8 > (3U << 8U) ? 18U
+                    : q8Falloff(255U, 63U, distanceQ8);
+                const RgbwColor color = distanceQ8 < 128U
                     ? decorativeHsv(LedCategory::Print,
                         static_cast<uint8_t>(path * 9U + now / 18U), 245U, value)
                     : scaled(filament, value);
@@ -3279,15 +3470,15 @@ void LedService::renderPrint(uint8_t animation, const LedAnimationContext& conte
             const bool redFilament = chromatic && (filamentHue <= 18U || filamentHue >= 238U);
             const RgbwColor laser = redFilament ? RgbwColor(0, 255, 40) : RgbwColor(255, 0, 0);
             const uint16_t span = max<uint16_t>(1U, lit);
-            const uint16_t phase = static_cast<uint16_t>((now / 34U) % (span * 2U));
-            const uint16_t head = phase < span ? phase : static_cast<uint16_t>(span * 2U - 1U - phase);
+            const uint32_t headQ8 = pingPongPixelPositionQ8(now, 34U, span);
             const uint16_t tip = lit ? lit - 1U : 0U;
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 uint8_t value = static_cast<uint8_t>(progressCoverage(progress, hw::CenterCount, i) * 18U / 255U);
-                const uint16_t headDistance = i > head ? i - head : head - i;
-                if (lit && i < lit && headDistance <= 3U) {
-                    value = max<uint8_t>(value, headDistance == 0U ? 255U
-                        : static_cast<uint8_t>(150U - headDistance * 38U));
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t headDistanceQ8 = pixelQ8 > headQ8
+                    ? pixelQ8 - headQ8 : headQ8 - pixelQ8;
+                if (lit && i < lit && headDistanceQ8 <= (3U << 8U)) {
+                    value = max<uint8_t>(value, q8Falloff(255U, 53U, headDistanceQ8));
                 }
                 const uint16_t tipDistance = i > tip ? i - tip : tip - i;
                 if (lit && tipDistance <= 1U) value = max<uint8_t>(value, tipDistance ? 95U : 255U);
@@ -3596,8 +3787,8 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
         case PauseAnimation::Phase: {
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
-                const uint8_t phase = static_cast<uint8_t>(now / 31U + sectionIndex * 85U);
-                const uint8_t value = static_cast<uint8_t>(20U + wave8(phase) * 155U / 255U);
+                const uint8_t value = static_cast<uint8_t>(20U +
+                    wave8At(now, 31U, sectionIndex * 85U) * 155U / 255U);
                 fillSection(section, scaled(amber, value));
             }
             setSection(LedSection::Center, marker, scaled(filament, 230U));
@@ -3615,19 +3806,29 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
         }
         case PauseAnimation::WatchfulEyes: {
             const uint32_t cycle = now % 5600U;
-            int16_t glance = 0;
-            if (cycle >= 1100U && cycle < 1900U) glance = static_cast<int16_t>((cycle - 1100U) * 4U / 800U);
-            else if (cycle >= 1900U && cycle < 2700U) glance = static_cast<int16_t>(4 - (cycle - 1900U) * 4U / 800U);
-            else if (cycle >= 3300U && cycle < 4100U) glance = -static_cast<int16_t>((cycle - 3300U) * 4U / 800U);
-            else if (cycle >= 4100U && cycle < 4900U) glance = static_cast<int16_t>(-4 + (cycle - 4100U) * 4U / 800U);
-            const uint16_t eye = static_cast<uint16_t>(max<int16_t>(1, min<int16_t>(hw::LeftCount - 2U,
-                static_cast<int16_t>(hw::LeftCount / 2U) + glance)));
+            int32_t glanceQ8 = 0;
+            if (cycle >= 1100U && cycle < 1900U) {
+                glanceQ8 = static_cast<int32_t>((cycle - 1100U) * (4U << 8U) / 800U);
+            } else if (cycle >= 1900U && cycle < 2700U) {
+                glanceQ8 = (4 << 8U) -
+                    static_cast<int32_t>((cycle - 1900U) * (4U << 8U) / 800U);
+            } else if (cycle >= 3300U && cycle < 4100U) {
+                glanceQ8 = -static_cast<int32_t>((cycle - 3300U) * (4U << 8U) / 800U);
+            } else if (cycle >= 4100U && cycle < 4900U) {
+                glanceQ8 = -(4 << 8U) +
+                    static_cast<int32_t>((cycle - 4100U) * (4U << 8U) / 800U);
+            }
+            const int32_t eyeQ8 = max<int32_t>(1 << 8U,
+                min<int32_t>((hw::LeftCount - 2U) << 8U,
+                    (static_cast<int32_t>(hw::LeftCount / 2U) << 8U) + glanceQ8));
             fillSection(LedSection::Left, scaled(amber, 10U));
             fillSection(LedSection::Right, scaled(amber, 10U));
             for (int8_t offset = -1; offset <= 1; ++offset) {
                 const uint8_t value = offset == 0 ? 225U : 58U;
-                setSection(LedSection::Left, static_cast<uint16_t>(eye + offset), scaled(amber, value));
-                setSection(LedSection::Right, static_cast<uint16_t>(eye + offset), scaled(amber, value));
+                const uint32_t positionQ8 = static_cast<uint32_t>(
+                    eyeQ8 + static_cast<int32_t>(offset) * 256);
+                addSectionSubpixel(LedSection::Left, positionQ8, scaled(amber, value));
+                addSectionSubpixel(LedSection::Right, positionQ8, scaled(amber, value));
             }
             frozenProgress(filament, 24U, 2U, 85U);
             break;
@@ -3637,13 +3838,15 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             const bool flash = cycle < 65U || (cycle >= 120U && cycle < 185U) ||
                                (cycle >= 240U && cycle < 305U);
             const uint16_t origin = hw::OuterCount / 2U;
-            const uint16_t radius = static_cast<uint16_t>(min<uint32_t>(hw::OuterCount,
-                cycle * hw::OuterCount / 620U));
+            const uint32_t radiusQ8 = min<uint32_t>(hw::OuterCount << 8U,
+                static_cast<uint32_t>(static_cast<uint64_t>(cycle) *
+                    (hw::OuterCount << 8U) / 620U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > origin ? path - origin : origin - path;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(
+                    path > origin ? path - origin : origin - path) << 8U;
                 uint8_t value = 4U;
-                if (flash && distance <= radius && radius - distance < 5U) {
-                    value = static_cast<uint8_t>(235U - (radius - distance) * 42U);
+                if (flash && distanceQ8 <= radiusQ8 && radiusQ8 - distanceQ8 < (5U << 8U)) {
+                    value = q8Falloff(235U, 42U, radiusQ8 - distanceQ8);
                 }
                 setOuterVisualPathPixel(path, scaled(amber, value));
             }
@@ -3693,8 +3896,10 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
                 setSection(LedSection::Right, i, scaled(amber, rightValue));
             }
             frozenProgress(filament, 44U, 2U, 145U);
-            const uint16_t falling = static_cast<uint16_t>((cycle / 95U) % hw::CenterCount);
-            setSection(LedSection::Center, falling, scaled(amber, 210U));
+            addSectionSubpixel(
+                LedSection::Center,
+                loopingPixelPositionQ8(cycle, 95U, hw::CenterCount),
+                scaled(amber, 210U), true);
             break;
         }
         case PauseAnimation::AmberWave: {
@@ -3709,14 +3914,14 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case PauseAnimation::Bounce: {
-            const uint32_t cycle = now % 3200U;
-            const uint32_t half = cycle < 1600U ? cycle : 3200U - cycle;
-            const uint16_t head = static_cast<uint16_t>(half * (hw::OuterCount - 1U) / 1600U);
-            for (int8_t offset = -4; offset <= 4; ++offset) {
-                const int16_t path = static_cast<int16_t>(head) + offset;
-                if (path < 0 || path >= static_cast<int16_t>(hw::OuterCount)) continue;
-                const uint8_t value = static_cast<uint8_t>(230U - abs(offset) * 47U);
-                setOuterVisualPathPixel(static_cast<uint16_t>(path), scaled(cool, value));
+            const uint32_t headQ8 = pingPongPixelPositionQ8(
+                now, static_cast<uint16_t>(1600U / (hw::OuterCount - 1U)), hw::OuterCount);
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint32_t pathQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t distanceQ8 = pathQ8 > headQ8
+                    ? pathQ8 - headQ8 : headQ8 - pathQ8;
+                if (distanceQ8 > (4U << 8U)) continue;
+                setOuterVisualPathPixel(path, scaled(cool, q8Falloff(230U, 47U, distanceQ8)));
             }
             frozenProgress(amber, 30U, 2U, 150U);
             break;
@@ -3833,12 +4038,16 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
         }
         case PauseAnimation::WaitingRipple: {
             const uint16_t origin = static_cast<uint16_t>(hw::LeftCount + marker);
-            const uint16_t radius = static_cast<uint16_t>((now / 92U) % (hw::OuterCount / 2U + 7U));
+            const uint32_t radiusQ8 = loopingPixelPositionQ8(
+                now, 92U, static_cast<uint16_t>(hw::OuterCount / 2U + 7U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t direct = path > origin ? path - origin : origin - path;
                 const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = delta < 4U ? static_cast<uint8_t>(185U - delta * 43U) : 4U;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t value = deltaQ8 < (4U << 8U)
+                    ? q8Falloff(185U, 43U, deltaQ8) : 4U;
                 setOuterVisualPathPixel(path, scaled(amber, value));
             }
             setSection(LedSection::Center, marker, scaled(filament, 210U));
@@ -3867,15 +4076,17 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case PauseAnimation::SlowScan: {
-            const uint32_t cycle = now % 6200U;
-            const uint32_t half = cycle < 3100U ? cycle : 6200U - cycle;
-            const uint16_t scan = static_cast<uint16_t>(half * (hw::CenterCount - 1U) / 3100U);
+            const uint32_t scanQ8 = pingPongPixelPositionQ8(
+                now, static_cast<uint16_t>(3100U / (hw::CenterCount - 1U)),
+                hw::CenterCount);
             fillSection(LedSection::Left, scaled(filament, 32U));
             fillSection(LedSection::Right, scaled(filament, 32U));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint16_t distance = i > scan ? i - scan : scan - i;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > scanQ8
+                    ? pixelQ8 - scanQ8 : scanQ8 - pixelQ8;
                 uint8_t value = i < lit ? 26U : 3U;
-                if (distance < 5U) value = static_cast<uint8_t>(195U - distance * 38U);
+                if (distanceQ8 < (5U << 8U)) value = q8Falloff(195U, 38U, distanceQ8);
                 setSection(LedSection::Center, i, scaled(cool, value));
             }
             setSection(LedSection::Center, marker, scaled(amber, 150U));
@@ -3910,15 +4121,17 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case PauseAnimation::CalmOrbit: {
-            const uint16_t first = static_cast<uint16_t>((now / 105U) % hw::OuterCount);
-            const uint16_t second = static_cast<uint16_t>((first + hw::OuterCount / 2U) % hw::OuterCount);
+            const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
+            const uint32_t firstQ8 = loopingPixelPositionQ8(now, 105U, hw::OuterCount);
+            const uint32_t secondQ8 = (firstQ8 +
+                (static_cast<uint32_t>(hw::OuterCount / 2U) << 8U)) % cycleQ8;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t directA = path > first ? path - first : first - path;
-                const uint16_t directB = path > second ? path - second : second - path;
-                const uint16_t distanceA = min<uint16_t>(directA, hw::OuterCount - directA);
-                const uint16_t distanceB = min<uint16_t>(directB, hw::OuterCount - directB);
-                const uint8_t valueA = distanceA < 4U ? static_cast<uint8_t>(135U - distanceA * 31U) : 0U;
-                const uint8_t valueB = distanceB < 4U ? static_cast<uint8_t>(120U - distanceB * 27U) : 0U;
+                const uint32_t distanceAQ8 = circularDistanceQ8(firstQ8, path, hw::OuterCount);
+                const uint32_t distanceBQ8 = circularDistanceQ8(secondQ8, path, hw::OuterCount);
+                const uint8_t valueA = distanceAQ8 < (4U << 8U)
+                    ? q8Falloff(135U, 31U, distanceAQ8) : 0U;
+                const uint8_t valueB = distanceBQ8 < (4U << 8U)
+                    ? q8Falloff(120U, 27U, distanceBQ8) : 0U;
                 const RgbwColor color = blend(scaled(amber, valueA), scaled(cool, valueB), 128U);
                 setOuterVisualPathPixel(path, color);
             }
@@ -3927,16 +4140,18 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
         }
         case PauseAnimation::HoldingPattern: {
             frozenProgress(amber, 72U, 3U, 175U);
-            const uint16_t shuttle = static_cast<uint16_t>((now / 155U) % (hw::LeftCount * 2U - 2U));
-            const uint16_t sidePos = shuttle < hw::LeftCount ? shuttle : hw::LeftCount * 2U - 2U - shuttle;
+            const uint32_t sidePositionQ8 = pingPongPixelPositionQ8(
+                now, 155U, hw::LeftCount);
             fillSection(LedSection::Left, scaled(filament, 12U));
             fillSection(LedSection::Right, scaled(filament, 12U));
-            for (int8_t offset = -2; offset <= 2; ++offset) {
-                const int16_t position = static_cast<int16_t>(sidePos) + offset;
-                if (position < 0 || position >= static_cast<int16_t>(hw::LeftCount)) continue;
-                const uint8_t value = static_cast<uint8_t>(170U - abs(offset) * 58U);
-                setSection(LedSection::Left, static_cast<uint16_t>(position), scaled(amber, value));
-                setSection(LedSection::Right, hw::RightCount - 1U - static_cast<uint16_t>(position), scaled(amber, value));
+            for (uint16_t i = 0; i < hw::LeftCount; ++i) {
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > sidePositionQ8
+                    ? pixelQ8 - sidePositionQ8 : sidePositionQ8 - pixelQ8;
+                if (distanceQ8 > (2U << 8U)) continue;
+                const uint8_t value = q8Falloff(170U, 58U, distanceQ8);
+                setSection(LedSection::Left, i, scaled(amber, value));
+                setSection(LedSection::Right, hw::RightCount - 1U - i, scaled(amber, value));
             }
             break;
         }
@@ -3957,13 +4172,16 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
         case PauseAnimation::ResumeGate: {
             const uint8_t opening = wave8At(now, 42U);
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t span = static_cast<uint16_t>(opening * (hw::OuterCount / 2U) / 255U);
+            const uint32_t spanQ8 = static_cast<uint32_t>(opening) *
+                (hw::OuterCount / 2U << 8U) / 255U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t edgeDistance = distance > span ? distance - span : span - distance;
-                const uint8_t value = edgeDistance < 5U
-                    ? static_cast<uint8_t>(205U - edgeDistance * 38U)
-                    : (distance < span ? 20U : 3U);
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t edgeDistanceQ8 = distanceQ8 > spanQ8
+                    ? distanceQ8 - spanQ8 : spanQ8 - distanceQ8;
+                const uint8_t value = edgeDistanceQ8 < (5U << 8U)
+                    ? q8Falloff(205U, 38U, edgeDistanceQ8)
+                    : (distanceQ8 < spanQ8 ? 20U : 3U);
                 setOuterVisualPathPixel(path, scaled(amber, value));
             }
             setSection(LedSection::Center, marker, scaled(filament, 200U));
@@ -4098,7 +4316,8 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
         }
         case PauseAnimation::SoftLantern: {
             const RgbwColor lantern = decorativeHsv(LedCategory::Pause, 21U, 205U, 255U);
-            const uint8_t flame = static_cast<uint8_t>(105U + wave8At(now, 59U) / 5U + hash8(now / 180U) / 12U);
+            const uint8_t flame = static_cast<uint8_t>(105U + wave8At(now, 59U) / 5U +
+                evolvingHash8(now, 180U, 0x51A7U) / 12U);
             const uint16_t center = hw::CenterCount / 2U;
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint16_t distance = i > center ? i - center : center - i;
@@ -4165,11 +4384,15 @@ void LedService::renderPause(uint8_t animation, const LedAnimationContext& conte
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
-                const uint16_t gate = static_cast<uint16_t>(breath * (count / 2U) / 255U);
+                const uint32_t gateQ8 = static_cast<uint32_t>(breath) *
+                    (count / 2U << 8U) / 255U;
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint16_t edge = min<uint16_t>(i, count - 1U - i);
-                    const uint16_t distance = edge > gate ? edge - gate : gate - edge;
-                    const uint8_t value = distance < 3U ? static_cast<uint8_t>(155U - distance * 46U) : 5U;
+                    const uint32_t edgeQ8 = static_cast<uint32_t>(edge) << 8U;
+                    const uint32_t distanceQ8 = edgeQ8 > gateQ8
+                        ? edgeQ8 - gateQ8 : gateQ8 - edgeQ8;
+                    const uint8_t value = distanceQ8 < (3U << 8U)
+                        ? q8Falloff(155U, 46U, distanceQ8) : 5U;
                     setSection(section, i, scaled(amber, value));
                 }
             }
@@ -4401,11 +4624,18 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             const uint8_t pulse = pulsePhase < period / 3U
                 ? static_cast<uint8_t>(255U - pulsePhase * 210U / max<uint32_t>(1U, period / 3U))
                 : 20U;
-            const uint16_t contraction = static_cast<uint16_t>(elapsed * (hw::OuterCount / 2U) / 8000U);
+            const uint32_t contractionQ8 = static_cast<uint32_t>(
+                static_cast<uint64_t>(elapsed) * (hw::OuterCount / 2U << 8U) / 8000U);
             const uint16_t center = hw::OuterCount / 2U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint8_t value = distance <= hw::OuterCount / 2U - contraction ? pulse : 3U;
+                const uint32_t remainingQ8 = (hw::OuterCount / 2U << 8U) - contractionQ8;
+                const int32_t coverageQ8 = static_cast<int32_t>(remainingQ8) -
+                    static_cast<int32_t>(distance << 8U) + 256;
+                const uint8_t coverage = static_cast<uint8_t>(max<int32_t>(0,
+                    min<int32_t>(255, coverageQ8)));
+                const uint8_t value = coverage
+                    ? static_cast<uint8_t>(static_cast<uint16_t>(pulse) * coverage / 255U) : 3U;
                 setOuterVisualPathPixel(path, scaled(red, value));
             }
             break;
@@ -4423,24 +4653,38 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case ErrorAnimation::AlarmChase: {
-            const uint8_t offset = static_cast<uint8_t>(now / 42U);
-            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t band = static_cast<uint8_t>((path + offset) % 10U);
+            const uint32_t offsetQ8 = loopingPixelPositionQ8(now, 42U, 10U);
+            auto sampleBand = [&](uint8_t band) {
                 const bool whiteBand = band < 2U;
                 const bool redBand = band < 6U;
                 const RgbwColor color = whiteBand ? RgbwColor(235U, 235U, 235U) : red;
-                setOuterVisualPathPixel(path, scaled(color, redBand ? 220U : 5U));
+                return scaled(color, redBand ? 220U : 5U);
+            };
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint32_t positionQ8 = (static_cast<uint32_t>(path) << 8U) + offsetQ8;
+                const uint8_t band = static_cast<uint8_t>((positionQ8 >> 8U) % 10U);
+                const uint8_t fraction = static_cast<uint8_t>(positionQ8 & 0xFFU);
+                setOuterVisualPathPixel(path,
+                    blend(sampleBand(band), sampleBand(static_cast<uint8_t>((band + 1U) % 10U)),
+                          fraction));
             }
             break;
         }
         case ErrorAnimation::DangerStripe: {
-            const uint8_t offset = static_cast<uint8_t>(now / 95U);
-            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t stripe = static_cast<uint8_t>((path + offset) % 12U);
+            const uint32_t offsetQ8 = loopingPixelPositionQ8(now, 95U, 12U);
+            auto sampleStripe = [&](uint8_t stripe) {
                 const bool warningBand = stripe < 5U;
                 const RgbwColor color = warningBand ? amber : red;
                 const uint8_t value = warningBand ? 205U : (stripe < 9U ? 55U : 4U);
-                setOuterVisualPathPixel(path, scaled(color, value));
+                return scaled(color, value);
+            };
+            for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                const uint32_t positionQ8 = (static_cast<uint32_t>(path) << 8U) + offsetQ8;
+                const uint8_t stripe = static_cast<uint8_t>((positionQ8 >> 8U) % 12U);
+                const uint8_t fraction = static_cast<uint8_t>(positionQ8 & 0xFFU);
+                setOuterVisualPathPixel(path,
+                    blend(sampleStripe(stripe),
+                          sampleStripe(static_cast<uint8_t>((stripe + 1U) % 12U)), fraction));
             }
             break;
         }
@@ -4449,13 +4693,17 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             const uint8_t envelope = cycle < 90U
                 ? static_cast<uint8_t>(cycle * 255U / 90U)
                 : static_cast<uint8_t>(255U - (cycle - 90U) * 238U / 960U);
-            const uint16_t radius = static_cast<uint16_t>(cycle * (hw::OuterCount / 2U + 5U) / 1050U);
+            const uint32_t radiusQ8 = static_cast<uint32_t>(
+                static_cast<uint64_t>(cycle) * (hw::OuterCount / 2U + 5U) * 256U / 1050U);
             const uint16_t center = hw::OuterCount / 2U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = delta < 5U
-                    ? static_cast<uint8_t>(static_cast<uint16_t>(envelope) * (5U - delta) / 5U)
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t value = deltaQ8 < (5U << 8U)
+                    ? static_cast<uint8_t>(static_cast<uint32_t>(envelope) *
+                        ((5U << 8U) - deltaQ8) / (5U << 8U))
                     : static_cast<uint8_t>(envelope / 14U);
                 setOuterVisualPathPixel(path, scaled(red, value));
             }
@@ -4489,12 +4737,12 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case ErrorAnimation::Meltdown: {
-            const uint32_t frame = now / 58U;
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t heat = hash8(frame * 71U + i * 43U + sectionIndex * 181U);
+                    const uint8_t heat = evolvingHash8(
+                        now, 58U, i * 43U + sectionIndex * 181U + 0x4D31U);
                     const uint8_t height = static_cast<uint8_t>(i * 255U / max<uint16_t>(1U, count - 1U));
                     const uint8_t value = static_cast<uint8_t>(80U + heat / 2U);
                     const RgbwColor color = blend(red, amber,
@@ -4508,13 +4756,17 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             const uint32_t cycle = now % 1900U;
             const uint16_t center = hw::OuterCount / 2U;
             if (cycle < 820U) {
-                const uint16_t radius = static_cast<uint16_t>(cycle * (hw::OuterCount / 2U + 5U) / 820U);
+                const uint32_t radiusQ8 = static_cast<uint32_t>(
+                    static_cast<uint64_t>(cycle) * (hw::OuterCount / 2U + 5U) * 256U / 820U);
                 for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                     const uint16_t distance = path > center ? path - center : center - path;
-                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                    if (delta >= 4U) continue;
-                    const RgbwColor color = delta == 0U ? RgbwColor(255U, 230U, 175U) : amber;
-                    setOuterVisualPathPixel(path, scaled(color, static_cast<uint8_t>(240U - delta * 55U)));
+                    const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                    const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                        ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                    if (deltaQ8 >= (4U << 8U)) continue;
+                    const RgbwColor color = deltaQ8 < 128U
+                        ? RgbwColor(255U, 230U, 175U) : amber;
+                    setOuterVisualPathPixel(path, scaled(color, q8Falloff(240U, 55U, deltaQ8)));
                 }
             } else if (cycle > 1550U) {
                 const uint8_t warning = static_cast<uint8_t>((cycle - 1550U) * 75U / 350U);
@@ -4535,13 +4787,16 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             const uint32_t cycle = now % 2600U;
             const uint32_t epoch = now / 2600U;
             const uint16_t origin = hash8(epoch * 151U) % hw::OuterCount;
-            const uint16_t radius = static_cast<uint16_t>(cycle * (hw::OuterCount / 2U + 4U) / 1900U);
+            const uint32_t radiusQ8 = static_cast<uint32_t>(
+                static_cast<uint64_t>(cycle) * (hw::OuterCount / 2U + 4U) * 256U / 1900U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t direct = path > origin ? path - origin : origin - path;
                 const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = cycle < 1900U && delta < 4U
-                    ? static_cast<uint8_t>(210U - delta * 50U)
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t value = cycle < 1900U && deltaQ8 < (4U << 8U)
+                    ? q8Falloff(210U, 50U, deltaQ8)
                     : (path == origin ? 75U : 3U);
                 setOuterVisualPathPixel(path, scaled(red, value));
             }
@@ -4588,14 +4843,21 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
         }
         case ErrorAnimation::Lockdown: {
             const uint32_t cycle = now % 3000U;
-            const uint16_t gate = cycle < 1500U
-                ? static_cast<uint16_t>(cycle * (hw::OuterCount / 2U) / 1500U)
-                : hw::OuterCount / 2U;
+            const uint32_t gateQ8 = cycle < 1500U
+                ? static_cast<uint32_t>(static_cast<uint64_t>(cycle) *
+                    (hw::OuterCount / 2U << 8U) / 1500U)
+                : static_cast<uint32_t>(hw::OuterCount / 2U) << 8U;
             const uint16_t center = hw::OuterCount / 2U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t edgeDistance = min<uint16_t>(path, hw::OuterCount - 1U - path);
                 const uint16_t distance = path > center ? path - center : center - path;
-                uint8_t value = edgeDistance <= gate ? 62U : 3U;
+                const int32_t coverageQ8 = static_cast<int32_t>(gateQ8) -
+                    static_cast<int32_t>(edgeDistance << 8U) + 256;
+                const uint8_t coverage = static_cast<uint8_t>(max<int32_t>(0,
+                    min<int32_t>(255, coverageQ8)));
+                uint8_t value = coverage
+                    ? static_cast<uint8_t>(3U + static_cast<uint16_t>(coverage) * 59U / 255U)
+                    : 3U;
                 if (distance <= 1U && cycle >= 1500U) value = ((now / 170U) & 1U) ? 235U : 85U;
                 setOuterVisualPathPixel(path, scaled(red, value));
             }
@@ -4619,12 +4881,16 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             const uint32_t cycle = now % 4200U;
             const uint32_t epoch = now / 4200U;
             const uint16_t breach = hash8(epoch * 211U) % hw::OuterCount;
-            const uint16_t scan = cycle < 3000U
-                ? static_cast<uint16_t>(cycle * (hw::OuterCount - 1U) / 3000U)
-                : breach;
+            const uint32_t scanQ8 = cycle < 3000U
+                ? static_cast<uint32_t>(static_cast<uint64_t>(cycle) *
+                    ((hw::OuterCount - 1U) << 8U) / 3000U)
+                : static_cast<uint32_t>(breach) << 8U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > scan ? path - scan : scan - path;
-                uint8_t value = distance < 4U ? static_cast<uint8_t>(200U - distance * 48U) : 3U;
+                const uint32_t pathQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t distanceQ8 = pathQ8 > scanQ8
+                    ? pathQ8 - scanQ8 : scanQ8 - pathQ8;
+                uint8_t value = distanceQ8 < (4U << 8U)
+                    ? q8Falloff(200U, 48U, distanceQ8) : 3U;
                 RgbwColor color = red;
                 if (cycle >= 3000U && path == breach) {
                     value = ((now / 120U) & 1U) ? 250U : 55U;
@@ -4652,12 +4918,15 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
                 const uint32_t phase = (now + ball * 430U) % Periods[ball];
                 const uint32_t half = Periods[ball] / 2U;
                 const uint32_t travel = phase < half ? phase : Periods[ball] - phase;
-                const uint16_t head = static_cast<uint16_t>(travel * (hw::OuterCount - 1U) / half);
-                for (int8_t offset = -2; offset <= 2; ++offset) {
-                    const int16_t path = static_cast<int16_t>(head) + offset;
-                    if (path < 0 || path >= static_cast<int16_t>(hw::OuterCount)) continue;
-                    const uint8_t value = static_cast<uint8_t>(220U - abs(offset) * 68U);
-                    setOuterVisualPathPixel(static_cast<uint16_t>(path), scaled(ball == 1U ? amber : red, value));
+                const uint32_t headQ8 = static_cast<uint32_t>(
+                    static_cast<uint64_t>(travel) * ((hw::OuterCount - 1U) << 8U) / half);
+                for (uint16_t path = 0; path < hw::OuterCount; ++path) {
+                    const uint32_t pathQ8 = static_cast<uint32_t>(path) << 8U;
+                    const uint32_t distanceQ8 = pathQ8 > headQ8
+                        ? pathQ8 - headQ8 : headQ8 - pathQ8;
+                    if (distanceQ8 > (2U << 8U)) continue;
+                    setOuterVisualPathPixel(path, scaled(
+                        ball == 1U ? amber : red, q8Falloff(220U, 68U, distanceQ8)));
                 }
             }
             break;
@@ -4748,12 +5017,15 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case ErrorAnimation::SirenScan: {
-            const uint32_t cycle = now % 2400U;
-            const uint32_t half = cycle < 1200U ? cycle : 2400U - cycle;
-            const uint16_t scan = static_cast<uint16_t>(half * (hw::OuterCount - 1U) / 1200U);
+            const uint32_t scanQ8 = pingPongPixelPositionQ8(
+                now, static_cast<uint16_t>(1200U / (hw::OuterCount - 1U)),
+                hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > scan ? path - scan : scan - path;
-                const uint8_t value = distance < 7U ? static_cast<uint8_t>(235U - distance * 32U) : 7U;
+                const uint32_t pathQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t distanceQ8 = pathQ8 > scanQ8
+                    ? pathQ8 - scanQ8 : scanQ8 - pathQ8;
+                const uint8_t value = distanceQ8 < (7U << 8U)
+                    ? q8Falloff(235U, 32U, distanceQ8) : 7U;
                 setOuterVisualPathPixel(path, scaled(red, value));
             }
             break;
@@ -4781,11 +5053,17 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
                 ? wave8(static_cast<uint8_t>(cycle * 255U / 600U))
                 : 0U;
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t radius = static_cast<uint16_t>(cycle < 1200U ? cycle * center / 1200U : center);
+            const uint32_t radiusQ8 = cycle < 1200U
+                ? static_cast<uint32_t>(static_cast<uint64_t>(cycle) * (center << 8U) / 1200U)
+                : static_cast<uint32_t>(center) << 8U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = delta < 3U ? static_cast<uint8_t>(80U + pulse / 2U) : 6U;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t peak = static_cast<uint8_t>(80U + pulse / 2U);
+                const uint8_t value = deltaQ8 < (3U << 8U)
+                    ? q8Falloff(peak, static_cast<uint8_t>(peak / 3U), deltaQ8) : 6U;
                 setOuterVisualPathPixel(path, scaled(amber, value));
             }
             setOuterVisualPathPixel(center, scaled(red, static_cast<uint8_t>(95U + pulse / 2U)));
@@ -4797,11 +5075,17 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
                 ? static_cast<uint8_t>(255U - cycle * 235U / 3600U)
                 : 20U;
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t boundary = static_cast<uint16_t>(cycle < 3600U
-                ? cycle * center / 3600U : center);
+            const uint32_t boundaryQ8 = cycle < 3600U
+                ? static_cast<uint32_t>(static_cast<uint64_t>(cycle) * (center << 8U) / 3600U)
+                : static_cast<uint32_t>(center) << 8U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t edge = min<uint16_t>(path, hw::OuterCount - 1U - path);
-                const uint8_t value = edge >= boundary ? fade : 2U;
+                const int32_t coverageQ8 = static_cast<int32_t>(edge << 8U) -
+                    static_cast<int32_t>(boundaryQ8) + 256;
+                const uint8_t coverage = static_cast<uint8_t>(max<int32_t>(0,
+                    min<int32_t>(255, coverageQ8)));
+                const uint8_t value = coverage
+                    ? static_cast<uint8_t>(static_cast<uint16_t>(fade) * coverage / 255U) : 2U;
                 setOuterVisualPathPixel(path, scaled(red, value));
             }
             if (cycle >= 3900U && cycle < 4080U) {
@@ -4886,15 +5170,22 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
         }
         case ErrorAnimation::Containment: {
             const uint32_t cycle = now % 3600U;
-            const uint16_t gate = cycle < 1800U
-                ? static_cast<uint16_t>(cycle * (hw::CenterCount / 2U) / 1800U)
-                : hw::CenterCount / 2U;
+            const uint32_t gateQ8 = cycle < 1800U
+                ? static_cast<uint32_t>(static_cast<uint64_t>(cycle) *
+                    (hw::CenterCount / 2U << 8U) / 1800U)
+                : static_cast<uint32_t>(hw::CenterCount / 2U) << 8U;
             fillSection(LedSection::Left, scaled(red, 80U));
             fillSection(LedSection::Right, scaled(red, 80U));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint16_t edge = min<uint16_t>(i, hw::CenterCount - 1U - i);
-                uint8_t value = edge <= gate ? 175U : 5U;
-                if (gate >= hw::CenterCount / 2U &&
+                const int32_t coverageQ8 = static_cast<int32_t>(gateQ8) -
+                    static_cast<int32_t>(edge << 8U) + 256;
+                const uint8_t coverage = static_cast<uint8_t>(max<int32_t>(0,
+                    min<int32_t>(255, coverageQ8)));
+                uint8_t value = coverage
+                    ? static_cast<uint8_t>(5U + static_cast<uint16_t>(coverage) * 170U / 255U)
+                    : 5U;
+                if (gateQ8 >= (hw::CenterCount / 2U << 8U) &&
                     (i == hw::CenterCount / 2U || i + 1U == hw::CenterCount / 2U)) {
                     value = ((now / 160U) & 1U) ? 245U : 70U;
                 }
@@ -4924,8 +5215,9 @@ void LedService::renderError(uint8_t animation, const LedAnimationContext& conte
             fillSection(LedSection::Center, scaled(blend(red, amber, ramp), pulse));
             fillSection(LedSection::Right, scaled(red, pulse));
             if (ramp > 220U) {
-                const uint16_t flash = static_cast<uint16_t>((now / 45U) % hw::OuterCount);
-                setOuterVisualPathPixel(flash, RgbwColor(245U, 245U, 245U));
+                addOuterVisualPathSubpixel(
+                    loopingPixelPositionQ8(now, 45U, hw::OuterCount),
+                    RgbwColor(245U, 245U, 245U));
             }
             break;
         }
@@ -5012,16 +5304,17 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::Pulse: {
             const uint32_t cycle = now % 1900U;
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t radius = static_cast<uint16_t>(
-                cycle * (center + 5U) / 1900U);
+            const uint32_t radiusQ8 = cycle * (center + 5U) * 256U / 1900U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
                 const uint8_t base = static_cast<uint8_t>(18U + wave8At(now, 42U) / 8U);
-                const uint8_t value = delta < 5U
-                    ? static_cast<uint8_t>(245U - delta * 46U) : base;
+                const uint8_t value = deltaQ8 < (5U << 8U)
+                    ? q8Falloff(245U, 46U, deltaQ8) : base;
                 setOuterVisualPathPixel(path,
-                    scaled(delta == 0U ? RgbwColor(255U, 248U, 218U) : gold, value));
+                    scaled(deltaQ8 < 128U ? RgbwColor(255U, 248U, 218U) : gold, value));
             }
             break;
         }
@@ -5042,22 +5335,25 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             const uint16_t origin = static_cast<uint16_t>(8U +
                 hash8(epoch * 193U) % (hw::OuterCount - 16U));
             if (cycle < 650U) {
-                const uint16_t launch = static_cast<uint16_t>(cycle * origin / 650U);
+                const uint32_t launchQ8 = cycle * origin * 256U / 650U;
                 for (uint8_t tail = 0; tail < 6U; ++tail) {
-                    if (launch < tail) continue;
-                    setOuterVisualPathPixel(launch - tail,
-                        scaled(gold, static_cast<uint8_t>(235U - tail * 36U)));
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (launchQ8 < tailQ8) continue;
+                    addOuterVisualPathSubpixel(launchQ8 - tailQ8,
+                        scaled(gold, static_cast<uint8_t>(235U - tail * 36U)), false);
                 }
             } else if (cycle < 1850U) {
-                const uint16_t radius = static_cast<uint16_t>((cycle - 650U) * 18U / 1200U);
+                const uint32_t radiusQ8 = (cycle - 650U) * 18U * 256U / 1200U;
                 const uint8_t burstHue = hash8(epoch * 307U + 71U);
                 for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                     const uint16_t direct = path > origin ? path - origin : origin - path;
                     const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
-                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                    if (delta > 2U) continue;
+                    const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                    const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                        ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                    if (deltaQ8 > (2U << 8U)) continue;
                     const uint8_t fade = static_cast<uint8_t>(255U -
-                        (cycle - 650U) * 150U / 1200U - delta * 35U);
+                        (cycle - 650U) * 150U / 1200U - ((deltaQ8 * 35U) >> 8U));
                     setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
                         static_cast<uint8_t>(burstHue + path * 11U), 255U, fade));
                 }
@@ -5067,18 +5363,23 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::Curtain: {
             const uint32_t cycle = now % 4200U;
             const uint16_t half = hw::CenterCount / 2U;
-            const uint16_t opening = static_cast<uint16_t>(min<uint32_t>(half,
-                cycle < 1900U ? cycle * half / 1900U : half));
+            const uint32_t openingQ8 = min<uint32_t>(static_cast<uint32_t>(half) << 8U,
+                cycle < 1900U ? cycle * half * 256U / 1900U
+                              : static_cast<uint32_t>(half) << 8U);
             fillSection(LedSection::Left, scaled(gold,
                 static_cast<uint8_t>(65U + wave8At(now, 45U) / 3U)));
             fillSection(LedSection::Right, scaled(gold,
                 static_cast<uint8_t>(65U + wave8At(now, 45U, 96U) / 3U)));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint16_t distance = i < half ? half - 1U - i : i - half;
-                if (distance >= opening) continue;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                if (distanceQ8 >= openingQ8) continue;
+                const uint8_t coverage = static_cast<uint8_t>(
+                    min<uint32_t>(255U, openingQ8 - distanceQ8));
                 const uint8_t fold = wave8At(now, 31U, i * 28U);
                 setSection(LedSection::Center, i,
-                    scaled(gold, static_cast<uint8_t>(95U + fold / 2U)));
+                    scaled(gold, static_cast<uint8_t>(
+                        coverage * (95U + fold / 2U) / 255U)));
             }
             break;
         }
@@ -5099,9 +5400,8 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t phase = static_cast<uint8_t>(now / 36U +
+                    const uint8_t drop = wave8At(now, 36U,
                         i * 37U + sectionIndex * 71U);
-                    const uint8_t drop = wave8(phase);
                     const uint8_t sparkle = drop > 220U
                         ? static_cast<uint8_t>(90U + (drop - 220U) * 4U) : 10U;
                     setSection(section, i, scaled(gold, sparkle));
@@ -5130,13 +5430,15 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 const uint32_t phase = (now + ball * 431U) % Periods[ball];
                 const uint32_t halfPeriod = Periods[ball] / 2U;
                 const uint32_t travel = phase <= halfPeriod ? phase : Periods[ball] - phase;
-                const uint16_t head = static_cast<uint16_t>(
-                    travel * (hw::OuterCount - 1U) / halfPeriod);
+                const uint32_t headQ8 = travel * (hw::OuterCount - 1U) * 256U / halfPeriod;
                 for (uint8_t tail = 0; tail < 4U; ++tail) {
-                    const uint16_t path = head >= tail ? head - tail : 0U;
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (headQ8 < tailQ8) continue;
                     const uint8_t value = static_cast<uint8_t>(245U - tail * 55U);
-                    setOuterVisualPathPixel(path, decorativeHsv(LedCategory::Finish,
-                        static_cast<uint8_t>(Hues[ball] + now / 70U), 255U, value));
+                    addOuterVisualPathSubpixel(headQ8 - tailQ8,
+                        decorativeHsv(LedCategory::Finish,
+                            static_cast<uint8_t>(Hues[ball] + now / 70U), 255U, value),
+                        false);
                 }
             }
             break;
@@ -5144,17 +5446,20 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::RainbowExplosion: {
             const uint32_t cycle = now % 2600U;
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t radius = static_cast<uint16_t>(min<uint32_t>(center + 6U,
-                cycle < 1250U ? cycle * (center + 6U) / 1250U : center + 6U));
+            const uint32_t radiusQ8 = min<uint32_t>(
+                static_cast<uint32_t>(center + 6U) << 8U,
+                cycle < 1250U ? cycle * (center + 6U) * 256U / 1250U
+                              : static_cast<uint32_t>(center + 6U) << 8U);
             const uint8_t fade = cycle < 1250U ? 255U
                 : cycle < 2250U ? static_cast<uint8_t>(255U - (cycle - 1250U) * 225U / 1000U)
                                 : 20U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                if (distance > radius) continue;
-                const uint16_t wake = radius - distance;
-                const uint8_t value = wake < 5U
-                    ? static_cast<uint8_t>(fade * (5U - wake) / 5U)
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                if (distanceQ8 > radiusQ8) continue;
+                const uint32_t wakeQ8 = radiusQ8 - distanceQ8;
+                const uint8_t value = wakeQ8 < (5U << 8U)
+                    ? static_cast<uint8_t>(fade * ((5U << 8U) - wakeQ8) / (5U << 8U))
                     : static_cast<uint8_t>(fade / 5U);
                 setOuterVisualPathPixel(path, decorativeSpectrumAt(
                     LedCategory::Finish, now, 32U, distance * 17U, 255U, value));
@@ -5199,10 +5504,9 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             break;
         }
         case FinishAnimation::ColorSpiral: {
-            const uint8_t rotation = static_cast<uint8_t>(now / 13U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t helix = wave8(static_cast<uint8_t>(rotation + path * 19U));
-                const uint8_t hue = static_cast<uint8_t>(rotation / 2U + path * 11U + helix / 6U);
+                const uint8_t helix = wave8At(now, 13U, path * 19U);
+                const uint8_t hue = static_cast<uint8_t>(now / 26U + path * 11U + helix / 6U);
                 const uint8_t value = static_cast<uint8_t>(70U + helix * 165U / 255U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Finish, hue, 255U, value));
@@ -5224,24 +5528,39 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         }
         case FinishAnimation::Champagne: {
             fillSection(LedSection::Center, scaled(gold, 10U));
-            const uint32_t step = now / 85U;
             for (uint8_t bubble = 0; bubble < 6U; ++bubble) {
-                const uint16_t leftPosition = static_cast<uint16_t>((step + bubble * 4U) % (hw::LeftCount + 5U));
-                const uint16_t rightPosition = static_cast<uint16_t>((step + bubble * 6U + 2U) % (hw::RightCount + 5U));
-                if (leftPosition < hw::LeftCount) {
-                    setSection(LedSection::Left, leftPosition,
-                               scaled(gold, static_cast<uint8_t>(150U + bubble * 15U)));
+                const uint32_t leftRouteQ8 = static_cast<uint32_t>(hw::LeftCount + 5U) << 8U;
+                const uint32_t rightRouteQ8 = static_cast<uint32_t>(hw::RightCount + 5U) << 8U;
+                const uint32_t stepQ8 = (static_cast<uint64_t>(now) << 8U) / 85U;
+                const uint32_t leftPositionQ8 = (stepQ8 + (bubble * 4U << 8U)) % leftRouteQ8;
+                const uint32_t rightPositionQ8 =
+                    (stepQ8 + ((bubble * 6U + 2U) << 8U)) % rightRouteQ8;
+                if (leftPositionQ8 < (static_cast<uint32_t>(hw::LeftCount) << 8U)) {
+                    addSectionSubpixel(LedSection::Left, leftPositionQ8,
+                        scaled(gold, static_cast<uint8_t>(150U + bubble * 15U)));
                 } else {
-                    const uint16_t burst = static_cast<uint16_t>((bubble * 3U + step) % hw::CenterCount);
-                    setSection(LedSection::Center, burst, RgbwColor(255U, 248U, 210U));
+                    const uint32_t burstQ8 =
+                        (stepQ8 + (bubble * 3U << 8U)) %
+                        (static_cast<uint32_t>(hw::CenterCount) << 8U);
+                    addSectionSubpixel(LedSection::Center, burstQ8,
+                        RgbwColor(255U, 248U, 210U), true);
                 }
-                if (rightPosition < hw::RightCount) {
-                    setSection(LedSection::Right, hw::RightCount - 1U - rightPosition,
-                               scaled(gold, static_cast<uint8_t>(145U + bubble * 16U)));
+                if (rightPositionQ8 <=
+                    (static_cast<uint32_t>(hw::RightCount - 1U) << 8U)) {
+                    const uint32_t mirroredQ8 =
+                        ((static_cast<uint32_t>(hw::RightCount - 1U) << 8U) - rightPositionQ8);
+                    addSectionSubpixel(LedSection::Right, mirroredQ8,
+                        scaled(gold, static_cast<uint8_t>(145U + bubble * 16U)));
                 } else {
-                    const uint16_t burst = static_cast<uint16_t>((hw::CenterCount - 1U -
-                        (bubble * 4U + step) % hw::CenterCount));
-                    setSection(LedSection::Center, burst, RgbwColor(255U, 248U, 210U));
+                    const uint32_t burstQ8 =
+                        (stepQ8 + (bubble * 4U << 8U)) %
+                        (static_cast<uint32_t>(hw::CenterCount) << 8U);
+                    const uint32_t centerSpanQ8 =
+                        static_cast<uint32_t>(hw::CenterCount) << 8U;
+                    const uint32_t mirroredQ8 =
+                        (centerSpanQ8 - 256U - burstQ8 + centerSpanQ8) % centerSpanQ8;
+                    addSectionSubpixel(LedSection::Center, mirroredQ8,
+                        RgbwColor(255U, 248U, 210U));
                 }
             }
             break;
@@ -5249,16 +5568,20 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::WipeOut: {
             const uint32_t cycle = now % 3600U;
             const uint16_t half = (hw::OuterCount + 1U) / 2U;
-            const uint16_t reach = cycle < 1800U
-                ? static_cast<uint16_t>(cycle * half / 1800U)
-                : static_cast<uint16_t>((3600U - cycle) * half / 1800U);
+            const uint32_t reachQ8 = cycle < 1800U
+                ? cycle * half * 256U / 1800U
+                : (3600U - cycle) * half * 256U / 1800U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t edge = min<uint16_t>(path, hw::OuterCount - 1U - path);
-                if (edge >= reach) continue;
+                const uint32_t edgeQ8 = static_cast<uint32_t>(edge) << 8U;
+                if (edgeQ8 >= reachQ8) continue;
+                const uint8_t coverage = static_cast<uint8_t>(
+                    min<uint32_t>(255U, reachQ8 - edgeQ8));
                 const uint8_t amount = static_cast<uint8_t>(path * 255U / (hw::OuterCount - 1U));
                 const RgbwColor color = blend(filament, gold, amount);
                 setOuterVisualPathPixel(path, scaled(color,
-                    static_cast<uint8_t>(105U + wave8At(now, 26U, path * 9U) / 2U)));
+                    static_cast<uint8_t>(coverage *
+                        (105U + wave8At(now, 26U, path * 9U) / 2U) / 255U)));
             }
             break;
         }
@@ -5281,16 +5604,19 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             break;
         }
         case FinishAnimation::Waterfall: {
-            const uint16_t phase = static_cast<uint16_t>((now / 58U) % (hw::OuterCount + 12U));
+            const uint32_t routeQ8 = static_cast<uint32_t>(hw::OuterCount + 12U) << 8U;
+            const uint32_t phaseQ8 = static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 58U) % routeQ8);
             for (uint8_t stream = 0; stream < 3U; ++stream) {
-                const uint16_t head = static_cast<uint16_t>((phase + stream * 14U) % hw::OuterCount);
+                const uint32_t headQ8 = (phaseQ8 + (stream * 14U << 8U)) % routeQ8;
+                if (headQ8 >= (static_cast<uint32_t>(hw::OuterCount) << 8U)) continue;
                 for (uint8_t tail = 0; tail < 8U; ++tail) {
-                    if (head < tail) continue;
-                    const uint16_t path = head - tail;
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (headQ8 < tailQ8) continue;
                     const uint8_t hue = static_cast<uint8_t>(145U + stream * 36U + tail * 2U);
                     const uint8_t value = static_cast<uint8_t>(225U - tail * 25U);
-                    setOuterVisualPathPixel(path,
-                        decorativeHsv(LedCategory::Finish, hue, 255U, value));
+                    addOuterVisualPathSubpixel(headQ8 - tailQ8,
+                        decorativeHsv(LedCategory::Finish, hue, 255U, value), false);
                 }
             }
             break;
@@ -5298,17 +5624,20 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::Starburst: {
             const uint32_t cycle = now % 1550U;
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t radius = static_cast<uint16_t>(cycle < 650U
-                ? cycle * (center + 4U) / 650U : center + 4U);
+            const uint32_t radiusQ8 = cycle < 650U
+                ? cycle * (center + 4U) * 256U / 650U
+                : static_cast<uint32_t>(center + 4U) << 8U;
             const uint8_t fade = cycle < 650U ? 255U
                 : static_cast<uint8_t>(max<int>(0, 255 - (cycle - 650U) * 255U / 900U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                if (delta > 1U && distance != 0U) continue;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                if (deltaQ8 > (1U << 8U) && distance != 0U) continue;
                 const uint8_t value = distance == 0U
                     ? static_cast<uint8_t>(fade / 2U)
-                    : static_cast<uint8_t>(max<int>(0, fade - delta * 70));
+                    : q8Falloff(fade, 70U, deltaQ8);
                 const RgbwColor color = distance == 0U ? RgbwColor(255U, 255U, 245U)
                     : decorativeHsv(LedCategory::Finish,
                         static_cast<uint8_t>(now / 20U + path * 17U), 255U, 255U);
@@ -5409,22 +5738,32 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::Applause: {
             const uint32_t cycle = now % 1800U;
             const uint16_t half = (hw::OuterCount + 1U) / 2U;
-            const uint16_t inward = static_cast<uint16_t>(min<uint32_t>(half - 1U,
-                (cycle % 650U) * half / 650U));
+            const bool firstClap = cycle < 650U;
             const bool secondClap = cycle >= 760U && cycle < 1410U;
+            if (!firstClap && !secondClap) {
+                fillSection(LedSection::Left, scaled(gold, 10U));
+                fillSection(LedSection::Center, scaled(gold, 10U));
+                fillSection(LedSection::Right, scaled(gold, 10U));
+                break;
+            }
+            const uint32_t clapTime = firstClap ? cycle : cycle - 760U;
+            const uint32_t inwardQ8 = min<uint32_t>(
+                static_cast<uint32_t>(half - 1U) << 8U,
+                clapTime * half * 256U / 650U);
             const uint8_t strength = secondClap ? 220U : 255U;
             for (uint8_t side = 0; side < 2U; ++side) {
-                const uint16_t head = side == 0U ? inward : hw::OuterCount - 1U - inward;
+                const uint32_t headQ8 = side == 0U
+                    ? inwardQ8
+                    : (static_cast<uint32_t>(hw::OuterCount - 1U) << 8U) - inwardQ8;
                 for (uint8_t tail = 0; tail < 5U; ++tail) {
-                    const int16_t path = side == 0U
-                        ? static_cast<int16_t>(head) - tail
-                        : static_cast<int16_t>(head) + tail;
-                    if (path < 0 || path >= static_cast<int16_t>(hw::OuterCount)) continue;
-                    setOuterVisualPathPixel(static_cast<uint16_t>(path),
-                        scaled(gold, static_cast<uint8_t>(strength - tail * 38U)));
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (side == 0U && headQ8 < tailQ8) continue;
+                    const uint32_t pathQ8 = side == 0U ? headQ8 - tailQ8 : headQ8 + tailQ8;
+                    addOuterVisualPathSubpixel(pathQ8,
+                        scaled(gold, static_cast<uint8_t>(strength - tail * 38U)), false);
                 }
             }
-            if (inward >= half - 2U) {
+            if (inwardQ8 >= (static_cast<uint32_t>(half - 2U) << 8U)) {
                 setOuterVisualPathPixel(half - 1U, RgbwColor(255U, 255U, 240U));
                 setOuterVisualPathPixel(half, RgbwColor(255U, 255U, 240U));
             }
@@ -5433,16 +5772,23 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::PrismBloom: {
             const uint32_t cycle = now % 3400U;
             const uint16_t center = hw::OuterCount / 2U;
-            const uint16_t radius = static_cast<uint16_t>(min<uint32_t>(center + 4U,
-                cycle < 1900U ? cycle * (center + 4U) / 1900U : center + 4U));
+            const uint32_t radiusQ8 = min<uint32_t>(
+                static_cast<uint32_t>(center + 4U) << 8U,
+                cycle < 1900U ? cycle * (center + 4U) * 256U / 1900U
+                              : static_cast<uint32_t>(center + 4U) << 8U);
             const uint8_t hold = cycle < 2600U ? 255U
                 : static_cast<uint8_t>(255U - (cycle - 2600U) * 235U / 800U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                if (distance > radius) continue;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                if (distanceQ8 > radiusQ8) continue;
+                const uint8_t coverage = static_cast<uint8_t>(
+                    min<uint32_t>(255U, radiusQ8 - distanceQ8));
                 const uint8_t saturation = static_cast<uint8_t>(min<uint16_t>(245U, distance * 16U));
                 const uint8_t hue = static_cast<uint8_t>(distance * 15U + (path > center ? 20U : 150U));
-                const uint8_t value = static_cast<uint8_t>(hold * (220U - min<uint16_t>(160U, distance * 6U)) / 255U);
+                const uint8_t value = static_cast<uint8_t>(
+                    hold * (220U - min<uint16_t>(160U, distance * 6U)) / 255U *
+                    coverage / 255U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Finish, hue, saturation, value));
             }
@@ -5450,21 +5796,27 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         }
         case FinishAnimation::PixelToast: {
             const uint32_t cycle = now % 3000U;
-            const uint16_t rise = static_cast<uint16_t>(min<uint32_t>(hw::CenterCount,
-                cycle < 1100U ? cycle * hw::CenterCount / 1100U : hw::CenterCount));
+            const uint32_t riseQ8 = min<uint32_t>(
+                static_cast<uint32_t>(hw::CenterCount) << 8U,
+                cycle < 1100U ? cycle * hw::CenterCount * 256U / 1100U
+                              : static_cast<uint32_t>(hw::CenterCount) << 8U);
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                if (i >= rise) continue;
+                const uint32_t startQ8 = static_cast<uint32_t>(i) << 8U;
+                if (startQ8 >= riseQ8) continue;
+                const uint8_t coverage = static_cast<uint8_t>(
+                    min<uint32_t>(255U, riseQ8 - startQ8));
                 const uint8_t crisp = hash8(i * 79U + now / 210U);
                 const RgbwColor color = crisp > 220U ? RgbwColor(255U, 245U, 210U) : gold;
                 setSection(LedSection::Center, i,
-                           scaled(color, static_cast<uint8_t>(150U + crisp / 3U)));
+                           scaled(color, static_cast<uint8_t>(
+                               coverage * (150U + crisp / 3U) / 255U)));
             }
             if (cycle >= 1100U && cycle < 1600U) {
-                const uint16_t pop = static_cast<uint16_t>((cycle - 1100U) * 5U / 500U);
-                if (pop < hw::LeftCount) {
-                    setSection(LedSection::Left, hw::LeftCount - 1U - pop, filament);
-                    setSection(LedSection::Right, pop, filament);
-                }
+                const uint32_t popQ8 = (cycle - 1100U) * 5U * 256U / 500U;
+                const uint32_t leftQ8 =
+                    (static_cast<uint32_t>(hw::LeftCount - 1U) << 8U) - popQ8;
+                addSectionSubpixel(LedSection::Left, leftQ8, filament);
+                addSectionSubpixel(LedSection::Right, popQ8, filament);
             } else {
                 fillSection(LedSection::Left, scaled(filament, 28U));
                 fillSection(LedSection::Right, scaled(filament, 28U));
@@ -5487,9 +5839,15 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                 }
                 setSection(LedSection::Center, i, scaled(color, value));
             }
-            const uint16_t sideMarker = static_cast<uint16_t>((now / 85U) % hw::LeftCount);
-            setSection(LedSection::Left, sideMarker, RgbwColor(255U, 250U, 220U));
-            setSection(LedSection::Right, hw::RightCount - 1U - sideMarker, RgbwColor(255U, 250U, 220U));
+            const uint32_t sideMarkerQ8 = loopingPixelPositionQ8(now, 85U, hw::LeftCount);
+            addSectionSubpixel(LedSection::Left, sideMarkerQ8,
+                RgbwColor(255U, 250U, 220U), true);
+            const uint32_t rightMarkerQ8 =
+                ((static_cast<uint32_t>(hw::RightCount - 1U) << 8U) - sideMarkerQ8 +
+                 (static_cast<uint32_t>(hw::RightCount) << 8U)) %
+                (static_cast<uint32_t>(hw::RightCount) << 8U);
+            addSectionSubpixel(LedSection::Right, rightMarkerQ8,
+                RgbwColor(255U, 250U, 220U), true);
             break;
         }
         case FinishAnimation::CooldownProgress: {
@@ -5604,8 +5962,9 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             const uint8_t side = static_cast<uint8_t>(42U + wave8At(now, 73U) / 10U);
             fillSection(LedSection::Left, scaled(filament, side));
             fillSection(LedSection::Right, scaled(filament, side));
-            const uint16_t reflection = static_cast<uint16_t>((now / 160U) % hw::CenterCount);
-            setSection(LedSection::Center, reflection, RgbwColor(175U, 175U, 165U));
+            const uint32_t reflectionQ8 = loopingPixelPositionQ8(now, 160U, hw::CenterCount);
+            addSectionSubpixel(LedSection::Center, reflectionQ8,
+                RgbwColor(175U, 175U, 165U), true);
             break;
         }
         case FinishAnimation::FilamentFireworks: {
@@ -5625,28 +5984,31 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             const uint8_t selected = static_cast<uint8_t>(epoch & 3U);
             const uint16_t origin = static_cast<uint16_t>(
                 hash8(epoch * 151U + selected * 43U) % hw::OuterCount);
-            const uint16_t radius = static_cast<uint16_t>(cycle * 19U / 1500U);
+            const uint32_t radiusQ8 = cycle * 19U * 256U / 1500U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t direct = path > origin ? path - origin : origin - path;
                 const uint16_t distance = min<uint16_t>(direct, hw::OuterCount - direct);
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                if (cycle >= 1500U || delta > 2U) continue;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                if (cycle >= 1500U || deltaQ8 > (2U << 8U)) continue;
                 const uint8_t value = static_cast<uint8_t>(max<int>(20,
-                    245 - static_cast<int>(cycle * 120U / 1500U) - delta * 45));
+                    245 - static_cast<int>(cycle * 120U / 1500U) -
+                    static_cast<int>((deltaQ8 * 45U) >> 8U)));
                 setOuterVisualPathPixel(path, scaled(palette[selected], value));
             }
             break;
         }
         case FinishAnimation::InspectionLight: {
-            const uint16_t sweep = static_cast<uint16_t>((now / 62U) % (hw::CenterCount * 2U - 2U));
-            const uint16_t head = sweep < hw::CenterCount
-                ? sweep : hw::CenterCount * 2U - 2U - sweep;
+            const uint32_t headQ8 = pingPongPixelPositionQ8(now, 62U, hw::CenterCount);
             fillSection(LedSection::Left, RgbwColor(65U, 65U, 60U));
             fillSection(LedSection::Right, RgbwColor(65U, 65U, 60U));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint16_t distance = i > head ? i - head : head - i;
-                const uint8_t value = distance < 4U
-                    ? static_cast<uint8_t>(245U - distance * 48U) : 58U;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > headQ8
+                    ? pixelQ8 - headQ8 : headQ8 - pixelQ8;
+                const uint8_t value = distanceQ8 < (4U << 8U)
+                    ? q8Falloff(245U, 48U, distanceQ8) : 58U;
                 setSection(LedSection::Center, i,
                            RgbwColor(value, value, static_cast<uint8_t>(value * 9U / 10U)));
             }
@@ -5680,10 +6042,9 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             break;
         }
         case FinishAnimation::SilkUnveil: {
-            const uint8_t drift = static_cast<uint8_t>(now / 31U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t foldA = wave8(static_cast<uint8_t>(drift + path * 17U));
-                const uint8_t foldB = wave8(static_cast<uint8_t>(drift / 2U - path * 9U + 73U));
+                const uint8_t foldA = wave8At(now, 31U, path * 17U);
+                const uint8_t foldB = wave8At(now, 62U, - path * 9U + 73U);
                 const uint8_t sheen = static_cast<uint8_t>(
                     (static_cast<uint16_t>(foldA) * 3U + foldB) / 4U);
                 const uint8_t value = static_cast<uint8_t>(38U + sheen * 145U / 255U);
@@ -5698,13 +6059,13 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         }
         case FinishAnimation::GoldenHour: {
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint8_t sun = static_cast<uint8_t>(now / 85U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
                 const uint8_t horizon = static_cast<uint8_t>(
                     distance * 255U / max<uint16_t>(1U, center));
-                const uint8_t hue = static_cast<uint8_t>(10U + horizon * 27U / 255U + sun / 18U);
-                const uint8_t glow = wave8(static_cast<uint8_t>(sun + path * 5U));
+                const uint8_t hue = static_cast<uint8_t>(
+                    10U + horizon * 27U / 255U + (now / 85U) / 18U);
+                const uint8_t glow = wave8At(now, 85U, path * 5U);
                 const uint8_t value = static_cast<uint8_t>(86U + glow * 92U / 255U +
                     (255U - horizon) * 45U / 255U);
                 setOuterVisualPathPixel(path,
@@ -5720,22 +6081,25 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             for (uint8_t star = 0; star < 5U; ++star) {
                 const uint16_t travel = center + 7U;
-                const uint16_t step = static_cast<uint16_t>((now / (72U + star * 11U) +
-                    hash8(star * 67U)) % travel);
-                if (step > center) continue;
-                const uint16_t leftHead = step;
-                const uint16_t rightHead = hw::OuterCount - 1U - step;
+                const uint32_t stepQ8 = static_cast<uint32_t>(
+                    (((static_cast<uint64_t>(now) << 8U) / (72U + star * 11U) +
+                      (static_cast<uint32_t>(hash8(star * 67U)) << 8U)) %
+                     (static_cast<uint32_t>(travel) << 8U)));
+                if (stepQ8 > (static_cast<uint32_t>(center) << 8U)) continue;
+                const uint32_t rightHeadQ8 =
+                    (static_cast<uint32_t>(hw::OuterCount - 1U) << 8U) - stepQ8;
                 const RgbwColor starColor = star & 1U
                     ? decorativeHsv(LedCategory::Finish, 33U, 95U, 255U)
                     : RgbwColor(220U, 235U, 255U);
                 for (uint8_t tail = 0; tail < 4U; ++tail) {
                     const uint8_t value = static_cast<uint8_t>(245U - tail * 58U);
-                    if (leftHead >= tail) {
-                        setOuterVisualPathPixel(leftHead - tail, scaled(starColor, value));
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (stepQ8 >= tailQ8) {
+                        addOuterVisualPathSubpixel(stepQ8 - tailQ8,
+                            scaled(starColor, value), false);
                     }
-                    if (rightHead + tail < hw::OuterCount) {
-                        setOuterVisualPathPixel(rightHead + tail, scaled(starColor, value));
-                    }
+                    addOuterVisualPathSubpixel(rightHeadQ8 + tailQ8,
+                        scaled(starColor, value), false);
                 }
             }
             break;
@@ -5775,12 +6139,15 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
             if (phase < 3U) {
                 const LedSection section = stages[phase];
                 const uint16_t count = sectionCount(section);
-                const uint16_t head = min<uint16_t>(count - 1U,
-                    static_cast<uint16_t>(phaseTime * count / 1500U));
+                const uint32_t headQ8 = min<uint32_t>(
+                    static_cast<uint32_t>(count - 1U) << 8U,
+                    static_cast<uint32_t>(phaseTime) * count * 256U / 1500U);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint16_t distance = i > head ? i - head : head - i;
-                    if (distance > 3U) continue;
-                    const uint8_t value = static_cast<uint8_t>(235U - distance * 56U);
+                    const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                    const uint32_t distanceQ8 = pixelQ8 > headQ8
+                        ? pixelQ8 - headQ8 : headQ8 - pixelQ8;
+                    if (distanceQ8 > (3U << 8U)) continue;
+                    const uint8_t value = q8Falloff(235U, 56U, distanceQ8);
                     setSection(section, i, RgbwColor(value, value,
                                                      static_cast<uint8_t>(value * 9U / 10U)));
                 }
@@ -5798,19 +6165,23 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::PrintEcho: {
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             const uint16_t reach = center + 5U;
-            const uint16_t phase = static_cast<uint16_t>((now / 58U) % (reach + 13U));
+            const uint32_t phaseQ8 = static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 58U) %
+                (static_cast<uint32_t>(reach + 13U) << 8U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > center ? path - center : center - path;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(
+                    path > center ? path - center : center - path) << 8U;
                 uint8_t strongest = 8U;
                 bool goldEcho = false;
                 for (uint8_t echo = 0; echo < 3U; ++echo) {
-                    const int16_t radius = static_cast<int16_t>(phase) - echo * 7;
-                    if (radius < 0) continue;
-                    const uint16_t delta = distance > static_cast<uint16_t>(radius)
-                        ? distance - static_cast<uint16_t>(radius)
-                        : static_cast<uint16_t>(radius) - distance;
-                    if (delta <= 2U) {
-                        const uint8_t value = static_cast<uint8_t>(220U - echo * 40U - delta * 52U);
+                    const uint32_t echoOffsetQ8 = static_cast<uint32_t>(echo * 7U) << 8U;
+                    if (phaseQ8 < echoOffsetQ8) continue;
+                    const uint32_t radiusQ8 = phaseQ8 - echoOffsetQ8;
+                    const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                        ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                    if (deltaQ8 <= (2U << 8U)) {
+                        const uint8_t value = q8Falloff(
+                            static_cast<uint8_t>(220U - echo * 40U), 52U, deltaQ8);
                         if (value > strongest) {
                             strongest = value;
                             goldEcho = (echo & 1U) != 0U;
@@ -5824,17 +6195,22 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
         case FinishAnimation::SoftApplause: {
             const uint32_t cycle = now % 3200U;
             const uint16_t half = hw::OuterCount / 2U;
-            const uint16_t approach = static_cast<uint16_t>(
-                min<uint32_t>(half, cycle * half / 2300U));
+            const uint32_t approachQ8 = min<uint32_t>(
+                static_cast<uint32_t>(half) << 8U,
+                cycle * half * 256U / 2300U);
             const uint8_t fade = cycle < 2300U ? 255U
                 : static_cast<uint8_t>(max<int>(0, 255 - (cycle - 2300U) * 255U / 900U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t leftDistance = path > approach ? path - approach : approach - path;
-                const uint16_t rightHead = hw::OuterCount - 1U - approach;
-                const uint16_t rightDistance = path > rightHead ? path - rightHead : rightHead - path;
-                const uint16_t distance = min(leftDistance, rightDistance);
-                const uint8_t value = distance <= 5U
-                    ? static_cast<uint8_t>(fade * (6U - distance) / 6U)
+                const uint32_t pixelQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t leftDistanceQ8 = pixelQ8 > approachQ8
+                    ? pixelQ8 - approachQ8 : approachQ8 - pixelQ8;
+                const uint32_t rightHeadQ8 =
+                    (static_cast<uint32_t>(hw::OuterCount - 1U) << 8U) - approachQ8;
+                const uint32_t rightDistanceQ8 = pixelQ8 > rightHeadQ8
+                    ? pixelQ8 - rightHeadQ8 : rightHeadQ8 - pixelQ8;
+                const uint32_t distanceQ8 = min(leftDistanceQ8, rightDistanceQ8);
+                const uint8_t value = distanceQ8 <= (5U << 8U)
+                    ? static_cast<uint8_t>(fade * ((6U << 8U) - distanceQ8) / (6U << 8U))
                     : static_cast<uint8_t>(10U * fade / 255U);
                 setOuterVisualPathPixel(path, scaled(gold, value));
             }
@@ -5876,7 +6252,9 @@ void LedService::renderFinish(uint8_t animation, const LedAnimationContext& cont
                     }
                     case 2: {
                         const uint8_t hue = static_cast<uint8_t>(now / 25U + path * 256U / hw::OuterCount);
-                        const uint8_t value = static_cast<uint8_t>(85U + wave8(hue + path * 7U) / 3U);
+                        const uint8_t value = static_cast<uint8_t>(
+                            85U + wave8At(now, 25U,
+                                path * 256U / hw::OuterCount + path * 7U) / 3U);
                         return decorativeHsv(LedCategory::Finish, hue, 235U, value);
                     }
                     case 3:
@@ -6001,14 +6379,17 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 setSection(LedSection::Right, i, scaled(cyan,
                     static_cast<uint8_t>(182U - depth / 2U)));
             }
-            const uint16_t horizon = static_cast<uint16_t>((now / 95U) % hw::CenterCount);
+            const uint32_t horizonQ8 = loopingPixelPositionQ8(now, 95U, hw::CenterCount);
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t amount = static_cast<uint8_t>(
                     i * 255U / max<uint16_t>(1U, hw::CenterCount - 1U));
                 RgbwColor color = blend(cyan, magenta, amount);
-                const uint16_t distance = i > horizon ? i - horizon : horizon - i;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > horizonQ8
+                    ? pixelQ8 - horizonQ8 : horizonQ8 - pixelQ8;
                 const uint8_t grid = ((i + now / 170U) % 5U == 0U) ? 155U : 58U;
-                if (distance <= 1U) color = blend(color, RgbwColor(235U, 95U, 215U), 130U);
+                if (distanceQ8 <= (1U << 8U)) color = blend(color,
+                    RgbwColor(235U, 95U, 215U), q8Falloff(130U, 105U, distanceQ8));
                 setSection(LedSection::Center, i, scaled(color, grid));
             }
             break;
@@ -6017,19 +6398,21 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
-                const uint16_t span = max<uint16_t>(1U, count - 1U);
-                const uint16_t phase = static_cast<uint16_t>((now /
-                    (105U + sectionIndex * 17U) + sectionIndex * 5U) % (span * 2U));
-                const uint16_t bell = phase <= span ? phase : span * 2U - phase;
+                const uint32_t bellQ8 = pingPongPixelPositionQ8(
+                    now + sectionIndex * 5U * (105U + sectionIndex * 17U),
+                    static_cast<uint16_t>(105U + sectionIndex * 17U), count);
                 fillSection(section,
                     decorativeHsv(LedCategory::Other, 176U, 200U, 8U));
                 for (uint16_t i = 0; i < count; ++i) {
-                    const int16_t trail = static_cast<int16_t>(bell) - static_cast<int16_t>(i);
-                    if (trail < -1 || trail > 5) continue;
-                    const uint8_t value = trail <= 0
-                        ? static_cast<uint8_t>(195U + trail * 65)
-                        : static_cast<uint8_t>(150U - trail * 24U);
-                    const uint8_t hue = static_cast<uint8_t>(177U + sectionIndex * 13U + trail * 3);
+                    const int32_t trailQ8 = static_cast<int32_t>(bellQ8) -
+                        static_cast<int32_t>(i << 8U);
+                    if (trailQ8 < -256 || trailQ8 > (5 << 8)) continue;
+                    const int16_t trail = static_cast<int16_t>(trailQ8 / 256);
+                    const uint8_t value = trailQ8 <= 0
+                        ? static_cast<uint8_t>(195 + trailQ8 * 65 / 256)
+                        : static_cast<uint8_t>(150 - trailQ8 * 24 / 256);
+                    const uint8_t hue = static_cast<uint8_t>(
+                        177 + sectionIndex * 13 + trailQ8 * 3 / 256);
                     setSection(section, i,
                         decorativeHsv(LedCategory::Other, hue, 200U, value));
                 }
@@ -6048,10 +6431,13 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     decorativeHsv(LedCategory::Other, 157U, 105U, 10U));
                 for (uint8_t flake = 0; flake < 5U; ++flake) {
                     const uint16_t route = count + 5U;
-                    const uint16_t position = static_cast<uint16_t>((phase /
-                        (118U + flake * 19U) + hash8(sectionIndex * 91U + flake * 67U)) % route);
-                    if (position < count) {
-                        setSection(section, position,
+                    const uint32_t routeQ8 = static_cast<uint32_t>(route) << 8U;
+                    const uint32_t positionQ8 = static_cast<uint32_t>(
+                        (((static_cast<uint64_t>(phase) << 8U) / (118U + flake * 19U) +
+                          (static_cast<uint32_t>(hash8(sectionIndex * 91U + flake * 67U)) << 8U)) %
+                         routeQ8));
+                    if (positionQ8 < (static_cast<uint32_t>(count) << 8U)) {
+                        addSectionSubpixel(section, positionQ8,
                             RgbwColor(150U, 195U, 255U));
                     }
                 }
@@ -6070,18 +6456,20 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
-                const uint16_t sun = static_cast<uint16_t>(
-                    sunPhase * max<uint16_t>(1U, count - 1U) / 255U);
+                const uint32_t sunQ8 = static_cast<uint32_t>(sunPhase) *
+                    max<uint16_t>(1U, count - 1U) * 256U / 255U;
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint8_t position = static_cast<uint8_t>(
                         i * 255U / max<uint16_t>(1U, count - 1U));
                     const RgbwColor low = decorativeHsv(LedCategory::Other, 6U, 245U, 140U);
                     const RgbwColor high = decorativeHsv(LedCategory::Other, 210U, 210U, 42U);
                     RgbwColor sky = blend(low, high, position);
-                    const uint16_t distance = i > sun ? i - sun : sun - i;
-                    if (distance <= 2U) sky = blend(sky,
+                    const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                    const uint32_t distanceQ8 = pixelQ8 > sunQ8
+                        ? pixelQ8 - sunQ8 : sunQ8 - pixelQ8;
+                    if (distanceQ8 <= (2U << 8U)) sky = blend(sky,
                         decorativeHsv(LedCategory::Other, 28U, 215U, 235U),
-                        static_cast<uint8_t>(195U - distance * 60U));
+                        q8Falloff(195U, 60U, distanceQ8));
                     setSection(section, i, sky);
                 }
             }
@@ -6104,14 +6492,14 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         static_cast<uint8_t>(2U + pulse / 16U), 255U, value));
             }
             if (eruption < 1350U) {
-                const uint16_t travel = static_cast<uint16_t>(
-                    eruption * hw::LeftCount / 1350U);
+                const uint32_t travelQ8 = eruption * hw::LeftCount * 256U / 1350U;
                 for (uint8_t side = 0; side < 2U; ++side) {
                     const LedSection section = side == 0U ? LedSection::Left : LedSection::Right;
                     for (uint8_t spark = 0; spark < 3U; ++spark) {
-                        const int16_t position = static_cast<int16_t>(travel) - spark * 2;
-                        if (position < 0 || position >= static_cast<int16_t>(sectionCount(section))) continue;
-                        setSection(section, static_cast<uint16_t>(position),
+                        const uint32_t sparkOffsetQ8 = static_cast<uint32_t>(spark * 2U) << 8U;
+                        if (travelQ8 < sparkOffsetQ8) continue;
+                        const uint32_t positionQ8 = travelQ8 - sparkOffsetQ8;
+                        addSectionSubpixel(section, positionQ8,
                             decorativeHsv(LedCategory::Other,
                                 static_cast<uint8_t>(12U + spark * 7U), 255U,
                                 static_cast<uint8_t>(235U - spark * 55U)));
@@ -6139,15 +6527,24 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         }
         case OtherAnimation::DragonBlood: {
             const uint8_t heartbeat = wave8At(now, 39U);
-            const uint16_t fissureA = static_cast<uint16_t>((now / 86U) % hw::OuterCount);
-            const uint16_t fissureB = static_cast<uint16_t>(
-                (hw::OuterCount - 1U - (now / 131U) % hw::OuterCount));
+            const uint32_t fissureAQ8 = loopingPixelPositionQ8(now, 86U, hw::OuterCount);
+            const uint32_t fissureBQ8 =
+                ((static_cast<uint32_t>(hw::OuterCount - 1U) << 8U) -
+                 loopingPixelPositionQ8(now, 131U, hw::OuterCount) +
+                 (static_cast<uint32_t>(hw::OuterCount) << 8U)) %
+                (static_cast<uint32_t>(hw::OuterCount) << 8U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distanceA = path > fissureA ? path - fissureA : fissureA - path;
-                const uint16_t distanceB = path > fissureB ? path - fissureB : fissureB - path;
+                const uint32_t distanceAQ8 = circularDistanceQ8(
+                    fissureAQ8, path, hw::OuterCount);
+                const uint32_t distanceBQ8 = circularDistanceQ8(
+                    fissureBQ8, path, hw::OuterCount);
                 const uint8_t vein = wave8At(now, 57U, path * 31U);
                 uint8_t value = static_cast<uint8_t>(42U + heartbeat / 4U + vein / 7U);
-                if (distanceA <= 1U || distanceB <= 1U) value = distanceA == 0U || distanceB == 0U ? 3U : 18U;
+                const uint32_t fissureDistanceQ8 = min(distanceAQ8, distanceBQ8);
+                if (fissureDistanceQ8 <= (1U << 8U)) {
+                    value = static_cast<uint8_t>(3U +
+                        min<uint32_t>(15U, fissureDistanceQ8 * 15U / 256U));
+                }
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
                         static_cast<uint8_t>(vein * 6U / 255U), 255U, value));
@@ -6181,15 +6578,17 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 decorativeHsv(LedCategory::Other, 132U, 250U, leftGate));
             fillSection(LedSection::Right,
                 decorativeHsv(LedCategory::Other, 224U, 250U, rightGate));
-            const uint16_t data = static_cast<uint16_t>((now / 52U) % hw::CenterCount);
+            const uint32_t dataQ8 = loopingPixelPositionQ8(now, 52U, hw::CenterCount);
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
                 const uint8_t grid = ((i + now / 133U) % 4U == 0U) ? 74U : 13U;
-                const uint16_t distance = i > data ? i - data : data - i;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > dataQ8
+                    ? pixelQ8 - dataQ8 : dataQ8 - pixelQ8;
                 RgbwColor color = decorativeHsv(LedCategory::Other,
                     (i & 1U) ? 132U : 224U, 245U, grid);
-                if (distance <= 2U) color = decorativeHsv(LedCategory::Other,
-                    distance == 0U ? 31U : 177U, 225U,
-                    static_cast<uint8_t>(225U - distance * 67U));
+                if (distanceQ8 <= (2U << 8U)) color = decorativeHsv(LedCategory::Other,
+                    distanceQ8 < 128U ? 31U : 177U, 225U,
+                    q8Falloff(225U, 67U, distanceQ8));
                 setSection(LedSection::Center, i, color);
             }
             break;
@@ -6212,11 +6611,13 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::Submarine: {
-            const uint16_t sonar = static_cast<uint16_t>((now / 92U) % hw::CenterCount);
+            const uint32_t sonarQ8 = loopingPixelPositionQ8(now, 92U, hw::CenterCount);
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint16_t distance = i > sonar ? i - sonar : sonar - i;
-                const uint8_t value = distance <= 4U
-                    ? static_cast<uint8_t>(190U - distance * 38U) : 13U;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > sonarQ8
+                    ? pixelQ8 - sonarQ8 : sonarQ8 - pixelQ8;
+                const uint8_t value = distanceQ8 <= (4U << 8U)
+                    ? q8Falloff(190U, 38U, distanceQ8) : 13U;
                 setSection(LedSection::Center, i,
                     decorativeHsv(LedCategory::Other, 103U, 230U, value));
             }
@@ -6228,11 +6629,15 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     decorativeHsv(LedCategory::Other, 153U, 235U, 12U));
                 for (uint8_t bubble = 0; bubble < 4U; ++bubble) {
                     const uint16_t route = count + 5U;
-                    const uint16_t raw = static_cast<uint16_t>((now /
-                        (145U + bubble * 23U) + bubble * 4U + sideIndex * 7U) % route);
-                    if (raw >= count) continue;
-                    const uint16_t position = sideIndex == 0U ? count - 1U - raw : raw;
-                    setSection(section, position,
+                    const uint32_t rawQ8 = static_cast<uint32_t>(
+                        (((static_cast<uint64_t>(now) << 8U) / (145U + bubble * 23U) +
+                          (static_cast<uint32_t>(bubble * 4U + sideIndex * 7U) << 8U)) %
+                         (static_cast<uint32_t>(route) << 8U)));
+                    if (rawQ8 > (static_cast<uint32_t>(count - 1U) << 8U)) continue;
+                    const uint32_t positionQ8 = sideIndex == 0U
+                        ? (static_cast<uint32_t>(count - 1U) << 8U) - rawQ8
+                        : rawQ8;
+                    addSectionSubpixel(section, positionQ8,
                         decorativeHsv(LedCategory::Other, 149U, 85U,
                             static_cast<uint8_t>(120U + bubble * 21U)));
                 }
@@ -6280,17 +6685,17 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     static_cast<uint32_t>(local) * 255U / half);
                 const uint16_t eased = static_cast<uint16_t>(
                     static_cast<uint32_t>(u) * u * (765U - 2U * u) / 65025U);
-                const uint16_t position = forward
-                    ? static_cast<uint16_t>(static_cast<uint32_t>(eased) * span / 255U)
-                    : static_cast<uint16_t>(span - static_cast<uint32_t>(eased) * span / 255U);
+                const uint32_t easedQ8 = static_cast<uint32_t>(eased) * span * 256U / 255U;
+                const uint32_t positionQ8 = forward
+                    ? easedQ8 : (static_cast<uint32_t>(span) << 8U) - easedQ8;
                 for (uint8_t trail = 0; trail < 5U; ++trail) {
-                    const int16_t trailPosition = forward
-                        ? static_cast<int16_t>(position) - trail
-                        : static_cast<int16_t>(position) + trail;
-                    if (trailPosition < 0 || trailPosition >= static_cast<int16_t>(hw::OuterCount)) continue;
-                    setOuterVisualPathPixel(static_cast<uint16_t>(trailPosition),
+                    const uint32_t trailQ8 = static_cast<uint32_t>(trail) << 8U;
+                    if (forward && positionQ8 < trailQ8) continue;
+                    const uint32_t trailPositionQ8 = forward
+                        ? positionQ8 - trailQ8 : positionQ8 + trailQ8;
+                    addOuterVisualPathSubpixel(trailPositionQ8,
                         decorativeHsv(LedCategory::Other, Hues[ball], 255U,
-                            static_cast<uint8_t>(220U - trail * 39U)));
+                            static_cast<uint8_t>(220U - trail * 39U)), false);
                 }
             }
             break;
@@ -6303,12 +6708,14 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 RgbwColor(firstBurst ? 0U : 0U, firstBurst ? 18U : 0U, firstBurst ? 235U : 10U));
             fillSection(LedSection::Right,
                 RgbwColor(secondBurst ? 235U : 10U, 0U, 0U));
-            const uint16_t sweep = static_cast<uint16_t>((now / 47U) % hw::CenterCount);
+            const uint32_t sweepQ8 = loopingPixelPositionQ8(now, 47U, hw::CenterCount);
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint16_t distance = i > sweep ? i - sweep : sweep - i;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > sweepQ8
+                    ? pixelQ8 - sweepQ8 : sweepQ8 - pixelQ8;
                 const bool blueHalf = i < hw::CenterCount / 2U;
-                const uint8_t value = distance <= 2U
-                    ? static_cast<uint8_t>(180U - distance * 55U) : 6U;
+                const uint8_t value = distanceQ8 <= (2U << 8U)
+                    ? q8Falloff(180U, 55U, distanceQ8) : 6U;
                 setSection(LedSection::Center, i,
                     blueHalf ? RgbwColor(0U, 12U, value) : RgbwColor(value, 0U, 0U));
             }
@@ -6381,13 +6788,17 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         }
         case OtherAnimation::Radiation: {
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint16_t radius = static_cast<uint16_t>((now / 52U) % (center + 9U));
+            const uint32_t radiusQ8 = static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 52U) %
+                (static_cast<uint32_t>(center + 9U) << 8U));
             const uint8_t warningPulse = static_cast<uint8_t>(25U + wave8At(now, 74U) / 8U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = delta <= 2U
-                    ? static_cast<uint8_t>(220U - delta * 72U) : warningPulse;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t value = deltaQ8 <= (2U << 8U)
+                    ? q8Falloff(220U, 72U, deltaQ8) : warningPulse;
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 65U, 250U, value));
             }
@@ -6397,9 +6808,9 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
-                const uint8_t drift = static_cast<uint8_t>(now / 118U + sectionIndex * 71U);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t wave = wave8(static_cast<uint8_t>(drift + i * 9U));
+                    const uint8_t wave = wave8At(now, 118U,
+                        sectionIndex * 71U + i * 9U);
                     const uint8_t hue = static_cast<uint8_t>(
                         sectionIndex * 77U + wave / 4U);
                     const uint8_t value = static_cast<uint8_t>(105U + wave / 5U);
@@ -6483,14 +6894,16 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             const uint8_t strength = age < 2200U
                 ? static_cast<uint8_t>(255U - age * 235U / 2200U) : 12U;
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint16_t radius = age < 2200U
-                ? static_cast<uint16_t>(age * (center + 4U) / 2200U) : 0U;
+            const uint32_t radiusQ8 = age < 2200U
+                ? age * (center + 4U) * 256U / 2200U : 0U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = age < 2200U && delta <= 3U
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t value = age < 2200U && deltaQ8 <= (3U << 8U)
                     ? static_cast<uint8_t>(min<uint16_t>(230U,
-                        strength + (3U - delta) * 32U)) : 5U;
+                        strength + ((3U << 8U) - deltaQ8) * 32U / 256U)) : 5U;
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 142U, 175U, value));
             }
@@ -6498,13 +6911,15 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         }
         case OtherAnimation::RetroTv: {
             const uint32_t frame = now / 83U;
-            const uint16_t scanline = static_cast<uint16_t>((now / 41U) % hw::OuterCount);
+            const uint32_t scanlineQ8 = loopingPixelPositionQ8(now, 41U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t noise = hash8(frame * 157U + path * 103U);
                 const uint8_t next = hash8(frame * 83U + path * 197U + 41U);
                 uint8_t value = static_cast<uint8_t>(28U + noise * 92U / 255U);
-                const uint16_t distance = path > scanline ? path - scanline : scanline - path;
-                if (distance <= 1U) value = static_cast<uint8_t>(min<uint16_t>(195U, value + 75U));
+                const uint32_t distanceQ8 = circularDistanceQ8(
+                    scanlineQ8, path, hw::OuterCount);
+                if (distanceQ8 <= (1U << 8U)) value = static_cast<uint8_t>(
+                    min<uint16_t>(195U, value + q8Falloff(75U, 55U, distanceQ8)));
                 setOuterVisualPathPixel(path,
                     RgbwColor(value,
                         static_cast<uint8_t>(value * (110U + next / 3U) / 195U),
@@ -6560,19 +6975,27 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::LaserGrid: {
-            const uint16_t leftBeam = static_cast<uint16_t>((now / 53U) % hw::CenterCount);
-            const uint16_t rightBeam = static_cast<uint16_t>(
-                hw::CenterCount - 1U - (now / 79U) % hw::CenterCount);
+            const uint32_t leftBeamQ8 = loopingPixelPositionQ8(now, 53U, hw::CenterCount);
+            const uint32_t rightBeamQ8 =
+                ((static_cast<uint32_t>(hw::CenterCount - 1U) << 8U) -
+                 loopingPixelPositionQ8(now, 79U, hw::CenterCount) +
+                 (static_cast<uint32_t>(hw::CenterCount) << 8U)) %
+                (static_cast<uint32_t>(hw::CenterCount) << 8U);
             fillSection(LedSection::Left,
                 decorativeHsv(LedCategory::Other, 0U, 255U, 24U));
             fillSection(LedSection::Right,
                 decorativeHsv(LedCategory::Other, 96U, 255U, 24U));
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint16_t dl = i > leftBeam ? i - leftBeam : leftBeam - i;
-                const uint16_t dr = i > rightBeam ? i - rightBeam : rightBeam - i;
-                const uint8_t red = dl <= 2U ? static_cast<uint8_t>(225U - dl * 73U) : 0U;
-                const uint8_t green = dr <= 2U ? static_cast<uint8_t>(225U - dr * 73U) : 0U;
-                const bool crossing = dl <= 1U && dr <= 1U;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t dlQ8 = pixelQ8 > leftBeamQ8
+                    ? pixelQ8 - leftBeamQ8 : leftBeamQ8 - pixelQ8;
+                const uint32_t drQ8 = pixelQ8 > rightBeamQ8
+                    ? pixelQ8 - rightBeamQ8 : rightBeamQ8 - pixelQ8;
+                const uint8_t red = dlQ8 <= (2U << 8U)
+                    ? q8Falloff(225U, 73U, dlQ8) : 0U;
+                const uint8_t green = drQ8 <= (2U << 8U)
+                    ? q8Falloff(225U, 73U, drQ8) : 0U;
+                const bool crossing = dlQ8 <= (1U << 8U) && drQ8 <= (1U << 8U);
                 setSection(LedSection::Center, i, crossing
                     ? RgbwColor(225U, 190U, 70U) : RgbwColor(red, green, 0U));
             }
@@ -6580,11 +7003,10 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         }
         case OtherAnimation::GalaxySpin: {
             const uint16_t core = (hw::OuterCount - 1U) / 2U;
-            const uint8_t rotation = static_cast<uint8_t>(now / 47U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > core ? path - core : core - path;
-                const uint8_t armA = wave8(static_cast<uint8_t>(rotation + distance * 31U));
-                const uint8_t armB = wave8(static_cast<uint8_t>(rotation - distance * 27U + 128U));
+                const uint8_t armA = wave8At(now, 47U, distance * 31U);
+                const uint8_t armB = wave8At(now, 47U, - distance * 27U + 128U);
                 const uint8_t arm = max<uint8_t>(armA, armB);
                 const uint8_t falloff = static_cast<uint8_t>(max<int>(35,
                     255 - static_cast<int>(distance) * 9));
@@ -6598,34 +7020,40 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::CometTwins: {
-            const uint16_t span = hw::OuterCount - 1U;
-            const uint16_t first = static_cast<uint16_t>((now / 61U) % hw::OuterCount);
-            const uint16_t second = span - first;
+            const uint32_t firstQ8 = loopingPixelPositionQ8(now, 61U, hw::OuterCount);
+            const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
+            const uint32_t secondQ8 =
+                (cycleQ8 - 256U - firstQ8 + cycleQ8) % cycleQ8;
             for (uint8_t comet = 0; comet < 2U; ++comet) {
-                const uint16_t head = comet == 0U ? first : second;
+                const uint32_t headQ8 = comet == 0U ? firstQ8 : secondQ8;
                 const int8_t direction = comet == 0U ? 1 : -1;
                 const uint8_t hue = comet == 0U ? 132U : 224U;
                 for (uint8_t tail = 0; tail < 8U; ++tail) {
-                    const int16_t position = static_cast<int16_t>(head) - direction * tail;
-                    if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
-                    setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    const uint32_t positionQ8 = direction > 0
+                        ? (headQ8 + cycleQ8 - tailQ8) % cycleQ8
+                        : (headQ8 + tailQ8) % cycleQ8;
+                    addOuterVisualPathSubpixel(positionQ8,
                         decorativeHsv(LedCategory::Other, hue, 255U,
-                            static_cast<uint8_t>(225U - tail * 27U)));
+                            static_cast<uint8_t>(225U - tail * 27U)), true);
                 }
             }
             break;
         }
         case OtherAnimation::DeepSeaPulse: {
-            const uint16_t edgeDistance = min<uint16_t>(
-                static_cast<uint16_t>((now / 82U) % (hw::OuterCount / 2U + 8U)),
-                hw::OuterCount / 2U);
+            const uint32_t maximumQ8 = static_cast<uint32_t>(hw::OuterCount / 2U) << 8U;
+            const uint32_t edgeDistanceQ8 = min<uint32_t>(
+                static_cast<uint32_t>(((static_cast<uint64_t>(now) << 8U) / 82U) %
+                    (static_cast<uint32_t>(hw::OuterCount / 2U + 8U) << 8U)),
+                maximumQ8);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t nearestEdge = min<uint16_t>(path, hw::OuterCount - 1U - path);
-                const uint16_t delta = nearestEdge > edgeDistance
-                    ? nearestEdge - edgeDistance : edgeDistance - nearestEdge;
+                const uint32_t nearestEdgeQ8 = static_cast<uint32_t>(nearestEdge) << 8U;
+                const uint32_t deltaQ8 = nearestEdgeQ8 > edgeDistanceQ8
+                    ? nearestEdgeQ8 - edgeDistanceQ8 : edgeDistanceQ8 - nearestEdgeQ8;
                 const uint8_t pressure = wave8At(now, 113U, path * 5U);
-                const uint8_t value = delta <= 3U
-                    ? static_cast<uint8_t>(170U - delta * 42U)
+                const uint8_t value = deltaQ8 <= (3U << 8U)
+                    ? q8Falloff(170U, 42U, deltaQ8)
                     : static_cast<uint8_t>(8U + pressure / 16U);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 158U, 245U, value));
@@ -6633,13 +7061,13 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::SolarWind: {
-            const uint16_t drift = static_cast<uint16_t>(now / 49U);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint8_t stream = static_cast<uint8_t>((path + drift) % 11U);
+                const uint8_t stream = wave8At(now, 2U, path * 23U);
                 const uint8_t turbulence = wave8At(now, 71U, path * 13U);
-                const uint8_t value = stream < 4U
-                    ? static_cast<uint8_t>(190U - stream * 35U)
-                    : static_cast<uint8_t>(10U + turbulence / 13U);
+                const uint8_t wind = stream > 118U
+                    ? static_cast<uint8_t>((stream - 118U) * 180U / 137U) : 0U;
+                const uint8_t value = static_cast<uint8_t>(
+                    10U + turbulence / 13U + wind);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
                         static_cast<uint8_t>(24U + turbulence / 18U), 235U, value));
@@ -6671,8 +7099,8 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t breeze = wave8(static_cast<uint8_t>(
-                        now / 137U + i * 9U + sectionIndex * 47U));
+                    const uint8_t breeze = wave8At(now, 137U,
+                        i * 9U + sectionIndex * 47U);
                     const uint8_t hue = static_cast<uint8_t>(106U + breeze / 18U);
                     const uint8_t value = static_cast<uint8_t>(34U + breeze * 78U / 255U);
                     setSection(section, i,
@@ -6682,14 +7110,14 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::RubyScan: {
-            const uint16_t span = hw::OuterCount - 1U;
-            const uint16_t phase = static_cast<uint16_t>((now / 39U) % (span * 2U));
-            const uint16_t head = phase <= span ? phase : span * 2U - phase;
+            const uint32_t headQ8 = pingPongPixelPositionQ8(now, 39U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                const uint16_t distance = path > head ? path - head : head - path;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(path) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > headQ8
+                    ? pixelQ8 - headQ8 : headQ8 - pixelQ8;
                 const uint8_t facet = hash8(path * 89U + 17U);
                 uint8_t value = facet > 224U ? 30U : 7U;
-                if (distance <= 7U) value = static_cast<uint8_t>(220U - distance * 28U);
+                if (distanceQ8 <= (7U << 8U)) value = q8Falloff(220U, 28U, distanceQ8);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
                         static_cast<uint8_t>(facet / 64U), 255U, value));
@@ -6711,25 +7139,29 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         }
         case OtherAnimation::Stardust: {
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint32_t epoch = now / 1900U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t background = hash8(path * 97U) > 225U ? 18U : 3U;
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 189U, 180U, background));
             }
             for (uint8_t dust = 0; dust < 7U; ++dust) {
-                const uint16_t travel = static_cast<uint16_t>(
-                    (now / (73U + dust * 11U) + hash8(epoch * 43U + dust * 83U)) % (center + 7U));
-                if (travel > center) continue;
+                const uint32_t routeQ8 = static_cast<uint32_t>(center + 7U) << 8U;
+                const uint32_t travelQ8 = static_cast<uint32_t>(
+                    (((static_cast<uint64_t>(now) << 8U) / (73U + dust * 11U) +
+                      (static_cast<uint32_t>(hash8(dust * 83U)) << 8U)) % routeQ8));
+                if (travelQ8 > (static_cast<uint32_t>(center) << 8U)) continue;
                 const int16_t direction = (dust & 1U) ? 1 : -1;
                 for (uint8_t tail = 0; tail < 4U; ++tail) {
-                    const int16_t position = static_cast<int16_t>(center) +
-                        direction * static_cast<int16_t>(travel - min<uint16_t>(travel, tail));
-                    if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
-                    setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                    const uint32_t tailQ8 = min<uint32_t>(
+                        travelQ8, static_cast<uint32_t>(tail) << 8U);
+                    const int32_t positionQ8 = static_cast<int32_t>(center << 8U) +
+                        direction * static_cast<int32_t>(travelQ8 - tailQ8);
+                    if (positionQ8 < 0 || positionQ8 >=
+                        static_cast<int32_t>(hw::OuterCount << 8U)) continue;
+                    addOuterVisualPathSubpixel(static_cast<uint32_t>(positionQ8),
                         decorativeHsv(LedCategory::Other,
                             static_cast<uint8_t>(28U + dust * 21U), 180U,
-                            static_cast<uint8_t>(190U - tail * 43U)));
+                            static_cast<uint8_t>(190U - tail * 43U)), false);
                 }
             }
             break;
@@ -6742,8 +7174,8 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 for (uint16_t i = 0; i < count; ++i) {
                     const uint16_t edge = min<uint16_t>(i, count - 1U - i);
                     const uint8_t crystal = hash8(i * 131U + sectionIndex * 67U);
-                    const uint8_t glint = wave8(static_cast<uint8_t>(
-                        now / (143U + crystal % 37U) + crystal));
+                    const uint8_t glint = wave8At(now,
+                        static_cast<uint16_t>(143U + crystal % 37U), crystal);
                     const uint8_t value = static_cast<uint8_t>(max<int>(20,
                         135 - static_cast<int>(edge) * 18 + (glint > 228U ? 70 : 0)));
                     const uint8_t hue = static_cast<uint8_t>(151U +
@@ -6759,25 +7191,29 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             const uint32_t phase = now % CycleMs;
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             if (phase < 2300U) {
-                const uint16_t head = static_cast<uint16_t>(phase * center / 2300U);
+                const uint32_t headQ8 = phase * center * 256U / 2300U;
                 for (uint8_t tail = 0; tail < 8U; ++tail) {
-                    if (head < tail) continue;
-                    setOuterVisualPathPixel(head - tail,
+                    const uint32_t tailQ8 = static_cast<uint32_t>(tail) << 8U;
+                    if (headQ8 < tailQ8) continue;
+                    addOuterVisualPathSubpixel(headQ8 - tailQ8,
                         decorativeHsv(LedCategory::Other, 24U, 225U,
-                            static_cast<uint8_t>(225U - tail * 27U)));
+                            static_cast<uint8_t>(225U - tail * 27U)), false);
                 }
             } else if (phase < 4000U) {
-                const uint16_t radius = static_cast<uint16_t>((phase - 2300U) * center / 1700U);
+                const uint32_t radiusQ8 = (phase - 2300U) * center * 256U / 1700U;
                 const uint8_t hue = static_cast<uint8_t>((now / CycleMs) * 47U);
                 for (int8_t direction = -1; direction <= 1; direction += 2) {
-                    const int16_t head = static_cast<int16_t>(center) + direction * radius;
+                    const int32_t headQ8 = static_cast<int32_t>(center << 8U) +
+                        direction * static_cast<int32_t>(radiusQ8);
                     for (uint8_t tail = 0; tail < 5U; ++tail) {
-                        const int16_t position = head - direction * tail;
-                        if (position < 0 || position >= static_cast<int16_t>(hw::OuterCount)) continue;
-                        setOuterVisualPathPixel(static_cast<uint16_t>(position),
+                        const int32_t positionQ8 = headQ8 -
+                            direction * static_cast<int32_t>(tail << 8U);
+                        if (positionQ8 < 0 || positionQ8 >=
+                            static_cast<int32_t>(hw::OuterCount << 8U)) continue;
+                        addOuterVisualPathSubpixel(static_cast<uint32_t>(positionQ8),
                             decorativeHsv(LedCategory::Other,
                                 static_cast<uint8_t>(hue + tail * 13U), 245U,
-                                static_cast<uint8_t>(220U - tail * 41U)));
+                                static_cast<uint8_t>(220U - tail * 41U)), false);
                     }
                 }
             }
@@ -6800,17 +7236,19 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             constexpr uint32_t CycleMs = 9000U;
             const uint32_t phase = now % CycleMs;
             if (phase < 6500U) {
-                const uint16_t head = static_cast<uint16_t>(
-                    phase * (hw::OuterCount - 1U) / 6500U);
+                const uint32_t headQ8 = phase * (hw::OuterCount - 1U) * 256U / 6500U;
                 const uint8_t envelope = phase < 1200U
                     ? static_cast<uint8_t>(phase * 170U / 1200U)
                     : phase > 5000U
                         ? static_cast<uint8_t>((6500U - phase) * 170U / 1500U) : 170U;
                 for (uint16_t path = 0; path < hw::OuterCount; ++path) {
-                    const uint16_t distance = path > head ? path - head : head - path;
-                    if (distance > 7U) continue;
+                    const uint32_t pixelQ8 = static_cast<uint32_t>(path) << 8U;
+                    const uint32_t distanceQ8 = pixelQ8 > headQ8
+                        ? pixelQ8 - headQ8 : headQ8 - pixelQ8;
+                    if (distanceQ8 > (7U << 8U)) continue;
                     const uint8_t value = static_cast<uint8_t>(
-                        static_cast<uint16_t>(envelope) * (8U - distance) / 8U);
+                        static_cast<uint32_t>(envelope) * ((8U << 8U) - distanceQ8) /
+                        (8U << 8U));
                     setOuterVisualPathPixel(path,
                         decorativeHsv(LedCategory::Other, 161U, 70U, value));
                 }
@@ -6850,13 +7288,14 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::Blueprint: {
-            const uint16_t pen = static_cast<uint16_t>((now / 67U) % hw::OuterCount);
+            const uint32_t penQ8 = loopingPixelPositionQ8(now, 67U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const bool major = path % 10U == 0U;
                 const bool minor = path % 5U == 0U;
-                const uint16_t distance = path > pen ? path - pen : pen - path;
+                const uint32_t distanceQ8 = circularDistanceQ8(
+                    penQ8, path, hw::OuterCount);
                 uint8_t value = major ? 72U : minor ? 38U : 10U;
-                if (distance <= 2U) value = static_cast<uint8_t>(205U - distance * 62U);
+                if (distanceQ8 <= (2U << 8U)) value = q8Falloff(205U, 62U, distanceQ8);
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 148U, 210U, value));
             }
@@ -6878,20 +7317,28 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::CandyStripe: {
-            const uint16_t shift = static_cast<uint16_t>(now / 92U);
             const RgbwColor cherry = decorativeHsv(LedCategory::Other, 0U, 250U, 220U);
             const RgbwColor cream(225U, 190U, 145U);
             const RgbwColor mint = decorativeHsv(LedCategory::Other, 91U, 235U, 155U);
+            const RgbwColor stripeColors[3] = {cherry, cream, mint};
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t band = static_cast<uint8_t>(
-                        (i * 2U + shift + sectionIndex * 3U) % 15U);
-                    RgbwColor color = band < 5U ? cherry
-                        : band < 10U ? cream : mint;
-                    const uint8_t ridge = static_cast<uint8_t>(
-                        150U + wave8(static_cast<uint8_t>(band * 17U)) / 4U);
+                    const uint32_t stripeQ8 = static_cast<uint32_t>(
+                        (((static_cast<uint64_t>(now) << 8U) / 92U +
+                          (static_cast<uint32_t>(i * 2U + sectionIndex * 3U) << 8U)) %
+                         (15U << 8U)));
+                    const uint8_t band = static_cast<uint8_t>(stripeQ8 >> 8U);
+                    const uint8_t fraction = static_cast<uint8_t>(stripeQ8 & 0xFFU);
+                    const uint8_t currentStripe = band / 5U;
+                    const uint8_t nextStripe = static_cast<uint8_t>(((band + 1U) % 15U) / 5U);
+                    RgbwColor color = stripeColors[currentStripe];
+                    if (currentStripe != nextStripe) {
+                        color = blend(color, stripeColors[nextStripe], fraction);
+                    }
+                    const uint8_t ridge = static_cast<uint8_t>(150U +
+                        wave8(static_cast<uint8_t>((stripeQ8 * 17U) >> 8U)) / 4U);
                     setSection(section, i, scaled(color, ridge));
                 }
             }
@@ -6933,11 +7380,14 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const uint16_t distance = path > center ? path - center : center - path;
                 switch (selected % 3U) {
                     case 0: {
-                        const uint16_t reveal = static_cast<uint16_t>(
-                            (now / 74U) % (center + 8U));
-                        const uint16_t delta = distance > reveal ? distance - reveal : reveal - distance;
-                        const uint8_t value = delta <= 3U
-                            ? static_cast<uint8_t>(205U - delta * 54U) : 13U;
+                        const uint32_t revealQ8 = static_cast<uint32_t>(
+                            ((static_cast<uint64_t>(now) << 8U) / 74U) %
+                            (static_cast<uint32_t>(center + 8U) << 8U));
+                        const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                        const uint32_t deltaQ8 = distanceQ8 > revealQ8
+                            ? distanceQ8 - revealQ8 : revealQ8 - distanceQ8;
+                        const uint8_t value = deltaQ8 <= (3U << 8U)
+                            ? q8Falloff(205U, 54U, deltaQ8) : 13U;
                         return decorativeHsv(LedCategory::Other, 140U, 215U, value);
                     }
                     case 1: {
@@ -7056,13 +7506,14 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         LedCategory::Other, fallbackHues[slot], 255U, 205U);
                 }
             }
-            const uint16_t spotlight = static_cast<uint16_t>((now / 93U) % hw::OuterCount);
+            const uint32_t spotlightQ8 = loopingPixelPositionQ8(now, 93U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint8_t slot = min<uint8_t>(3U,
                     static_cast<uint8_t>(path * 4U / hw::OuterCount));
-                const uint16_t distance = path > spotlight ? path - spotlight : spotlight - path;
-                const uint8_t value = distance <= 4U
-                    ? static_cast<uint8_t>(215U - distance * 30U)
+                const uint32_t distanceQ8 = circularDistanceQ8(
+                    spotlightQ8, path, hw::OuterCount);
+                const uint8_t value = distanceQ8 <= (4U << 8U)
+                    ? q8Falloff(215U, 30U, distanceQ8)
                     : slot == (context.activeTool & 3U) ? 115U : 62U;
                 setOuterVisualPathPixel(path, scaled(palette[slot], value));
             }
@@ -7076,7 +7527,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 ? RgbwColor(0U, 180U, 65U) : RgbwColor(230U, 92U, 0U);
             const RgbwColor vent = !context.ventFailsafe
                 ? RgbwColor(0U, 180U, 65U) : RgbwColor(230U, 15U, 0U);
-            const uint16_t scanner = static_cast<uint16_t>((now / 75U) % hw::CenterCount);
+            const uint32_t scannerQ8 = loopingPixelPositionQ8(now, 75U, hw::CenterCount);
             for (uint16_t i = 0; i < hw::LeftCount; ++i) {
                 const uint8_t value = static_cast<uint8_t>(58U +
                     wave8At(now, 143U, i * 7U) / 4U);
@@ -7084,15 +7535,17 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 setSection(LedSection::Right, i, scaled(vent, value));
             }
             for (uint16_t i = 0; i < hw::CenterCount; ++i) {
-                const uint16_t distance = i > scanner ? i - scanner : scanner - i;
-                const uint8_t value = distance <= 3U
-                    ? static_cast<uint8_t>(205U - distance * 52U) : 22U;
+                const uint32_t pixelQ8 = static_cast<uint32_t>(i) << 8U;
+                const uint32_t distanceQ8 = pixelQ8 > scannerQ8
+                    ? pixelQ8 - scannerQ8 : scannerQ8 - pixelQ8;
+                const uint8_t value = distanceQ8 <= (3U << 8U)
+                    ? q8Falloff(205U, 52U, distanceQ8) : 22U;
                 setSection(LedSection::Center, i, scaled(printer, value));
             }
             break;
         }
         case OtherAnimation::Calibration: {
-            const uint16_t cursor = static_cast<uint16_t>((now / 68U) % hw::OuterCount);
+            const uint32_t cursorQ8 = loopingPixelPositionQ8(now, 68U, hw::OuterCount);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const bool boundary = path == 0U || path == hw::LeftCount ||
                     path == hw::LeftCount + hw::CenterCount || path == hw::OuterCount - 1U;
@@ -7102,10 +7555,11 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                     : major ? decorativeHsv(LedCategory::Other, 145U, 180U, 120U)
                     : minor ? decorativeHsv(LedCategory::Other, 145U, 205U, 42U)
                     : RgbwColor();
-                const uint16_t distance = path > cursor ? path - cursor : cursor - path;
-                if (distance <= 1U) {
+                const uint32_t distanceQ8 = circularDistanceQ8(
+                    cursorQ8, path, hw::OuterCount);
+                if (distanceQ8 <= (1U << 8U)) {
                     color = decorativeHsv(LedCategory::Other, 18U, 245U,
-                        static_cast<uint8_t>(220U - distance * 80U));
+                        q8Falloff(220U, 80U, distanceQ8));
                 }
                 setOuterVisualPathPixel(path, color);
             }
@@ -7138,10 +7592,12 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const uint16_t distance = path > center ? path - center : center - path;
                 RgbwColor color;
                 if (phase < 3200U) {
-                    const uint16_t reveal = static_cast<uint16_t>(phase * center / 3200U);
-                    const uint16_t delta = distance > reveal ? distance - reveal : reveal - distance;
-                    const uint8_t value = delta <= 4U
-                        ? static_cast<uint8_t>(215U - delta * 46U) : 4U;
+                    const uint32_t revealQ8 = phase * center * 256U / 3200U;
+                    const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                    const uint32_t deltaQ8 = distanceQ8 > revealQ8
+                        ? distanceQ8 - revealQ8 : revealQ8 - distanceQ8;
+                    const uint8_t value = deltaQ8 <= (4U << 8U)
+                        ? q8Falloff(215U, 46U, deltaQ8) : 4U;
                     color = decorativeHsv(LedCategory::Other, 145U, 225U, value);
                 } else if (phase < 7600U) {
                     const uint8_t amount = static_cast<uint8_t>(
@@ -7202,9 +7658,9 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             constexpr uint32_t CycleMs = 2800U;
             const uint32_t phase = now % CycleMs;
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint16_t gate = phase < 1500U
-                ? static_cast<uint16_t>(phase * center / 1500U)
-                : center;
+            const uint32_t gateQ8 = phase < 1500U
+                ? phase * center * 256U / 1500U
+                : static_cast<uint32_t>(center) << 8U;
             const uint8_t release = phase < 1500U ? 0U
                 : phase < 2050U
                     ? static_cast<uint8_t>((phase - 1500U) * 255U / 550U)
@@ -7212,9 +7668,11 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                         255 - static_cast<int>(phase - 2050U) * 255 / 750));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t nearestEdge = min<uint16_t>(path, hw::OuterCount - 1U - path);
-                const uint16_t delta = nearestEdge > gate ? nearestEdge - gate : gate - nearestEdge;
-                uint8_t value = delta <= 3U
-                    ? static_cast<uint8_t>(190U - delta * 45U) : 7U;
+                const uint32_t nearestEdgeQ8 = static_cast<uint32_t>(nearestEdge) << 8U;
+                const uint32_t deltaQ8 = nearestEdgeQ8 > gateQ8
+                    ? nearestEdgeQ8 - gateQ8 : gateQ8 - nearestEdgeQ8;
+                uint8_t value = deltaQ8 <= (3U << 8U)
+                    ? q8Falloff(190U, 45U, deltaQ8) : 7U;
                 if (release) value = max<uint8_t>(value,
                     static_cast<uint8_t>(release * (55U + hash8(path * 73U) % 166U) / 255U));
                 setOuterVisualPathPixel(path,
@@ -7240,17 +7698,20 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
         case OtherAnimation::PlasmaCore: {
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             const uint8_t core = wave8At(now, 39U);
-            const uint16_t shell = static_cast<uint16_t>(
-                (now / 57U) % (center + 7U));
+            const uint32_t shellQ8 = static_cast<uint32_t>(
+                ((static_cast<uint64_t>(now) << 8U) / 57U) %
+                (static_cast<uint32_t>(center + 7U) << 8U));
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t shellDistance = distance > shell ? distance - shell : shell - distance;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t shellDistanceQ8 = distanceQ8 > shellQ8
+                    ? distanceQ8 - shellQ8 : shellQ8 - distanceQ8;
                 const uint8_t field = wave8At(now, 87U, distance * 21U);
                 uint8_t value = static_cast<uint8_t>(18U + field / 7U);
                 if (distance <= 4U) value = max<uint8_t>(value,
                     static_cast<uint8_t>(215U - distance * 38U + core / 10U));
-                if (shellDistance <= 2U) value = max<uint8_t>(value,
-                    static_cast<uint8_t>(165U - shellDistance * 55U));
+                if (shellDistanceQ8 <= (2U << 8U)) value = max<uint8_t>(value,
+                    q8Falloff(165U, 55U, shellDistanceQ8));
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other,
                         static_cast<uint8_t>(187U + field / 9U), 255U, value));
@@ -7291,8 +7752,8 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 const LedSection section = VisualOuterSections[sectionIndex];
                 const uint16_t count = sectionCount(section);
                 for (uint16_t i = 0; i < count; ++i) {
-                    const uint8_t local = wave8(static_cast<uint8_t>(
-                        i * 9U + sectionIndex * 37U + now / 171U));
+                    const uint8_t local = wave8At(now, 171U,
+                        i * 9U + sectionIndex * 37U);
                     const uint8_t value = static_cast<uint8_t>(35U + breath / 3U + local / 8U);
                     setSection(section, i,
                         decorativeHsv(LedCategory::Other,
@@ -7302,7 +7763,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             break;
         }
         case OtherAnimation::SectionDemo: {
-            const uint16_t marker = static_cast<uint16_t>((now / 82U) % hw::OuterCount);
+            const uint32_t markerQ8 = loopingPixelPositionQ8(now, 82U, hw::OuterCount);
             constexpr uint8_t hues[3] = {165U, 89U, 0U};
             for (uint8_t sectionIndex = 0; sectionIndex < 3U; ++sectionIndex) {
                 const LedSection section = VisualOuterSections[sectionIndex];
@@ -7313,12 +7774,13 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
                 }
             }
             for (uint8_t tail = 0; tail < 4U; ++tail) {
-                const uint16_t path = static_cast<uint16_t>(
-                    (marker + hw::OuterCount - tail) % hw::OuterCount);
-                setOuterVisualPathPixel(path, RgbwColor(
+                const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
+                const uint32_t pathQ8 = (markerQ8 + cycleQ8 -
+                    (static_cast<uint32_t>(tail) << 8U)) % cycleQ8;
+                addOuterVisualPathSubpixel(pathQ8, RgbwColor(
                     static_cast<uint8_t>(210U - tail * 47U),
                     static_cast<uint8_t>(205U - tail * 47U),
-                    static_cast<uint8_t>(190U - tail * 43U)));
+                    static_cast<uint8_t>(190U - tail * 43U)), true);
             }
             break;
         }
@@ -7399,16 +7861,18 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             constexpr uint32_t CycleMs = 10000U;
             const uint32_t phase = now % CycleMs;
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint16_t radius = phase < 4000U
-                ? static_cast<uint16_t>(phase * center / 4000U)
+            const uint32_t radiusQ8 = phase < 4000U
+                ? phase * center * 256U / 4000U
                 : phase < 8000U
-                    ? static_cast<uint16_t>((8000U - phase) * center / 4000U) : 0U;
+                    ? (8000U - phase) * center * 256U / 4000U : 0U;
             const uint8_t rest = phase < 8000U ? 255U : 0U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                const uint8_t value = !rest ? 2U : delta <= 5U
-                    ? static_cast<uint8_t>(145U - delta * 24U) : 6U;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                    ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                const uint8_t value = !rest ? 2U : deltaQ8 <= (5U << 8U)
+                    ? q8Falloff(145U, 24U, deltaQ8) : 6U;
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 118U, 135U, value));
             }
@@ -7426,14 +7890,18 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             for (uint8_t bloom = 0; bloom < 4U; ++bloom) {
                 const uint16_t origin = static_cast<uint16_t>(
                     hash8(epoch * 61U + bloom * 97U) * hw::OuterCount / 256U);
-                const uint16_t radius = static_cast<uint16_t>(
-                    ((phase + bloom * 730U) % 3600U) * 9U / 3600U);
-                const uint8_t fade = static_cast<uint8_t>(220U - radius * 20U);
+                const uint32_t radiusQ8 =
+                    ((phase + bloom * 730U) % 3600U) * 9U * 256U / 3600U;
+                const uint8_t fade = static_cast<uint8_t>(
+                    220U - min<uint32_t>(180U, radiusQ8 * 20U / 256U));
                 for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                     const uint16_t distance = path > origin ? path - origin : origin - path;
-                    const uint16_t delta = distance > radius ? distance - radius : radius - distance;
-                    if (delta > 2U) continue;
-                    const uint8_t value = static_cast<uint8_t>(fade * (3U - delta) / 3U);
+                    const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
+                    const uint32_t deltaQ8 = distanceQ8 > radiusQ8
+                        ? distanceQ8 - radiusQ8 : radiusQ8 - distanceQ8;
+                    if (deltaQ8 > (2U << 8U)) continue;
+                    const uint8_t value = static_cast<uint8_t>(
+                        fade * ((3U << 8U) - deltaQ8) / (3U << 8U));
                     setOuterVisualPathPixel(path,
                         decorativeHsv(LedCategory::Other,
                             static_cast<uint8_t>(118U + bloom * 14U), 205U, value));
@@ -7504,17 +7972,25 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             constexpr uint32_t CycleMs = 11000U;
             const uint32_t phase = now % CycleMs;
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const int16_t moon = static_cast<int16_t>(
-                phase * (hw::OuterCount + 12U) / CycleMs) - 6;
+            const int32_t moonQ8 = static_cast<int32_t>(
+                phase * (hw::OuterCount + 12U) * 256U / CycleMs) - (6 << 8);
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t solarDistance = path > center ? path - center : center - path;
-                const uint16_t moonDistance = static_cast<uint16_t>(abs(
-                    static_cast<int>(path) - moon));
+                const uint32_t moonDistanceQ8 = static_cast<uint32_t>(abs(
+                    static_cast<int32_t>(path << 8U) - moonQ8));
                 uint8_t value = static_cast<uint8_t>(max<int>(4,
                     175 - static_cast<int>(solarDistance) * 6));
-                if (moonDistance <= 3U) value = moonDistance == 3U ? 105U : 1U;
-                else if (moonDistance <= 7U) value = max<uint8_t>(value,
-                    static_cast<uint8_t>(205U - (moonDistance - 4U) * 33U));
+                if (moonDistanceQ8 <= (3U << 8U)) {
+                    value = moonDistanceQ8 > (2U << 8U)
+                        ? static_cast<uint8_t>(1U +
+                            (moonDistanceQ8 - (2U << 8U)) * 104U / 256U)
+                        : 1U;
+                } else if (moonDistanceQ8 <= (7U << 8U)) {
+                    const uint32_t coronaDistanceQ8 = moonDistanceQ8 > (4U << 8U)
+                        ? moonDistanceQ8 - (4U << 8U) : 0U;
+                    value = max<uint8_t>(value, q8Falloff(
+                        205U, 33U, coronaDistanceQ8));
+                }
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, 23U, 245U, value));
             }
@@ -7524,25 +8000,30 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             constexpr uint32_t CycleMs = 7200U;
             const uint32_t phase = now % CycleMs;
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
-            const uint16_t spread = phase < 3000U
-                ? static_cast<uint16_t>(phase * center / 3000U)
+            const uint32_t spreadQ8 = phase < 3000U
+                ? phase * center * 256U / 3000U
                 : phase < 6000U
-                    ? static_cast<uint16_t>((6000U - phase) * center / 3000U) : 0U;
+                    ? (6000U - phase) * center * 256U / 3000U : 0U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
+                const uint32_t distanceQ8 = static_cast<uint32_t>(distance) << 8U;
                 if (phase >= 6000U) {
                     const uint8_t fade = static_cast<uint8_t>((CycleMs - phase) * 120U / 1200U);
                     setOuterVisualPathPixel(path, distance <= 2U
                         ? RgbwColor(fade, fade, fade) : RgbwColor());
                     continue;
                 }
-                if (distance > spread + 2U) continue;
+                if (distanceQ8 > spreadQ8 + (2U << 8U)) continue;
                 const uint8_t hue = static_cast<uint8_t>(
                     distance * 255U / max<uint16_t>(1U, center));
-                const uint8_t saturation = spread < 3U ? 25U : 240U;
-                const uint8_t value = distance <= spread
+                const uint8_t saturation = spreadQ8 < (3U << 8U) ? 25U : 240U;
+                uint8_t value = distanceQ8 <= spreadQ8
                     ? static_cast<uint8_t>(95U + distance * 105U / max<uint16_t>(1U, center))
                     : 35U;
+                if (distanceQ8 > spreadQ8) {
+                    value = static_cast<uint8_t>(value *
+                        (spreadQ8 + (2U << 8U) - distanceQ8) / (2U << 8U));
+                }
                 setOuterVisualPathPixel(path,
                     decorativeHsv(LedCategory::Other, hue, saturation, value));
             }
@@ -7554,8 +8035,7 @@ void LedService::renderOther(uint8_t animation, const LedAnimationContext& conte
             const uint16_t center = (hw::OuterCount - 1U) / 2U;
             for (uint16_t path = 0; path < hw::OuterCount; ++path) {
                 const uint16_t distance = path > center ? path - center : center - path;
-                const uint8_t curtain = wave8(static_cast<uint8_t>(
-                    now / 151U + distance * 13U));
+                const uint8_t curtain = wave8At(now, 151U, distance * 13U);
                 const uint8_t heraldry = static_cast<uint8_t>((path / 3U + ceremony) % 3U);
                 const uint8_t hue = royalHues[heraldry];
                 uint8_t value = static_cast<uint8_t>(45U + curtain * 75U / 255U);
@@ -7719,34 +8199,12 @@ void LedService::applyOutputPolicies(const AppSettings& settings) {
     }
 }
 
-bool LedService::smoothAndShow(const AppSettings& settings, bool immediate) {
+bool LedService::smoothAndEncode(const AppSettings& settings, bool immediate) {
     bool dirty = false;
-    constexpr uint8_t baseStep = 18U;
-
-    const uint32_t now = millis();
-    uint32_t elapsedMs = lastSmoothingMs_ ? now - lastSmoothingMs_ : FrameIntervalMs;
-    lastSmoothingMs_ = now;
-    // Preserve the proven coroNET 1 rate of 18 channel levels per 20 ms.
-    // Never catch up a delayed frame with one large brightness jump; flash/NVS
-    // stalls used to make that visible as a brief flash in OS 1.
-    elapsedMs = constrain(elapsedMs, 1U, FrameIntervalMs);
-    const auto timeScaledStep = [&](uint16_t referenceStep) -> uint8_t {
-        const uint32_t scaled =
-            (static_cast<uint32_t>(referenceStep) * elapsedMs +
-             SmoothingReferenceMs / 2U) /
-            SmoothingReferenceMs;
-        return static_cast<uint8_t>(constrain(scaled, 1U, 255U));
-    };
-    const uint8_t step = timeScaledStep(baseStep);
-    const uint8_t fastRgbStep = timeScaledStep(max<uint16_t>(
-        48U, static_cast<uint16_t>(baseStep) * 4U));
-    const uint8_t fastWhiteStep = timeScaledStep(max<uint16_t>(
-        96U, static_cast<uint16_t>(baseStep) * 6U));
+    constexpr uint8_t step = 18U;
 
     const bool forceInsideWhite = !bootActive_ &&
         settings.insideColorStyle == InsideColorStyle::White;
-    const uint16_t bootSaturationScale = bootActive_ && bootExperience().full()
-        ? 150U : 0U;
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
         // Match the proven coroNET 1 boundary: convert every target to its
@@ -7755,33 +8213,18 @@ bool LedService::smoothAndShow(const AppSettings& settings, bool immediate) {
         // calibration may deliberately send another RGB mix so that the strip
         // and diffuser reproduce that target to the viewer.
         previewFrame_[i] = perceptualOutput(targetFrame_[i]);
-        const RgbwColor target = perceptualOutput(applyUserColorCalibration(
-            targetFrame_[i], settings, bootSaturationScale));
-        const uint8_t targetPeak = max(target.r, max(target.g, target.b));
-        const uint8_t targetLow = min(target.r, min(target.g, target.b));
-        const uint8_t targetSaturation = targetPeak
-            ? static_cast<uint8_t>(static_cast<uint16_t>(targetPeak - targetLow) * 255U /
-                                   targetPeak)
-            : 0U;
-        const bool saturatedTarget = targetPeak > 16U && targetSaturation >= 120U;
-        const uint8_t lowChannelLimit = static_cast<uint8_t>(targetPeak / 3U);
+        const RgbwColor target = perceptualOutput(
+            applyUserColorCalibration(targetFrame_[i], settings));
         const bool insideWhite = forceInsideWhite && i >= hw::InsideStart;
-        auto smoothRgb = [&](uint8_t current, uint8_t wanted) -> uint8_t {
-            const uint8_t channelStep = saturatedTarget && wanted < current &&
-                wanted <= lowChannelLimit ? fastRgbStep : step;
-            return smoothStepChannel(current, wanted, channelStep);
-        };
         const RgbwColor next = immediate
             ? RgbwColor(insideWhite ? 0U : target.r,
                         insideWhite ? 0U : target.g,
                         insideWhite ? 0U : target.b,
                         target.w)
-            : RgbwColor(insideWhite ? 0U : smoothRgb(currentFrame_[i].r, target.r),
-                        insideWhite ? 0U : smoothRgb(currentFrame_[i].g, target.g),
-                        insideWhite ? 0U : smoothRgb(currentFrame_[i].b, target.b),
-                        smoothStepChannel(currentFrame_[i].w, target.w,
-                            saturatedTarget && target.w < currentFrame_[i].w
-                                ? fastWhiteStep : step));
+            : RgbwColor(insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r, step),
+                        insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g, step),
+                        insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b, step),
+                        smoothStepChannel(currentFrame_[i].w, target.w, step));
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;
@@ -7793,21 +8236,35 @@ bool LedService::smoothAndShow(const AppSettings& settings, bool immediate) {
         return false;
     }
     encodeFrame();
-    transmitEncodedFrame();
-    ++shows_;
     return true;
 }
 
-void LedService::transmitEncodedFrame() {
+void LedService::transmitEncodedFrame(int64_t deadlineUs) {
     // Arduino's polling SPI writer emits this 960-byte frame as 15 separate
     // 64-byte hardware transactions. A long Core 1 interrupt between chunks
     // exceeds the SK6812 reset interval and latches a partial frame. Keep the
     // complete 2.4 ms waveform uninterrupted; Core 0 remains available for
     // audio, networking and other time-sensitive work.
     portENTER_CRITICAL(&outputMux_);
+    if (deadlineUs) {
+        while (esp_timer_get_time() < deadlineUs) {
+        }
+    }
+    const uint32_t transmitStartedUs = static_cast<uint32_t>(esp_timer_get_time());
+    if (lastTransmitUs_) {
+        const uint32_t transmitIntervalUs = transmitStartedUs - lastTransmitUs_;
+        if (!transmitIntervalMinUs_ || transmitIntervalUs < transmitIntervalMinUs_) {
+            transmitIntervalMinUs_ = transmitIntervalUs;
+        }
+        transmitIntervalMaxUs_ = max(transmitIntervalMaxUs_, transmitIntervalUs);
+    }
+    lastTransmitUs_ = transmitStartedUs;
     spi_->writeBytes(txBuffer_, hw::LedCount * 16U);
+    const uint32_t transmitFinishedUs = static_cast<uint32_t>(esp_timer_get_time());
     portEXIT_CRITICAL(&outputMux_);
     delayMicroseconds(100);
+    maxTransmitUs_ = max(maxTransmitUs_,
+        transmitFinishedUs - transmitStartedUs);
 }
 
 void LedService::encodeFrame() {
@@ -7889,12 +8346,14 @@ void LedService::setOuterVisualPathPixel(uint16_t path, const RgbwColor& color) 
     setSection(LedSection::Right, hw::RightCount - 1U - path, color);
 }
 
-void LedService::addOuterVisualPathSubpixel(uint32_t pathQ8, const RgbwColor& color) {
+void LedService::addOuterVisualPathSubpixel(uint32_t pathQ8, const RgbwColor& color,
+                                            bool wrap) {
     const uint32_t cycleQ8 = static_cast<uint32_t>(hw::OuterCount) << 8U;
-    pathQ8 %= cycleQ8;
+    if (wrap) pathQ8 %= cycleQ8;
+    else if (pathQ8 >= cycleQ8) return;
     const uint16_t first = static_cast<uint16_t>(pathQ8 >> 8U);
     const uint8_t fraction = static_cast<uint8_t>(pathQ8 & 0xFFU);
-    const uint16_t second = static_cast<uint16_t>((first + 1U) % hw::OuterCount);
+    const uint16_t second = static_cast<uint16_t>(first + 1U);
 
     auto addPathPixel = [&](uint16_t path, const RgbwColor& contribution) {
         if (path < hw::LeftCount) {
@@ -7912,7 +8371,11 @@ void LedService::addOuterVisualPathSubpixel(uint32_t pathQ8, const RgbwColor& co
     };
 
     addPathPixel(first, scaled(color, static_cast<uint8_t>(255U - fraction)));
-    if (fraction) addPathPixel(second, scaled(color, fraction));
+    if (fraction && second < hw::OuterCount) {
+        addPathPixel(second, scaled(color, fraction));
+    } else if (fraction && wrap) {
+        addPathPixel(0U, scaled(color, fraction));
+    }
 }
 
 void LedService::fillSection(LedSection section, const RgbwColor& color) {

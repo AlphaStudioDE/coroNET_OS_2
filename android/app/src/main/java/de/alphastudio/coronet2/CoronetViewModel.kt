@@ -337,11 +337,12 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun previewLed(category: Int, animation: Int) {
+    fun previewLed(category: Int, animation: Int, legacy: Boolean) {
         val device = _snapshot.value.device ?: return
         val payload = JSONObject()
             .put("category", category.coerceIn(0, 5))
             .put("animation", animation.coerceIn(0, 255))
+            .put("legacy", legacy)
             .put("durationMs", 10000)
         if (wifiReachable.get() && device.host.isNotBlank() && device.token.isNotBlank()) {
             viewModelScope.launch(Dispatchers.IO) {

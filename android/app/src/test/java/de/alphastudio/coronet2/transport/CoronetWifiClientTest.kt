@@ -39,6 +39,23 @@ class CoronetWifiClientTest {
     }
 
     @Test
+    fun parsesLegacyCompatibilitySelectionSeparately() {
+        val previous = DeviceSettings(
+            ledAnimation = listOf(1, 2, 3, 4, 5, 6),
+            ledLegacyAnimation = listOf(6, 5, 4, 3, 2, 1),
+        )
+        val json = JSONObject()
+            .put("ledLegacyAnimations", true)
+            .put("ledLegacyAnimation", JSONArray(listOf(9, 8, 7, 6, 5, 4)))
+
+        val result = parseSettings(json, previous)
+
+        assertEquals(true, result.ledLegacyAnimations)
+        assertEquals(listOf(1, 2, 3, 4, 5, 6), result.ledAnimation)
+        assertEquals(listOf(9, 8, 7, 6, 5, 4), result.ledLegacyAnimation)
+    }
+
+    @Test
     fun soundLibraryFiltersIncompleteEntries() {
         val json = JSONObject()
             .put("sdReady", true)

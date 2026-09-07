@@ -217,10 +217,10 @@ void ControlScreen::buildLedPage() {
     lv_obj_set_style_text_align(categoryLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     makeButton(selection, 392, 31, 42, 34, LV_SYMBOL_RIGHT, Action::CategoryNext);
     makeButton(selection, 14, 70, 42, 34, LV_SYMBOL_LEFT, Action::AnimationPrev);
-    animationLabel_ = makeLabel(selection, "Slow Orbit", ui::ColorText, &lv_font_montserrat_14, 64, 79, 264);
+    animationLabel_ = makeLabel(selection, "Slow Orbit", ui::ColorText, &lv_font_montserrat_14, 64, 79, 218);
     lv_obj_set_style_text_align(animationLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    makeButton(selection, 336, 70, 42, 34, LV_SYMBOL_RIGHT, Action::AnimationNext);
-    makeButton(selection, 386, 70, 48, 34, LV_SYMBOL_PLAY, Action::Preview);
+    libraryButtonLabel_ = makeButton(selection, 290, 74, 88, 28, "NEW", Action::AnimationLibrary);
+    makeButton(selection, 392, 70, 42, 34, LV_SYMBOL_RIGHT, Action::AnimationNext);
 
     if (!previewBuffer_) previewBuffer_ = heap_caps_calloc(
         kCanvasWidth * kCanvasHeight, sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -463,6 +463,7 @@ void ControlScreen::refreshLed() {
     const AppSettings& settings = settingsService().settings();
     const LedCategory category = static_cast<LedCategory>(selectedCategory_);
     const uint8_t animation = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
+    lv_label_set_text(libraryButtonLabel_, settings.ledLegacyAnimations ? "LEGACY" : "NEW");
     lv_label_set_text(categoryLabel_, kCategoryNames[selectedCategory_]);
     lv_label_set_text(animationLabel_, ledAnimationName(category, animation));
     lv_label_set_text(insideButtonLabel_, settings.insideColorStyle == InsideColorStyle::White ? "INSIDE: WHITE" : "INSIDE: AMBIENT");
@@ -769,15 +770,34 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
     const lv_event_code_t code = lv_event_get_code(event);
     const bool commit = code == LV_EVENT_CLICKED || code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST;
     switch (action) {
-        case Action::CategoryPrev: selectedCategory_ = (selectedCategory_ + 5U) % 6U; break;
-        case Action::CategoryNext: selectedCategory_ = (selectedCategory_ + 1U) % 6U; break;
+        case Action::AnimationLibrary:
+            settings.ledLegacyAnimations = !settings.ledLegacyAnimations;
+            settingsService().save();
+            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                        settings.ledAnimation[selectedCategory_],
+                                        10000U, settings.ledLegacyAnimations);
+            break;
+        case Action::CategoryPrev:
+            selectedCategory_ = (selectedCategory_ + 5U) % 6U;
+            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                        settings.ledAnimation[selectedCategory_],
+                                        10000U, settings.ledLegacyAnimations);
+            break;
+        case Action::CategoryNext:
+            selectedCategory_ = (selectedCategory_ + 1U) % 6U;
+            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                        settings.ledAnimation[selectedCategory_],
+                                        10000U, settings.ledLegacyAnimations);
+            break;
         case Action::AnimationPrev: {
             const LedCategory category = static_cast<LedCategory>(selectedCategory_);
             const uint8_t count = ledAnimationCount(category);
             const uint8_t current = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
             settings.ledAnimation[selectedCategory_] = static_cast<uint8_t>((current + count - 1U) % count);
+            settings.ledLegacyAnimation[selectedCategory_] = settings.ledAnimation[selectedCategory_];
             settingsService().save();
-            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_]);
+            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_],
+                                        10000U, settings.ledLegacyAnimations);
             break;
         }
         case Action::AnimationNext: {
@@ -785,11 +805,12 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
             const uint8_t count = ledAnimationCount(category);
             const uint8_t current = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
             settings.ledAnimation[selectedCategory_] = static_cast<uint8_t>((current + 1U) % count);
+            settings.ledLegacyAnimation[selectedCategory_] = settings.ledAnimation[selectedCategory_];
             settingsService().save();
-            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_]);
+            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_],
+                                        10000U, settings.ledLegacyAnimations);
             break;
         }
-        case Action::Preview: ledService().requestPreview(static_cast<LedCategory>(selectedCategory_), settings.ledAnimation[selectedCategory_]); break;
         case Action::InsideStyle: settings.insideColorStyle = settings.insideColorStyle == InsideColorStyle::White ? InsideColorStyle::Ambient : InsideColorStyle::White; settingsService().save(); break;
         case Action::Mirror: settings.mirrorLedLayout = !settings.mirrorLedLayout; settingsService().save(); break;
         case Action::SectionNext: selectedSection_ = (selectedSection_ + 1U) % 4U; break;
@@ -820,15 +841,18 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
                 static_cast<uint8_t>(lv_slider_get_value(calibrationBrightnessSlider_));
             break;
         case Action::CalibrationResetColor:
-            settings.ledCalibrationHue[selectedCalibrationColor_] = 0;
-            settings.ledCalibrationSaturation[selectedCalibrationColor_] = 100U;
-            settings.ledCalibrationBrightness[selectedCalibrationColor_] = 100U;
+            settings.ledCalibrationHue[selectedCalibrationColor_] =
+                DefaultLedCalibrationHue[selectedCalibrationColor_];
+            settings.ledCalibrationSaturation[selectedCalibrationColor_] =
+                DefaultLedCalibrationSaturation;
+            settings.ledCalibrationBrightness[selectedCalibrationColor_] =
+                DefaultLedCalibrationBrightness;
             break;
         case Action::CalibrationResetAll:
             for (uint8_t index = 0; index < 8U; ++index) {
-                settings.ledCalibrationHue[index] = 0;
-                settings.ledCalibrationSaturation[index] = 100U;
-                settings.ledCalibrationBrightness[index] = 100U;
+                settings.ledCalibrationHue[index] = DefaultLedCalibrationHue[index];
+                settings.ledCalibrationSaturation[index] = DefaultLedCalibrationSaturation;
+                settings.ledCalibrationBrightness[index] = DefaultLedCalibrationBrightness;
             }
             break;
         case Action::CalibrationCancel: closeLedCalibration(false); break;

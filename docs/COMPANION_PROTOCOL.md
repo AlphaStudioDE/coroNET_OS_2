@@ -136,7 +136,7 @@ The same field names are accepted by `POST /api/settings`. BLE accepts appearanc
 The phone can start the firmware's real ten-second LED preview without simulating frames locally:
 
 ```json
-{"cmd":"previewLed","category":1,"animation":14,"durationMs":10000}
+{"cmd":"previewLed","category":1,"animation":14,"durationMs":10000,"legacy":false}
 ```
 
 While its LED page is visible, the phone can request a current display-ready frame with
@@ -248,7 +248,7 @@ Unauthenticated calls return HTTP `401`. Settings JSON bodies are limited to 409
 
 Settings are applied to active services immediately. NVS persistence is debounced for 1.5 seconds and forced after at most 5 seconds to prevent slider controls from wearing flash.
 
-`GET /api/led/catalog` returns the current firmware-owned animation names for one category. `POST /api/led/preview` accepts `category`, `animation`, and optional `durationMs` (`1000..30000`). `POST /api/led/calibration` accepts `active` and, when active, `color`. `GET /api/led/frame` returns the same compact 192-byte frame used by BLE. The frame contains a 12-byte little-endian header followed by 60 RGB888 pixels in visual order: 42 outer pixels from left to right and 18 inside pixels from left to right. Header bytes are version `1`, pixel format `1`, total size, 32-bit sequence, outer count `42`, inside count `18`, and two reserved bytes. This is a 2 FPS snapshot of the firmware-owned output, not a second animation engine in the client. The audio library response includes folder names together with the selected eight-file page so clients do not need hardcoded SD card categories.
+`GET /api/led/catalog` returns the firmware-owned animation names for one category. The catalog order and `ledAnimation` selection are shared by both renderer libraries; `ledLegacyAnimations` only selects whether NEW or LEGACY renders that position. `ledLegacyAnimation` remains a mirrored compatibility field for older 0.4.6-era clients and must not be treated as an independent selection. `POST /api/led/preview` accepts `category`, `animation`, optional `durationMs` (`1000..30000`), and optional `legacy`; when omitted, `legacy` follows the saved library selection. `POST /api/led/calibration` accepts `active` and, when active, `color`. `GET /api/led/frame` returns the same compact 192-byte frame used by BLE. The frame contains a 12-byte little-endian header followed by 60 RGB888 pixels in visual order: 42 outer pixels from left to right and 18 inside pixels from left to right. Header bytes are version `1`, pixel format `1`, total size, 32-bit sequence, outer count `42`, inside count `18`, and two reserved bytes. This is a 2 FPS snapshot of the firmware-owned output, not a second animation engine in the client. The audio library response includes folder names together with the selected eight-file page so clients do not need hardcoded SD card categories.
 
 `GET /api/settings` returns `settingsRevision`, and every BLE settings group includes the same value as `sr`. The revision changes whenever firmware accepts a settings mutation. Clients must ignore older revisions, keep locally pending fields during an optimistic update, and replace them with the device-confirmed value after acknowledgement. Concurrent edits to different fields therefore merge; concurrent edits to the same field settle on the latest value accepted by coroNET.
 

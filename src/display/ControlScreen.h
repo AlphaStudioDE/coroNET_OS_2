@@ -20,7 +20,7 @@ public:
 
 private:
     enum class Action : uint8_t {
-        CategoryPrev, CategoryNext, AnimationPrev, AnimationNext, Preview,
+        AnimationLibrary, CategoryPrev, CategoryNext, AnimationPrev, AnimationNext,
         InsideStyle, Mirror, SectionNext, Brightness, DimmToggle, DimmPercent,
         RemixDefault, Remix,
         CalibrationOpen,
@@ -39,7 +39,7 @@ private:
         SoundBrowserRow3, SoundBrowserRow4, SoundBrowserRow5,
     };
 
-    struct Binding { ControlScreen* owner = nullptr; Action action = Action::Preview; };
+    struct Binding { ControlScreen* owner = nullptr; Action action = Action::AnimationLibrary; };
 
     void buildHeader();
     void buildLedPage();
@@ -71,6 +71,7 @@ private:
     ui::Page page_ = ui::Page::Home;
     lv_obj_t* root_ = nullptr;
     lv_obj_t* wifiLabel_ = nullptr;
+    lv_obj_t* libraryButtonLabel_ = nullptr;
     lv_obj_t* categoryLabel_ = nullptr;
     lv_obj_t* animationLabel_ = nullptr;
     lv_obj_t* previewCanvas_ = nullptr;

@@ -6,6 +6,10 @@
 
 namespace coronet {
 
+constexpr int8_t DefaultLedCalibrationHue[8] = {0, -20, -30, 0, 0, 0, 0, 0};
+constexpr uint8_t DefaultLedCalibrationSaturation = 115U;
+constexpr uint8_t DefaultLedCalibrationBrightness = 100U;
+
 enum class UiSkin : uint8_t {
     Coronet = 0,
     Graphite = 1,
@@ -26,7 +30,7 @@ enum class CompanionTransport : uint8_t {
 };
 
 struct AppSettings {
-    uint16_t schemaVersion = 7;
+    uint16_t schemaVersion = 9;
     bool setupDone = false;
     bool bleEnabled = true;
     uint8_t displayBrightness = 80;
@@ -44,16 +48,33 @@ struct AppSettings {
 
     bool ledEnabled = true;
     bool ledOtherMode = false;
+    bool ledLegacyAnimations = false;
     uint8_t ledBrightness[enumCount(LedSection{})] = {70, 70, 70, 70};
     bool ledDimmEnabled[enumCount(LedSection{})] = {false, false, false, false};
     uint8_t ledDimmPercent[enumCount(LedSection{})] = {20, 20, 20, 20};
     InsideColorStyle insideColorStyle = InsideColorStyle::White;
     bool mirrorLedLayout = false;
     uint8_t ledAnimation[enumCount(LedCategory{})] = {0, 0, 0, 0, 0, 0};
+    uint8_t ledLegacyAnimation[enumCount(LedCategory{})] = {0, 0, 0, 0, 0, 0};
     int16_t ledColorRemixDegrees[enumCount(LedCategory{})] = {0, 0, 0, 0, 0, 0};
-    int8_t ledCalibrationHue[8] = {};
-    uint8_t ledCalibrationSaturation[8] = {100, 100, 100, 100, 100, 100, 100, 100};
-    uint8_t ledCalibrationBrightness[8] = {100, 100, 100, 100, 100, 100, 100, 100};
+    int8_t ledCalibrationHue[8] = {
+        DefaultLedCalibrationHue[0], DefaultLedCalibrationHue[1],
+        DefaultLedCalibrationHue[2], DefaultLedCalibrationHue[3],
+        DefaultLedCalibrationHue[4], DefaultLedCalibrationHue[5],
+        DefaultLedCalibrationHue[6], DefaultLedCalibrationHue[7],
+    };
+    uint8_t ledCalibrationSaturation[8] = {
+        DefaultLedCalibrationSaturation, DefaultLedCalibrationSaturation,
+        DefaultLedCalibrationSaturation, DefaultLedCalibrationSaturation,
+        DefaultLedCalibrationSaturation, DefaultLedCalibrationSaturation,
+        DefaultLedCalibrationSaturation, DefaultLedCalibrationSaturation,
+    };
+    uint8_t ledCalibrationBrightness[8] = {
+        DefaultLedCalibrationBrightness, DefaultLedCalibrationBrightness,
+        DefaultLedCalibrationBrightness, DefaultLedCalibrationBrightness,
+        DefaultLedCalibrationBrightness, DefaultLedCalibrationBrightness,
+        DefaultLedCalibrationBrightness, DefaultLedCalibrationBrightness,
+    };
 
     uint8_t soundVolume[enumCount(SoundScenario{})] = {75, 75, 85, 70, 60};
     bool soundRepeat[enumCount(SoundScenario{})] = {false, false, true, false, false};
