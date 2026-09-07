@@ -20,6 +20,34 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 - revisioned printer Error and Finish notifications without reconnect duplicates;
 - Android 8.0 (API 26) and newer.
 
+## App Screens
+
+The portrait interface keeps live printer status and the most-used controls within comfortable reach while preserving the same coroNET visual language across the touchscreen, phone, and web panel.
+
+<table>
+  <tr>
+    <td width="33%"><img src="../docs/media/android-companion/home.jpg" alt="Home screen with live printer telemetry and local temperature history"></td>
+    <td width="33%"><img src="../docs/media/android-companion/led.jpg" alt="LED screen with animation preview, color remix, and section brightness controls"></td>
+    <td width="33%"><img src="../docs/media/android-companion/vent.png" alt="Vent screen with airflow limits, flap calibration, Panda Breath, drying, and DIY heater controls"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Home</strong><br>Telemetry and temperature history</td>
+    <td align="center"><strong>LED</strong><br>Animations and lighting</td>
+    <td align="center"><strong>Vent</strong><br>Chamber climate control</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="50%"><img src="../docs/media/android-companion/sound.jpg" alt="Sound screen with status scenarios, microSD audio selection, playback, and assignments"></td>
+    <td width="50%"><img src="../docs/media/android-companion/settings.jpg" alt="Settings screen with appearance, screen saver, quiet mode, connections, and firmware update controls"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Sound</strong><br>Audible printer status</td>
+    <td align="center"><strong>Settings</strong><br>One place for the whole device</td>
+  </tr>
+</table>
+
 ## Install
 
 Download the current signed [coroNET Companion APK](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest/download/coroNET_Companion.apk), allow installation from the browser or file manager when Android asks, and open the app. Pair devices from the app's **Devices** screen instead of Android's generic Bluetooth settings.
