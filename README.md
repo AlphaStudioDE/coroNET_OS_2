@@ -40,6 +40,7 @@ The Android companion turns coroNET into a mobile printer console. Live telemetr
 <p align="center">
   <img src="docs/media/android-companion/coronet-2-android-showcase.png" alt="coroNET 2 Android companion showcase with Home, LED, Vent, Sound, and Settings screens" width="1200">
 </p>
+<p align="center"><sub>Each panel is a full scrolling capture of an entire app section, not a single phone-screen viewport.</sub></p>
 
 Explore every screen and installation option in the **[Android companion documentation](android/README.md)**.
 

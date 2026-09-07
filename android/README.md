@@ -28,6 +28,8 @@ This is the native Android reference client for coroNET OS 2. It mirrors structu
 
 The portrait interface keeps live printer status and the most-used controls within comfortable reach while preserving the same coroNET visual language across the touchscreen, phone, and web panel.
 
+> These are full scrolling captures of complete app sections, not single phone-screen viewports. Their different lengths reflect how much control and status information each section contains.
+
 <table>
   <tr>
     <td width="33%"><img src="../docs/media/android-companion/home.jpg" alt="Home screen with live printer telemetry and local temperature history"></td>
