@@ -81,7 +81,7 @@ Measured on the target JC3248W535 with display, touch, WiFi station stack, print
 | Stage | DMA-capable internal memory used | PSRAM used |
 | --- | ---: | ---: |
 | Display and touch | approximately 63 KB | approximately 315 KB |
-| Audio service, task, and balanced I2S ring | approximately 13 KB | less than 1 KB plus indexed file data |
+| Audio service, task, and balanced stereo I2S ring | approximately 14.9 KB | less than 1 KB plus indexed file data |
 | WiFi station stack | approximately 42.3 KB | approximately 10 KB |
 | Printer worker and queues | approximately 10 KB | less than 1 KB |
 | Web routes | approximately 2.8 KB | negligible |
@@ -93,16 +93,16 @@ Repeated Home/LED/Vent/Sound/Settings transitions and repeated entry into all se
 
 ### Audio DMA profiles
 
-The OS 2 audio producer runs in a dedicated Core 0 task. Its 128-frame mono PCM staging buffer is in PSRAM, while the I2S DMA ring stays internal as required by the peripheral.
+The OS 2 audio producer runs in a dedicated Core 0 task. Its 128-frame stereo PCM staging buffer is in PSRAM, while the I2S DMA ring stays internal as required by the peripheral.
 
-| Profile | I2S DMA layout | Driver/ring cost | Buffered time at 22.05 kHz | Buffered time at 48 kHz |
-| --- | ---: | ---: | ---: | ---: |
-| OS 2 balanced | 24 x 128 mono frames | approximately 8.4 KB | 139.3 ms | 64.0 ms |
-| coroNET 1 comparison | 48 x 128 mono frames | 15,928 B | 278.6 ms | 128.0 ms |
+| Profile | I2S DMA layout | Buffered time at 48 kHz | Buffered time at 22.05 kHz |
+| --- | ---: | ---: | ---: |
+| OS 2 balanced | 24 x 128 stereo frames | 64.0 ms | 139.3 ms |
+| coroNET 1 comparison | 48 x 128 stereo frames | 128.0 ms | 278.6 ms |
 
-The balanced profile played continuously at both 22.05 kHz and 48 kHz while WiFi, the local web service, BLE, display refresh, Moonraker telemetry, and repeated LED animation changes were active. No I2S write failures or partial-write retries were observed. Partial or temporarily blocked writes are completed inside the same bounded producer deadline instead of discarding the unwritten tail. Sample rate does not change the allocated DMA byte count; it changes how much time the fixed ring can absorb and affects source/decode bandwidth. Mono remains the correct hardware output because coroNET has one physical speaker, while stereo WAV input is downmixed before entering the DMA ring.
+As in coroNET 1, the I2S clock follows each WAV file's native sample rate from 8 through 48 kHz and no software resampling is applied. Mono files are duplicated to both output slots and stereo files retain their left and right channels. Clock changes happen only in the serialized audio worker, with digital silence around the transition. Partial or temporarily blocked writes are completed inside the same bounded producer deadline instead of discarding the unwritten tail.
 
-Development builds expose `audio test`, `audio stop`, `audio status`, `audio rescan`, `audio release`, `audio profile balanced`, `audio profile coronet1`, and `audio rate 22050|44100|48000` on the serial console. Profile switching is intended for controlled measurements; normal startup always selects the balanced profile.
+Development builds expose `audio test`, `audio stop`, `audio status`, `audio rescan`, `audio release`, `audio profile balanced`, and `audio profile coronet1` on the serial console. Profile switching is intended for controlled measurements; normal startup always selects the balanced profile.
 
 ## Runtime Concurrency
 
@@ -125,4 +125,5 @@ Development builds expose `audio test`, `audio stop`, `audio status`, `audio res
 - The time-zone catalog groups locations only when their UTC offset and daylight-saving transition rules match. Locations such as Adelaide/Darwin, Denver/Phoenix, Chicago/Mexico City, Auckland/Fiji, and Cairo/Helsinki remain separate.
 - Settings snapshots carry one firmware revision over both BLE and WiFi. The Android client performs field-level optimistic updates, preserves unrelated simultaneous edits, rejects stale revisions, and converges on the latest device-confirmed value.
 - The Android client stores the last valid state and settings per device, marks them as cached while offline, retries a changed WiFi address through the stable mDNS hostname, and reconnects BLE after GATT discovery, subscription, or write failures.
-- I2S DMA is preloaded with digital silence before channel enable. Playback shutdown and sample-rate changes enqueue silence and allow the current DMA ring to drain before disabling the channel, reducing start/stop discontinuities without increasing DMA allocation.
+- I2S DMA is preloaded with digital silence before channel enable and before a source-rate clock change. Natural playback uses the coroNET 1 one-second musical fade at both file edges; an interrupted track uses a separate 32 ms stop ramp before silence is queued. The channel is disabled only for a serialized clock change or explicit driver release such as OTA maintenance.
+- SD file opening, scenario fallback lookup, decoding, and rescanning are serialized in the audio worker. UI, BLE, and web requests only enqueue bounded commands and read the cached file index, preventing concurrent `SD_MMC` access during playback.

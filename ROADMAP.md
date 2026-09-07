@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.5` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.4.6` continues structured physical refinement with the complete firmware, Android companion, and browser panel aligned; the remaining path is organized around hardware testing, polish, and formal 1.0 qualification.
 
 ## Foundation
 
@@ -111,6 +111,9 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] give LED and audio real-time work priority over display and application workers
 - [x] preserve partial I2S writes and expand the balanced audio DMA safety window
 - [x] fade manual audio stops and track changes to digital silence before releasing I2S
+- [x] restore the proven coroNET 1 native-rate stereo WAV path without software resampling
+- [x] serialize SD lookup, decoding, rescanning, and OTA handoff through the audio worker
+- [x] validate rapid sound changes and interrupted playback on target hardware without panic or I2S write failures
 - [x] keep the display backlight off until the first complete LVGL boot frame is ready
 - [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
 - [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness

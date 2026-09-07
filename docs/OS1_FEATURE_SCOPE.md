@@ -74,7 +74,7 @@ Status meanings:
 
 | ID | OS 1 capability | Status | OS 2 implementation decision |
 | --- | --- | --- | --- |
-| SOUND-01 | I2S mono audio service with PSRAM staging | OS2 | Implemented and measured with a dedicated producer task and bounded DMA ring. |
+| SOUND-01 | I2S stereo audio service with PSRAM staging | OS2 | Implemented and measured with a dedicated producer task and bounded DMA ring. Mono files are duplicated to both channels; stereo files retain their original channels. |
 | SOUND-02 | SD-backed WAV playback | OS2 | Implemented with a dedicated audio task and PSRAM staging. |
 | SOUND-03 | Scenarios: Start, Finish, Error, Pause, and Idle | OS2 | Implemented as five independently configured scenario groups. |
 | SOUND-04 | Per-scenario file selection | OS2 | Implemented with bounded SD indexing and folder browsing. |
@@ -82,7 +82,7 @@ Status meanings:
 | SOUND-06 | Per-scenario repeat/off behavior | OS2 | Implemented with explicit stop behavior for repeating playback. |
 | SOUND-07 | SD folder browser with paged file list and preview | OS2 | Implemented as a lightweight five-row picker backed by a bounded, sorted PSRAM index. |
 | SOUND-08 | Audio preview, touch stop, and replay cooldown | OS2 | Non-blocking preview and global touch-to-stop are implemented. |
-| SOUND-09 | Fade-in, fade-out, click/pop suppression, and output idle shutdown | OS2 | Implemented with gain ramps, queued digital silence, complete partial-write handling, and controlled I2S release. |
+| SOUND-09 | Fade-in, fade-out, click/pop suppression, and output idle shutdown | OS2 | Implemented with the coroNET 1 playback model: native WAV clocks, one-second musical edge ramps, a separate 32 ms interrupted-playback ramp, queued digital silence, complete partial-write handling, and controlled I2S release for maintenance. |
 | SOUND-10 | MIDI synthesizer and multi-track playback | OMIT | Already disabled in OS 1 and unnecessary for OS 2. |
 | SOUND-11 | Boot audio continuing beyond the visual boot handoff | OS2 | Implemented so the full boot track can finish independently of the visual handoff. |
 

@@ -159,7 +159,7 @@ void executeSerialCommand() {
     } else if (strcmp(serialCommand, "audio status") == 0) {
         coronet::audioService().logStatus();
     } else if (strcmp(serialCommand, "sd status") == 0) {
-        Serial.printf("[console] SD %s\n", coronet::audioService().mountStorage() ? "ready" : "unavailable");
+        Serial.printf("[console] SD %s\n", coronet::state().sdReady ? "ready" : "unavailable");
     } else if (strcmp(serialCommand, "audio rescan") == 0) {
         Serial.printf("[console] audio SD rescan %s\n",
                       coronet::audioService().requestStorageRefresh() ? "queued" : "unavailable");
@@ -176,12 +176,6 @@ void executeSerialCommand() {
         coronet::audioService().useDmaProfile(coronet::AudioDmaProfile::Balanced);
     } else if (strcmp(serialCommand, "audio profile coronet1") == 0) {
         coronet::audioService().useDmaProfile(coronet::AudioDmaProfile::Coronet1);
-    } else if (strcmp(serialCommand, "audio rate 22050") == 0) {
-        coronet::audioService().setSampleRate(22050);
-    } else if (strcmp(serialCommand, "audio rate 44100") == 0) {
-        coronet::audioService().setSampleRate(44100);
-    } else if (strcmp(serialCommand, "audio rate 48000") == 0) {
-        coronet::audioService().setSampleRate(48000);
     } else if (strcmp(serialCommand, "ui home") == 0) {
         displayService.requestPage(coronet::ui::Page::Home);
         Serial.println("[console] Home screen requested");

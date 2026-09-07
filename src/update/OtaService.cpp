@@ -591,21 +591,21 @@ bool OtaService::installFromUrl(const char* url) {
 
 bool OtaService::installFromSd() {
     setState(OtaState::Preparing, "Checking /firmware.bin on SD");
+    enterMaintenance();
     if (!audioService().mountStorage()) {
+        leaveMaintenance();
         setState(OtaState::Failed, "SD card unavailable");
         return false;
     }
-    audioService().stop();
-    delay(100);
     File firmware = SD_MMC.open("/firmware.bin", FILE_READ);
     if (!firmware || firmware.size() < kMinimumImageBytes ||
         !validateImageHeader(firmware, firmware.size())) {
         if (firmware) firmware.close();
+        leaveMaintenance();
         setState(OtaState::Failed, "No valid /firmware.bin");
         return false;
     }
 
-    enterMaintenance();
     const size_t size = firmware.size();
     if (!Update.begin(size)) {
         firmware.close();

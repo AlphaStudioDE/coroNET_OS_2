@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #ifndef CORONET_FIRMWARE_VERSION
-#define CORONET_FIRMWARE_VERSION "0.4.5"
+#define CORONET_FIRMWARE_VERSION "0.4.6"
 #endif
 
 namespace coronet::config {

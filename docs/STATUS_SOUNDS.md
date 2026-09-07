@@ -27,11 +27,11 @@ Recommended layout:
 ## Supported WAV Format
 
 - uncompressed PCM WAV;
-- mono or stereo input, mixed to the single coroNET speaker;
+- mono or stereo input; mono is duplicated to both I2S channels and stereo is preserved;
 - 8-bit or 16-bit samples;
 - sample rates from 8 kHz through 48 kHz.
 
-For consistent quality and modest SD bandwidth, 16-bit mono at 22.05 kHz is recommended. File paths must be shorter than 65 characters.
+For consistent quality and modest SD bandwidth, 16-bit mono at 22.05 kHz is recommended. As in coroNET 1, the audio worker configures I2S to the source WAV sample rate and performs no resampling. File paths must be shorter than 65 characters.
 
 ## Assign A Sound
 
@@ -54,5 +54,6 @@ The Android companion exposes the same five scenarios and the same indexed folde
 - Error can repeat until the user touches the display, presses Stop, or another audio request replaces it.
 - Quiet mode suppresses configured sounds. Error can bypass Quiet mode when **Allow Error** is enabled.
 - The Snake print animation delays its Finish sound until the completion burst has ended.
-- WAV data is read in small blocks through a PSRAM staging buffer. Only the I2S descriptor ring uses DMA-capable internal memory.
-- Playback starts and natural file endings use a short gain ramp. Manual stop and track changes continue decoding through the same ramp before digital silence is queued, avoiding an abrupt sample-to-zero transition.
+- WAV data is read in small native-rate blocks through a PSRAM staging buffer. Only the I2S descriptor ring uses DMA-capable internal memory.
+- Playback starts and natural file endings use the coroNET 1 one-second musical gain ramp, shortened proportionally for very short clips. Manual stop and rapid track changes use a separate 32 ms ramp before digital silence is queued.
+- The serialized audio worker owns source-rate clock changes and all playback-time SD access. Display, BLE, and web controls enqueue requests instead of opening files concurrently.

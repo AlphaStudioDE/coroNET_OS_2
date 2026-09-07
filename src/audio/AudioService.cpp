@@ -16,7 +16,9 @@ namespace {
 AudioService gAudioService;
 constexpr uint32_t kToneFrequencyHz = 660;
 constexpr int32_t kToneAmplitude = 5200;
-constexpr uint32_t kFadeMs = 45;
+constexpr uint32_t kMusicalFadeMs = 1000;
+constexpr uint32_t kStopFadeMs = 32;
+constexpr uint8_t kGuardSilenceBuffers = 2;
 
 bool quietSuppressesSound(SoundScenario scenario) {
     const AppSettings settings = settingsService().snapshot();
@@ -82,7 +84,8 @@ void AudioService::begin() {
     strlcpy(state().audioStatusText, "Initializing audio...", sizeof(state().audioStatusText));
 
     pcmBuffer_ = static_cast<int16_t*>(heap_caps_calloc(
-        BufferFrames, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        BufferFrames * OutputChannels, sizeof(int16_t),
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     rawBuffer_ = static_cast<uint8_t*>(heap_caps_malloc(
         RawBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     fileIndex_ = static_cast<char (*)[65]>(heap_caps_calloc(
@@ -368,7 +371,7 @@ void AudioService::validateAssets() {
     uint8_t missing = 0;
     char resolved[65];
     for (uint8_t i = 0; i < enumCount(SoundScenario{}); ++i) {
-        if (!resolveScenarioPath(static_cast<SoundScenario>(i), resolved)) ++missing;
+        if (!resolveScenarioPathOnStorage(static_cast<SoundScenario>(i), resolved)) ++missing;
     }
     const bool bootPresent = SD_MMC.exists("/boot.wav");
     state().audioAssetsValid = missing == 0 && bootPresent;
@@ -387,13 +390,6 @@ bool AudioService::playTestTone(uint32_t durationMs) {
 bool AudioService::playFile(const char* path, uint8_t volumePercent, bool repeat,
                             SoundScenario scenario, bool bootAudio) {
     if (!driverReady_ || !task_ || !path || path[0] != '/') return false;
-    if (!storageReady_ && !mountStorage()) return false;
-    if (!SD_MMC.exists(path)) {
-        Serial.printf("[audio] file not found: %s\n", path);
-        snprintf(state().audioStatusText, sizeof(state().audioStatusText),
-                 "WAV not found: %s", pathLeaf(path));
-        return false;
-    }
     submitRequest(RequestType::Wav, path, constrain(volumePercent, 0, 100), repeat,
                   scenario, bootAudio);
     return true;
@@ -406,13 +402,10 @@ bool AudioService::playScenario(SoundScenario scenario) {
         stop();
         return false;
     }
-    char path[65] = "";
-    if (!resolveScenarioPath(scenario, path)) {
-        stop();
-        return false;
-    }
     const AppSettings settings = settingsService().snapshot();
-    return playFile(path, settings.soundVolume[index], settings.soundRepeat[index], scenario, false);
+    submitRequest(RequestType::Scenario, "", constrain(settings.soundVolume[index], 0, 100),
+                  settings.soundRepeat[index], scenario, false);
+    return true;
 }
 
 void AudioService::stop() {
@@ -448,19 +441,10 @@ bool AudioService::useDmaProfile(AudioDmaProfile profile) {
     return state().audioReady;
 }
 
-bool AudioService::setSampleRate(uint32_t sampleRate) {
-    if (sampleRate != 22050U && sampleRate != 44100U && sampleRate != 48000U) return false;
-    if (!stopAndWait()) {
-        Serial.println("[audio] sample-rate change aborted: task did not stop");
-        return false;
-    }
-    return reconfigureClock(sampleRate);
-}
-
 void AudioService::logStatus() const {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
     Serial.printf(
-        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s mono/16-bit/%luHz dma=%ux%u failures=%lu retries=%lu indexed=%u folders=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
+        "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s stereo/16-bit/%luHz dma=%ux%u failures=%lu retries=%lu indexed=%u folders=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
         driverReady_ ? 1U : 0U, storageReady_ ? 1U : 0U, playing_ ? 1U : 0U,
         bootAudioActive_ ? 1U : 0U, profileName(profile_), static_cast<unsigned long>(sampleRate_),
         static_cast<unsigned>(dmaBufferCount_), static_cast<unsigned>(BufferFrames),
@@ -570,6 +554,22 @@ void AudioService::taskLoop() {
             continue;
         }
 
+        if (type == RequestType::Wav || type == RequestType::Scenario) {
+            if (!storageReady_ && !mountStorage()) {
+                strlcpy(state().audioStatusText, "SD card unavailable",
+                        sizeof(state().audioStatusText));
+                completedRequestSequence_ = sequence;
+                continue;
+            }
+            if (type == RequestType::Scenario && !resolveScenarioPathOnStorage(scenario, path)) {
+                snprintf(state().audioStatusText, sizeof(state().audioStatusText),
+                         "%s sound missing", scenarioStem(scenario));
+                Serial.printf("[audio] scenario file not found: %s\n", scenarioStem(scenario));
+                completedRequestSequence_ = sequence;
+                continue;
+            }
+        }
+
         playbackStartedMs_ = millis();
         playing_ = true;
         bootAudioActive_ = bootAudio;
@@ -604,14 +604,21 @@ void AudioService::taskLoop() {
                  "Playing %s", pathLeaf(path));
         bool naturalEnd = false;
         do {
-            if (!openWav(path)) break;
-            while (requestSequence_ == sequence && wav_.dataRemaining > 0) {
+            if (!openWav(path)) {
+                Serial.printf("[audio] WAV could not be opened: %s\n", path);
+                snprintf(state().audioStatusText, sizeof(state().audioStatusText),
+                         "WAV unavailable: %s", pathLeaf(path));
+                break;
+            }
+            while (requestSequence_ == sequence &&
+                   wav_.outputFrames < wav_.outputFramesTotal) {
                 if (!writeWavBuffer(volume)) {
                     ++writeFailures_;
                     break;
                 }
             }
-            naturalEnd = requestSequence_ == sequence && wav_.dataRemaining == 0;
+            naturalEnd = requestSequence_ == sequence &&
+                         wav_.outputFrames >= wav_.outputFramesTotal;
             if (!naturalEnd && requestSequence_ != sequence && !fadeWavToSilence(volume)) {
                 ++writeFailures_;
             }
@@ -640,7 +647,7 @@ bool AudioService::installDriver(uint16_t dmaBufferCount) {
 
     i2s_std_config_t standardConfig = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sampleRate_),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = static_cast<gpio_num_t>(hw::I2sMckPin),
             .bclk = static_cast<gpio_num_t>(hw::I2sBckPin),
@@ -651,7 +658,7 @@ bool AudioService::installDriver(uint16_t dmaBufferCount) {
         },
     };
     result = i2s_channel_init_std_mode(txChannel_, &standardConfig);
-    if (result == ESP_OK && !preloadSilence()) result = ESP_FAIL;
+    if (result == ESP_OK && !preloadSilence(dmaBufferCount)) result = ESP_FAIL;
     if (result == ESP_OK) result = i2s_channel_enable(txChannel_);
     if (result != ESP_OK) {
         i2s_del_channel(txChannel_);
@@ -677,16 +684,23 @@ void AudioService::uninstallDriver() {
 bool AudioService::reconfigureClock(uint32_t sampleRate) {
     if (!driverReady_ || !txChannel_ || sampleRate < 8000U || sampleRate > 48000U) return false;
     if (sampleRate_ == sampleRate) return true;
+
     settleToSilence();
     esp_err_t result = i2s_channel_disable(txChannel_);
     i2s_std_clk_config_t clockConfig = I2S_STD_CLK_DEFAULT_CONFIG(sampleRate);
-    if (result == ESP_OK) result = i2s_channel_reconfig_std_clock(txChannel_, &clockConfig);
+    if (result == ESP_OK) {
+        result = i2s_channel_reconfig_std_clock(txChannel_, &clockConfig);
+    }
     if (result == ESP_OK) {
         sampleRate_ = sampleRate;
-        if (!preloadSilence()) result = ESP_FAIL;
+        if (!preloadSilence(dmaBufferCount_)) result = ESP_FAIL;
     }
     if (result == ESP_OK) result = i2s_channel_enable(txChannel_);
-    if (result != ESP_OK) return false;
+    if (result != ESP_OK) {
+        Serial.printf("[audio] I2S clock change to %lu Hz failed: %d\n",
+                      static_cast<unsigned long>(sampleRate), static_cast<int>(result));
+        return false;
+    }
     return true;
 }
 
@@ -734,14 +748,16 @@ bool AudioService::openWav(const char* path) {
         closeWav();
         return false;
     }
-    if (!reconfigureClock(wav_.sampleRate)) {
+    const size_t bytesPerFrame = (wav_.bitsPerSample / 8U) * wav_.channels;
+    wav_.outputFramesTotal = bytesPerFrame ? wav_.dataSize / bytesPerFrame : 0U;
+    if (!wav_.outputFramesTotal || !reconfigureClock(wav_.sampleRate)) {
         closeWav();
         return false;
     }
-    wav_.dataRemaining = wav_.dataSize;
+    wav_.dataRemaining = wav_.outputFramesTotal * bytesPerFrame;
     wav_.outputFrames = 0;
     wavFile_.seek(wav_.dataOffset);
-    primeSilence();
+    primeSilence(kGuardSilenceBuffers);
     return true;
 }
 
@@ -760,10 +776,12 @@ bool AudioService::writeWavBuffer(uint8_t volumePercent, uint32_t stopFadeOffset
     const int bytesRead = wavFile_.read(rawBuffer_, bytesWanted);
     if (bytesRead <= 0) return false;
     frames = static_cast<size_t>(bytesRead) / bytesPerFrame;
+    if (!frames) return false;
     wav_.dataRemaining -= frames * bytesPerFrame;
 
-    const uint32_t totalFrames = wav_.dataSize / bytesPerFrame;
-    const uint32_t fadeFrames = max<uint32_t>(32U, wav_.sampleRate * kFadeMs / 1000UL);
+    const uint32_t fadeFrames = min<uint32_t>(
+        max<uint32_t>(32U, wav_.sampleRate * kMusicalFadeMs / 1000UL),
+        max<uint32_t>(1U, wav_.outputFramesTotal / 2U));
     const int32_t gainQ15 = static_cast<int32_t>(volumePercent) * 32767 / 100;
     for (size_t frame = 0; frame < frames; ++frame) {
         const uint8_t* input = rawBuffer_ + frame * bytesPerFrame;
@@ -776,31 +794,48 @@ bool AudioService::writeWavBuffer(uint8_t volumePercent, uint32_t stopFadeOffset
             left = static_cast<int16_t>(readLe16(input));
             right = wav_.channels == 2U ? static_cast<int16_t>(readLe16(input + 2)) : left;
         }
-        int32_t sample = ((left + right) / 2) * gainQ15 / 32767;
+
         const uint32_t absoluteFrame = wav_.outputFrames + frame;
-        if (absoluteFrame < fadeFrames) sample = sample * absoluteFrame / fadeFrames;
-        if (totalFrames > absoluteFrame && totalFrames - absoluteFrame < fadeFrames) {
-            sample = sample * (totalFrames - absoluteFrame) / fadeFrames;
+        int32_t envelopeQ15 = 32767;
+        if (absoluteFrame < fadeFrames) {
+            envelopeQ15 = static_cast<int32_t>(absoluteFrame) * 32767 / fadeFrames;
+        }
+        const uint32_t naturalRemaining = wav_.outputFramesTotal - 1U - absoluteFrame;
+        if (naturalRemaining < fadeFrames) {
+            envelopeQ15 = min(envelopeQ15,
+                              static_cast<int32_t>(naturalRemaining) * 32767 /
+                                  static_cast<int32_t>(fadeFrames));
         }
         if (stopFadeFrames > 0) {
             const uint32_t stopFrame = stopFadeOffset + frame;
-            const uint32_t stopRemaining = stopFrame < stopFadeFrames
-                                               ? stopFadeFrames - stopFrame
+            const uint32_t stopRemaining = stopFrame + 1U < stopFadeFrames
+                                               ? stopFadeFrames - 1U - stopFrame
                                                : 0U;
-            sample = sample * stopRemaining / stopFadeFrames;
+            envelopeQ15 = min(envelopeQ15,
+                              static_cast<int32_t>(stopRemaining) * 32767 /
+                                  static_cast<int32_t>(stopFadeFrames));
         }
-        pcmBuffer_[frame] = static_cast<int16_t>(constrain(sample, -32768, 32767));
+        const int32_t combinedGainQ15 = gainQ15 * envelopeQ15 / 32767;
+        left = left * combinedGainQ15 / 32767;
+        right = right * combinedGainQ15 / 32767;
+        pcmBuffer_[frame * OutputChannels] =
+            static_cast<int16_t>(constrain(left, -32768, 32767));
+        pcmBuffer_[frame * OutputChannels + 1U] =
+            static_cast<int16_t>(constrain(right, -32768, 32767));
     }
     wav_.outputFrames += frames;
-    if (frames < BufferFrames) memset(pcmBuffer_ + frames, 0, (BufferFrames - frames) * sizeof(int16_t));
+    if (frames < BufferFrames) {
+        memset(pcmBuffer_ + frames * OutputChannels, 0,
+               (BufferFrames - frames) * OutputChannels * sizeof(int16_t));
+    }
     return writePcm(pcmBuffer_, BufferFrames);
 }
 
 bool AudioService::fadeWavToSilence(uint8_t volumePercent) {
-    if (!wavFile_ || !wav_.dataRemaining || sampleRate_ == 0) return true;
-    const uint32_t fadeFrames = max<uint32_t>(32U, sampleRate_ * kFadeMs / 1000UL);
+    if (!wavFile_ || wav_.outputFrames >= wav_.outputFramesTotal || sampleRate_ == 0) return true;
+    const uint32_t fadeFrames = max<uint32_t>(32U, sampleRate_ * kStopFadeMs / 1000UL);
     uint32_t fadeOffset = 0;
-    while (fadeOffset < fadeFrames && wav_.dataRemaining > 0) {
+    while (fadeOffset < fadeFrames && wav_.outputFrames < wav_.outputFramesTotal) {
         if (!writeWavBuffer(volumePercent, fadeOffset, fadeFrames)) return false;
         fadeOffset += BufferFrames;
     }
@@ -822,8 +857,10 @@ bool AudioService::writeToneBuffer(uint32_t stopAtMs) {
             const uint32_t left = remainingFrames > i ? remainingFrames - i : 0U;
             amplitude = amplitude * left / fadeFrames;
         }
-        pcmBuffer_[i] = static_cast<int16_t>(
+        const int16_t sample = static_cast<int16_t>(
             static_cast<int32_t>(kSineLut[phase_ >> 26U]) * amplitude / 32767);
+        pcmBuffer_[i * OutputChannels] = sample;
+        pcmBuffer_[i * OutputChannels + 1U] = sample;
         phase_ += phaseStep;
         ++outputFrames_;
     }
@@ -832,7 +869,7 @@ bool AudioService::writeToneBuffer(uint32_t stopAtMs) {
 
 bool AudioService::fadeToneToSilence() {
     if (!driverReady_ || !pcmBuffer_ || sampleRate_ == 0) return false;
-    const uint32_t fadeFrames = max<uint32_t>(32U, sampleRate_ * kFadeMs / 1000UL);
+    const uint32_t fadeFrames = max<uint32_t>(32U, sampleRate_ * kStopFadeMs / 1000UL);
     const uint32_t phaseStep = static_cast<uint32_t>(
         (static_cast<uint64_t>(kToneFrequencyHz) << 32U) / sampleRate_);
     uint32_t fadeOffset = 0;
@@ -841,12 +878,15 @@ bool AudioService::fadeToneToSilence() {
         for (size_t frame = 0; frame < frames; ++frame) {
             const uint32_t remaining = fadeFrames - fadeOffset - frame;
             const int32_t amplitude = kToneAmplitude * remaining / fadeFrames;
-            pcmBuffer_[frame] = static_cast<int16_t>(
+            const int16_t sample = static_cast<int16_t>(
                 static_cast<int32_t>(kSineLut[phase_ >> 26U]) * amplitude / 32767);
+            pcmBuffer_[frame * OutputChannels] = sample;
+            pcmBuffer_[frame * OutputChannels + 1U] = sample;
             phase_ += phaseStep;
         }
         if (frames < BufferFrames) {
-            memset(pcmBuffer_ + frames, 0, (BufferFrames - frames) * sizeof(int16_t));
+            memset(pcmBuffer_ + frames * OutputChannels, 0,
+                   (BufferFrames - frames) * OutputChannels * sizeof(int16_t));
         }
         if (!writePcm(pcmBuffer_, BufferFrames)) return false;
         fadeOffset += frames;
@@ -856,7 +896,7 @@ bool AudioService::fadeToneToSilence() {
 
 bool AudioService::writePcm(const int16_t* samples, size_t frameCount, uint32_t timeoutMs) {
     if (!driverReady_ || !samples || !frameCount) return false;
-    const size_t totalBytes = frameCount * sizeof(int16_t);
+    const size_t totalBytes = frameCount * OutputChannels * sizeof(int16_t);
     size_t totalWritten = 0;
     const uint32_t startedMs = millis();
     writing_ = true;
@@ -886,22 +926,23 @@ bool AudioService::writePcm(const int16_t* samples, size_t frameCount, uint32_t 
 
 bool AudioService::preloadSilence(uint8_t bufferCount) {
     if (!txChannel_ || !pcmBuffer_ || bufferCount == 0) return false;
-    memset(pcmBuffer_, 0, BufferFrames * sizeof(int16_t));
+    const size_t bufferBytes = BufferFrames * OutputChannels * sizeof(int16_t);
+    memset(pcmBuffer_, 0, bufferBytes);
     bool loadedAny = false;
     for (uint8_t index = 0; index < bufferCount; ++index) {
         size_t loaded = 0;
         const esp_err_t result = i2s_channel_preload_data(
-            txChannel_, pcmBuffer_, BufferFrames * sizeof(int16_t), &loaded);
+            txChannel_, pcmBuffer_, bufferBytes, &loaded);
         if (result != ESP_OK) return false;
         loadedAny = loadedAny || loaded > 0;
-        if (loaded < BufferFrames * sizeof(int16_t)) break;
+        if (loaded < bufferBytes) break;
     }
     return loadedAny;
 }
 
 void AudioService::primeSilence(uint8_t bufferCount) {
     if (!driverReady_ || !pcmBuffer_) return;
-    memset(pcmBuffer_, 0, BufferFrames * sizeof(int16_t));
+    memset(pcmBuffer_, 0, BufferFrames * OutputChannels * sizeof(int16_t));
     for (uint8_t index = 0; index < bufferCount; ++index) {
         if (!writePcm(pcmBuffer_, BufferFrames, 100)) break;
     }
@@ -918,7 +959,10 @@ void AudioService::settleToSilence() {
 
 void AudioService::finishPlayback(bool naturalEnd, bool interrupted) {
     closeWav();
-    primeSilence();
+    primeSilence(kGuardSilenceBuffers);
+    if (sampleRate_ != DefaultSampleRate && !reconfigureClock(DefaultSampleRate)) {
+        ++writeFailures_;
+    }
     playing_ = false;
     bootAudioActive_ = false;
     vTaskPrioritySet(nullptr, TaskPriority);
@@ -932,6 +976,21 @@ void AudioService::finishPlayback(bool naturalEnd, bool interrupted) {
 }
 
 bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) const {
+    const uint8_t index = static_cast<uint8_t>(scenario);
+    if (index >= enumCount(SoundScenario{}) || !storageReady_) return false;
+    const AppSettings settings = settingsService().snapshot();
+    const char* custom = settings.soundPath[index];
+    if (custom[0] == '/' && pathAvailable(custom)) {
+        strlcpy(path, custom, 65);
+        return true;
+    }
+    snprintf(path, 65, "/sounds/%s.wav", scenarioStem(scenario));
+    if (pathAvailable(path)) return true;
+    snprintf(path, 65, "/%s.wav", scenarioStem(scenario));
+    return pathAvailable(path);
+}
+
+bool AudioService::resolveScenarioPathOnStorage(SoundScenario scenario, char path[65]) const {
     const uint8_t index = static_cast<uint8_t>(scenario);
     if (index >= enumCount(SoundScenario{}) || !storageReady_) return false;
     const AppSettings settings = settingsService().snapshot();

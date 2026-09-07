@@ -1,5 +1,36 @@
 # Development Updates
 
+## 0.4.6
+
+### Native-Rate Stereo Audio
+- Restored the proven coroNET 1 playback architecture: every PCM WAV now plays at its native sample rate from 8 through 48 kHz instead of being software-resampled to a fixed output clock.
+- Preserved the original left and right channels for stereo files and duplicated mono files to both I2S slots, removing the tonal distortion introduced by the temporary mono downmix path.
+- Reintroduced the coroNET 1 one-second musical fade at natural file boundaries and retained a separate 32 ms ramp for an interrupted track or rapid sound change.
+- Preloaded the complete I2S DMA ring with digital silence before output starts and around serialized source-rate clock changes.
+
+### Playback And SD Reliability
+- Made the dedicated audio worker the sole owner of sound-file lookup, WAV opening, decoding, and SD library rescans while playback is active.
+- Changed touchscreen, Android, browser, BLE, and printer-status actions to enqueue bounded audio requests instead of touching `SD_MMC` concurrently.
+- Entered OTA maintenance and stopped the audio worker before reading an SD recovery image, preventing update and playback access from racing on the same card.
+- Kept the latest requested sound when controls are pressed rapidly, with a short controlled fade for the interrupted file instead of overlapping playback operations.
+
+### Project Gallery And Documentation
+- Expanded the creator reference build and community showcase with complete installations, upper-frame status lighting, inside work lighting, and construction details.
+- Updated the architecture, sound guide, OS 1 migration matrix, flashing guide, roadmap, Android metadata, and public development status for the coordinated release.
+
+### Validation
+- Built and installed the release candidate on the target JC3248W535 ESP32-S3 hardware.
+- Completed a full 48 kHz stereo WAV, rapid mixed sound/stop requests, interrupted playback, and I2S release/recreation with zero restarts, zero I2S write failures, and zero partial-write retries.
+- Confirmed clean physical playback and retained approximately 90.8 KB free DMA-capable memory with a 61.4 KB largest DMA block after the balanced stereo driver was recreated.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.4.6_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.4.5...v0.4.6
+
 ## 0.4.5
 
 ### LED And Audio Scheduling

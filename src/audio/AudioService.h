@@ -23,7 +23,6 @@ public:
     void stop();
     void release();
     bool useDmaProfile(AudioDmaProfile profile);
-    bool setSampleRate(uint32_t sampleRate);
     bool mountStorage();
     bool refreshFileIndex();
     bool requestStorageRefresh();
@@ -41,7 +40,7 @@ public:
     void logStatus() const;
 
 private:
-    enum class RequestType : uint8_t { Stop, Tone, Wav, RescanStorage };
+    enum class RequestType : uint8_t { Stop, Tone, Wav, Scenario, RescanStorage };
 
     struct WavInfo {
         uint32_t dataOffset = 0;
@@ -49,6 +48,7 @@ private:
         uint32_t dataRemaining = 0;
         uint32_t sampleRate = 0;
         uint32_t outputFrames = 0;
+        uint32_t outputFramesTotal = 0;
         uint16_t channels = 0;
         uint16_t bitsPerSample = 0;
     };
@@ -60,8 +60,9 @@ private:
 
     static constexpr uint32_t DefaultSampleRate = 22050;
     static constexpr size_t BufferFrames = 128;
+    static constexpr size_t OutputChannels = 2;
     static constexpr size_t RawBufferBytes = BufferFrames * 4;
-    // 24 descriptors retain 64 ms at 48 kHz and 139 ms at 22.05 kHz.
+    // Matches the 24-descriptor coroNET 1 release profile.
     static constexpr uint16_t BalancedDmaBufferCount = 24;
     static constexpr uint16_t Coronet1DmaBufferCount = 48;
     static constexpr uint32_t TaskStackBytes = 5120;
@@ -105,6 +106,7 @@ private:
     void sortFileIndex();
     void buildLibraryFolders();
     void validateAssets();
+    bool resolveScenarioPathOnStorage(SoundScenario scenario, char path[65]) const;
 
     TaskHandle_t task_ = nullptr;
     i2s_chan_handle_t txChannel_ = nullptr;
