@@ -132,7 +132,7 @@ void ClockScreen::begin(ClockStyle style) {
     lv_obj_add_event_cb(wakeLayer, touchEvent, LV_EVENT_RELEASED, nullptr);
 
     lv_scr_load_anim(root_, LV_SCR_LOAD_ANIM_FADE_ON, 120, 0, true);
-    state().screenSaverActive = true;
+    updateState([](SystemState& system) { system.screenSaverActive = true; });
     update();
 }
 
@@ -330,7 +330,8 @@ void ClockScreen::update() {
     time_t now = time(nullptr);
     struct tm local = {};
     if (now < 1700000000 || !localtime_r(&now, &local)) {
-        if (dateLabel_) lv_label_set_text(dateLabel_, state().wifiConnected ? "Synchronizing time" : "Waiting for Wi-Fi");
+        if (dateLabel_) lv_label_set_text(
+            dateLabel_, stateSnapshot().wifiConnected ? "Synchronizing time" : "Waiting for Wi-Fi");
         return;
     }
     if (lastSecond_ == static_cast<uint32_t>(local.tm_sec)) return;
@@ -403,7 +404,8 @@ void ClockScreen::update() {
 void ClockScreen::touchEvent(lv_event_t* event) {
     // Keep the wake layer active until release so the first gesture cannot reach the restored UI.
     if (lv_event_get_code(event) != LV_EVENT_RELEASED) return;
-    state().lastTouchMs = millis();
+    const uint32_t now = millis();
+    updateState([now](SystemState& system) { system.lastTouchMs = now; });
 }
 
 }

@@ -86,10 +86,14 @@ void MemoryService::begin() {
 }
 
 void MemoryService::sampleState(bool externalMallocEnabled) {
-    SystemState& s = state();
-    s.psramReady = psramFound() && ESP.getPsramSize() > 0;
-    s.externalMallocEnabled = externalMallocEnabled;
-    s.externalMallocThreshold = externalMallocEnabled ? config::PsramMallocThresholdBytes : 0;
+    const bool psramReady = psramFound() && ESP.getPsramSize() > 0;
+    updateState([psramReady, externalMallocEnabled](SystemState& system) {
+        system.psramReady = psramReady;
+        system.externalMallocEnabled = externalMallocEnabled;
+        system.externalMallocThreshold = externalMallocEnabled
+                                             ? config::PsramMallocThresholdBytes
+                                             : 0;
+    });
 }
 
 bool MemoryService::reserveStartupDma(size_t bytes) {

@@ -1,5 +1,50 @@
 # Development Updates
 
+## 0.6.0
+
+### coroNET OS 1 Reliability Audit
+- Completed a subsystem-by-subsystem behavioural audit against the final coroNET OS 1 firmware, including LED rendering, printer-state recovery, audio, touch, settings, ventilation, networking, OTA, and service lifetime handling.
+- Documented the verified parity decisions, intentional architectural differences, automated checks, and remaining physical qualification work in `docs/OS1_PARITY_AUDIT.md`.
+- Preserved the feature-complete coroNET OS 2 interface while restoring proven coroNET OS 1 timing, fallback, and recovery behaviour where the rewrite had regressed it.
+
+### LED Timing And Startup
+- Restored coroNET OS 1-equivalent transition speeds at the 50 FPS output rate: `12` for normal state changes, `7` for print transitions, and `2` for pause, finish, and error transitions.
+- Kept LED presentation on a fixed 20 ms deadline so rendering workload cannot slowly shift the physical output cadence.
+- Smoothed the first boot-animation frame and removed the visible flash caused by presenting an unblended initial buffer.
+- Retained all 336 NEW animations and all 336 corresponding LEGACY renderers with shared calibration, brightness, mirroring, ambient, and preview policies.
+
+### Printer State And Connectivity
+- Reworked Moonraker event processing so WebSocket notifications and HTTP recovery results are applied in monotonic order instead of allowing a late response to restore an obsolete state.
+- Added a periodic integrity audit while the printer is in Error or Unknown, allowing a new print to recover even when Moonraker does not emit the expected transition notification.
+- Preserved the authenticated WebSocket handshake across reconnects and hardened WiFi reconnect, scan, and startup cleanup paths.
+- Expanded chamber-temperature alias handling and made state recovery update the complete shared telemetry snapshot.
+
+### Audio And Resource Safety
+- Serialized rapid play, stop, status, and preview requests through the audio worker so repeated user input cannot race I2S teardown or restart the ESP32.
+- Restored the proven coroNET OS 1 startup and shutdown treatment with bounded silence, fade-in, fade-out, native sample-rate playback, and complete handling of partial I2S writes.
+- Hardened malformed-file, allocation-failure, SD interruption, maintenance, and OTA cleanup paths so tasks, files, buffers, and audio drivers are released exactly once.
+- Reduced interference between audio, LED presentation, networking, and display work under simultaneous load.
+
+### Touch, Settings, Ventilation And Web
+- Hardened gesture arbitration so scrolling dense pages does not accidentally activate buttons or change sliders, while the full slider knob remains draggable.
+- Made settings publication revisioned and atomic, reduced NVS writes to one debounced commit, and preserved active-page and scroll state through visual updates.
+- Added stale-telemetry ventilation failsafes and stricter fan, flap, DIY-heater, and Panda Breath resource cleanup.
+- Added bounded JSON request bodies and stricter validation to the local browser control API.
+- Hardened BLE command framing, pairing recovery, display startup allocation handling, and system-health accounting.
+
+### Release Validation
+- Extended the release validator to require the exact 16 MB flash layout, including both expected 6 MB OTA application slots, fixed offsets, partition types, and subtypes.
+- Verified the complete 336-entry catalog in both LED renderers and completed automated checks for firmware construction, Android unit tests and lint, browser JavaScript parsing, release packaging, checksums, and signed APK validation.
+- Prepared this release as the new OTA, recovery, factory Flash Tool, and Android companion baseline for the `0.6.x` physical validation phase.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.0_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below and allow installation from the selected browser or file manager.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.5.0...v0.6.0
+
 ## 0.5.0
 
 ### Touchscreen Interaction

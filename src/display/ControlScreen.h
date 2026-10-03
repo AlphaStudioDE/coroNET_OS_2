@@ -163,6 +163,7 @@ private:
     uint8_t calibrationSaturationBackup_[8] = {};
     uint8_t calibrationBrightnessBackup_[8] = {};
     uint32_t settingsRevisionSeen_ = 0;
+    uint32_t viewSignatureSeen_ = UINT32_MAX;
     uint32_t lastCanvasUpdateMs_ = 0;
     ui::Navigation navigation_;
 };

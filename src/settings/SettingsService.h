@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <freertos/semphr.h>
 
 #include "../core/ProductTypes.h"
 
@@ -121,11 +122,29 @@ class SettingsService {
 public:
     void begin();
     void loop();
-    const AppSettings& settings() const { return settings_; }
-    AppSettings& mutableSettings() { return settings_; }
-    AppSettings snapshot() const;
+    AppSettings settings() const { return snapshot(); }
+    AppSettings snapshot(uint32_t* revision = nullptr) const;
     void replace(const AppSettings& settings);
-    uint32_t revision() const { return revision_; }
+    bool replaceIfRevision(const AppSettings& settings, uint32_t expectedRevision,
+                           uint32_t* appliedRevision = nullptr);
+    uint32_t revision() const;
+
+    template <typename Mutator>
+    void update(Mutator mutator, bool persist = true) {
+        portENTER_CRITICAL(&settingsMux_);
+        mutator(settings_);
+        memcpy(settings_.ledLegacyAnimation, settings_.ledAnimation,
+               sizeof(settings_.ledLegacyAnimation));
+        if (persist) {
+            const uint32_t now = millis();
+            if (!savePending_) dirtySinceMs_ = now;
+            lastChangeMs_ = now;
+            savePending_ = true;
+        }
+        revision_++;
+        portEXIT_CRITICAL(&settingsMux_);
+    }
+
     void save();
     void flush();
     void resetToDefaults();
@@ -141,6 +160,7 @@ private:
     uint32_t revision_ = 1;
     uint32_t dirtySinceMs_ = 0;
     uint32_t lastChangeMs_ = 0;
+    SemaphoreHandle_t saveMutex_ = nullptr;
     mutable portMUX_TYPE settingsMux_ = portMUX_INITIALIZER_UNLOCKED;
 };
 

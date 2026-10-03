@@ -15,6 +15,7 @@ namespace coronet {
 namespace {
 WifiService gWifiService;
 constexpr uint32_t ConnectionTimeoutMs = 15000;
+constexpr uint32_t ReconnectIntervalMs = 10000;
 constexpr uint32_t ScanTimeoutMs = 15000;
 constexpr uint32_t RadioSettleMs = 60;
 constexpr uint32_t MdnsStartupDelayMs = 300;
@@ -28,13 +29,15 @@ WifiService& wifiService() {
 void WifiService::begin() {
     logHeapDiagnostics("wifi-before-mode");
     WiFi.mode(WIFI_STA);
+    configureRealtimeRadio();
     logHeapDiagnostics("wifi-after-mode");
     applySettings();
     logHeapDiagnostics("wifi-after-begin");
     mdnsMutex_ = xSemaphoreCreateMutex();
     if (!mdnsMutex_) Serial.println("[wifi] mDNS mutex allocation failed");
     started_ = true;
-    state().wifiConnected = WiFi.status() == WL_CONNECTED;
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    updateState([connected](SystemState& system) { system.wifiConnected = connected; });
 }
 
 void WifiService::loop() {
@@ -52,7 +55,9 @@ void WifiService::loop() {
             applySettings();
         }
     }
-    state().wifiConnected = WiFi.status() == WL_CONNECTED;
+    maintainConnection();
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    updateState([connected](SystemState& system) { system.wifiConnected = connected; });
     maintainMdns();
 }
 
@@ -163,6 +168,8 @@ void WifiService::requestConnectionTest(const char* ssid, const char* password) 
     connectionRevision_++;
 
     WiFi.mode(WIFI_STA);
+    configureRealtimeRadio();
+    reconnectInProgress_ = false;
     WiFi.disconnect(false, false);
     Serial.printf("[wifi] test scheduled ssid=%s\n", testSsid_);
 }
@@ -272,6 +279,7 @@ void WifiService::pollConnectionTest() {
         if (millis() - connectionPrepareStartedMs_ < RadioSettleMs) return;
         connectionStartPending_ = false;
         connectionStartedMs_ = millis();
+        configureRealtimeRadio();
         WiFi.begin(testSsid_, testPassword_);
         Serial.printf("[wifi] testing ssid=%s\n", testSsid_);
         return;
@@ -290,6 +298,7 @@ void WifiService::pollConnectionTest() {
     connectionStatus_ = completedStatus;
     connectionRevision_++;
     if (completedStatus == WifiConnectStatus::Connected) {
+        configureRealtimeRadio();
         char ip[16] = "";
         connectionIp(ip, sizeof(ip));
         Serial.printf("[wifi] test connected ssid=%s ip=%s\n", testSsid_, ip);
@@ -341,14 +350,73 @@ void WifiService::applySettings() {
     strlcpy(activePassword_, cfg.wifiPassword, sizeof(activePassword_));
 
     if (!activeSsid_[0]) {
+        reconnectInProgress_ = false;
         WiFi.disconnect(false, false);
-        state().wifiConnected = false;
+        updateState([](SystemState& system) { system.wifiConnected = false; });
         return;
     }
 
+    startSavedConnection();
+}
+
+void WifiService::configureRealtimeRadio() {
+    // Modem sleep caused missed beacons and multi-second Core 0 stalls on the
+    // original hardware. Apply both Arduino and IDF settings because the Wi-Fi
+    // stack may restore power saving while reconnecting.
+    WiFi.setSleep(false);
+    const esp_err_t result = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_INIT) {
+        Serial.printf("[wifi] failed to disable power save: %d\n", static_cast<int>(result));
+    }
+}
+
+void WifiService::startSavedConnection() {
+    if (!activeSsid_[0] || connectionTestActive_ || scanStartPending_ ||
+        scanStatus_ == WifiScanStatus::Scanning) {
+        return;
+    }
+
+    const uint32_t now = millis();
     Serial.printf("[wifi] connecting ssid=%s\n", activeSsid_);
+    WiFi.mode(WIFI_STA);
+    configureRealtimeRadio();
     WiFi.disconnect(false, false);
     WiFi.begin(activeSsid_, activePassword_);
+    reconnectInProgress_ = true;
+    reconnectStartedMs_ = now;
+    lastReconnectAttemptMs_ = now;
+    updateState([](SystemState& system) { system.wifiConnected = false; });
+}
+
+void WifiService::maintainConnection() {
+    if (!started_ || connectionTestActive_ || connectionStartPending_ ||
+        scanStartPending_ || scanStatus_ == WifiScanStatus::Scanning) {
+        return;
+    }
+
+    const wl_status_t status = WiFi.status();
+    if (status == WL_CONNECTED) {
+        if (reconnectInProgress_ || !stateSnapshot().wifiConnected) configureRealtimeRadio();
+        reconnectInProgress_ = false;
+        return;
+    }
+    updateState([](SystemState& system) { system.wifiConnected = false; });
+    if (!activeSsid_[0]) {
+        reconnectInProgress_ = false;
+        return;
+    }
+
+    const uint32_t now = millis();
+    if (reconnectInProgress_) {
+        const bool terminalFailure = status == WL_NO_SSID_AVAIL || status == WL_CONNECT_FAILED;
+        if (!terminalFailure && now - reconnectStartedMs_ < ConnectionTimeoutMs) return;
+        reconnectInProgress_ = false;
+        Serial.printf("[wifi] reconnect failed status=%d; retry in %lums\n",
+                      static_cast<int>(status),
+                      static_cast<unsigned long>(ReconnectIntervalMs));
+    }
+
+    if (now - lastReconnectAttemptMs_ >= ReconnectIntervalMs) startSavedConnection();
 }
 
 }

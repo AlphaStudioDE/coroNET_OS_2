@@ -82,40 +82,32 @@ struct LedRuntimeState {
 };
 
 LedRuntimeState captureLedRuntimeState() {
-    const SystemState& source = state();
+    const SystemState source = stateSnapshot();
     LedRuntimeState copy;
-    for (uint8_t attempt = 0; attempt < 3U; ++attempt) {
-        const uint32_t telemetryBefore = source.printerTelemetryRevision;
-        const uint32_t eventBefore = source.printerStateEventSequence;
-        copy.bootMs = source.bootMs;
-        copy.quietActive = source.quietActive;
-        copy.printerState = source.printerState;
-        copy.printerStateEventSequence = source.printerStateEventSequence;
-        copy.printerEventFrom = source.printerEventFrom;
-        copy.printerEventTo = source.printerEventTo;
-        copy.printProgress = source.printProgress;
-        copy.activeTool = source.activeTool;
-        copy.activeToolTempC = source.activeToolTempC;
-        copy.bedTempC = source.bedTempC;
-        copy.chamberTempC = source.chamberTempC;
-        copy.filamentColorRgb = source.filamentColorRgb;
-        memcpy(copy.filamentColorsRgb, source.filamentColorsRgb, sizeof(copy.filamentColorsRgb));
-        copy.filamentColorMask = source.filamentColorMask;
-        copy.printDurationSec = source.printDurationSec;
-        copy.printEtaSec = source.printEtaSec;
-        copy.printerConnected = source.printerConnected;
-        copy.printerTelemetryValid = source.printerTelemetryValid;
-        copy.wifiConnected = source.wifiConnected;
-        copy.audioPlaying = source.audioPlaying;
-        copy.timeReady = source.timeReady;
-        copy.ventFailsafe = source.ventFailsafe;
-        copy.lastPrinterUpdateMs = source.lastPrinterUpdateMs;
-        copy.lastTouchMs = source.lastTouchMs;
-        if (telemetryBefore == source.printerTelemetryRevision &&
-            eventBefore == source.printerStateEventSequence) {
-            break;
-        }
-    }
+    copy.bootMs = source.bootMs;
+    copy.quietActive = source.quietActive;
+    copy.printerState = source.printerState;
+    copy.printerStateEventSequence = source.printerStateEventSequence;
+    copy.printerEventFrom = source.printerEventFrom;
+    copy.printerEventTo = source.printerEventTo;
+    copy.printProgress = source.printProgress;
+    copy.activeTool = source.activeTool;
+    copy.activeToolTempC = source.activeToolTempC;
+    copy.bedTempC = source.bedTempC;
+    copy.chamberTempC = source.chamberTempC;
+    copy.filamentColorRgb = source.filamentColorRgb;
+    memcpy(copy.filamentColorsRgb, source.filamentColorsRgb, sizeof(copy.filamentColorsRgb));
+    copy.filamentColorMask = source.filamentColorMask;
+    copy.printDurationSec = source.printDurationSec;
+    copy.printEtaSec = source.printEtaSec;
+    copy.printerConnected = source.printerConnected;
+    copy.printerTelemetryValid = source.printerTelemetryValid;
+    copy.wifiConnected = source.wifiConnected;
+    copy.audioPlaying = source.audioPlaying;
+    copy.timeReady = source.timeReady;
+    copy.ventFailsafe = source.ventFailsafe;
+    copy.lastPrinterUpdateMs = source.lastPrinterUpdateMs;
+    copy.lastTouchMs = source.lastTouchMs;
     return copy;
 }
 
@@ -563,7 +555,7 @@ RgbwColor ledCalibrationReferenceColor(LedCalibrationColor color) {
 }
 
 void LedService::begin() {
-    state().ledReady = false;
+    updateState([](SystemState& system) { system.ledReady = false; });
     if (!allocateBuffers()) {
         Serial.println("[led] buffer allocation failed");
         return;
@@ -600,7 +592,7 @@ void LedService::begin() {
 
     bootActive_ = bootExperience().active();
     started_ = true;
-    state().ledReady = true;
+    updateState([](SystemState& system) { system.ledReady = true; });
     Serial.printf("[led] ready SPI=%luHz frame=%lums buffers: psram=%uB internal=%uB\n",
                   static_cast<unsigned long>(SpiClockHz),
                   static_cast<unsigned long>(FrameIntervalMs),
@@ -609,9 +601,11 @@ void LedService::begin() {
 }
 
 void LedService::loop() {
+    portENTER_CRITICAL(&previewMux_);
     if (previewActive_ && static_cast<int32_t>(millis() - previewUntilMs_) >= 0) {
         previewActive_ = false;
     }
+    portEXIT_CRITICAL(&previewMux_);
 }
 
 bool LedService::requestPreview(LedCategory category, uint8_t animation,
@@ -619,18 +613,23 @@ bool LedService::requestPreview(LedCategory category, uint8_t animation,
     if (!started_ || category >= LedCategory::Count) return false;
     if (durationMs < 1000U) durationMs = 1000U;
     if (durationMs > 30000U) durationMs = 30000U;
+    const uint32_t now = millis();
+    portENTER_CRITICAL(&previewMux_);
     previewCategory_ = category;
     previewAnimation_ = normalizeLedAnimation(category, animation);
     previewLegacy_ = legacy;
-    previewStartedMs_ = millis();
+    previewStartedMs_ = now;
     previewDurationMs_ = durationMs;
     previewUntilMs_ = previewStartedMs_ + durationMs;
     previewActive_ = true;
+    portEXIT_CRITICAL(&previewMux_);
     return true;
 }
 
 void LedService::cancelPreview() {
+    portENTER_CRITICAL(&previewMux_);
     previewActive_ = false;
+    portEXIT_CRITICAL(&previewMux_);
 }
 
 bool LedService::startColorCalibration(LedCalibrationColor color) {
@@ -672,7 +671,7 @@ bool LedService::copyPreviewFrame(ledpreview::Frame& output) const {
     output.version = ledpreview::Version;
     output.pixelFormat = ledpreview::PixelFormatRgb888;
     output.size = sizeof(output);
-    output.sequence = state().ledFrameCount;
+    output.sequence = stateSnapshot().ledFrameCount;
     output.outerCount = hw::OuterCount;
     output.insideCount = hw::InsideCount;
 
@@ -689,14 +688,18 @@ bool LedService::copyPreviewFrame(ledpreview::Frame& output) const {
 
 void LedService::logStatus() {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
+    portENTER_CRITICAL(&previewMux_);
+    const bool previewActive = previewActive_;
+    portEXIT_CRITICAL(&previewMux_);
+    const SystemState system = stateSnapshot();
     Serial.printf("[led] up=%lums ready=%u boot=%u preview=%u calibration=%u mirror=%u shows=%lu unchanged=%lu frames=%lu dropped=%lu frameUs=%lu/%lu/%lu renderMax=%luus txGapUs=%lu/%lu txMax=%luus stackHeadroom=%uB\n",
                   static_cast<unsigned long>(millis()),
-                  started_ ? 1U : 0U, bootActive_ ? 1U : 0U, previewActive_ ? 1U : 0U,
+                  started_ ? 1U : 0U, bootActive_ ? 1U : 0U, previewActive ? 1U : 0U,
                   colorCalibrationActive_ ? 1U : 0U,
                   settingsService().settings().mirrorLedLayout ? 1U : 0U,
                   static_cast<unsigned long>(shows_), static_cast<unsigned long>(skippedShows_),
-                  static_cast<unsigned long>(state().ledFrameCount),
-                  static_cast<unsigned long>(state().ledDroppedFrames),
+                  static_cast<unsigned long>(system.ledFrameCount),
+                  static_cast<unsigned long>(system.ledDroppedFrames),
                   static_cast<unsigned long>(frameIntervalMinUs_),
                   static_cast<unsigned long>(frameIntervalAverageUs_),
                   static_cast<unsigned long>(frameIntervalMaxUs_),
@@ -760,7 +763,9 @@ void LedService::taskLoop() {
         const int64_t latenessUs = esp_timer_get_time() - presentationDeadlineUs;
         if (latenessUs >= static_cast<int64_t>(FrameIntervalUs)) {
             const uint32_t missed = static_cast<uint32_t>(latenessUs / FrameIntervalUs);
-            state().ledDroppedFrames += missed;
+            updateState([missed](SystemState& system) {
+                system.ledDroppedFrames += missed;
+            });
             presentationDeadlineUs += static_cast<int64_t>(missed) * FrameIntervalUs;
         }
 
@@ -768,7 +773,7 @@ void LedService::taskLoop() {
         // fixed cadence even when 8-bit quantisation produced identical bytes.
         transmitEncodedFrame(presentationDeadlineUs);
         ++shows_;
-        ++state().ledFrameCount;
+        updateState([](SystemState& system) { ++system.ledFrameCount; });
         lastFrameMs_ = now;
         presentationDeadlineUs += FrameIntervalUs;
     }
@@ -803,6 +808,23 @@ void LedService::render(uint32_t now) {
     clearTarget();
     const AppSettings settings = settingsService().snapshot();
     const LedRuntimeState system = captureLedRuntimeState();
+    uint8_t smoothingStep = 12U;
+    bool previewActive = false;
+    bool previewLegacy = false;
+    LedCategory previewCategory = LedCategory::Idle;
+    uint8_t previewAnimation = 0;
+    uint32_t previewStartedMs = 0;
+    uint32_t previewDurationMs = 10000U;
+    uint32_t previewUntilMs = 0;
+    portENTER_CRITICAL(&previewMux_);
+    previewActive = previewActive_;
+    previewLegacy = previewLegacy_;
+    previewCategory = previewCategory_;
+    previewAnimation = previewAnimation_;
+    previewStartedMs = previewStartedMs_;
+    previewDurationMs = previewDurationMs_;
+    previewUntilMs = previewUntilMs_;
+    portEXIT_CRITICAL(&previewMux_);
     frameMirror_ = settings.mirrorLedLayout;
     memcpy(frameColorRemixDegrees_, settings.ledColorRemixDegrees,
            sizeof(frameColorRemixDegrees_));
@@ -840,20 +862,26 @@ void LedService::render(uint32_t now) {
     }
 
     bootActive_ = bootExperience().active();
+    if (!bootActive_) bootFrameInitialized_ = false;
     const uint32_t bootElapsed = bootExperience().timelineMs();
     if (bootActive_) {
         renderBoot(bootExperience().performanceStarted() ? bootElapsed : bootExperience().preludeMs(),
                    bootExperience().full(), bootExperience().performanceStarted(), settings);
     } else {
-        const bool preview = !snakeFinishActive_ && previewActive_ &&
-                             static_cast<int32_t>(previewUntilMs_ - now) > 0;
+        const bool preview = !snakeFinishActive_ && previewActive &&
+                             static_cast<int32_t>(previewUntilMs - now) > 0;
         const LedCategory category = snakeFinishActive_ ? LedCategory::Print
-            : (preview ? previewCategory_
+            : (preview ? previewCategory
                        : (settings.ledOtherMode ? LedCategory::Other : categoryForState(system)));
-        const bool legacy = preview ? previewLegacy_ : settings.ledLegacyAnimations;
+        // Preserve coroNET 1's deliberately different response by printer state,
+        // scaled from its 30 ms cadence to this engine's 20 ms cadence.
+        if (category == LedCategory::Error) smoothingStep = 2U;
+        else if (category == LedCategory::Print || category == LedCategory::Pause ||
+                 category == LedCategory::Finish) smoothingStep = 7U;
+        const bool legacy = preview ? previewLegacy : settings.ledLegacyAnimations;
         const uint8_t animation = snakeFinishActive_
             ? static_cast<uint8_t>(PrintAnimation::Snake)
-            : (preview ? previewAnimation_
+            : (preview ? previewAnimation
                        : settings.ledAnimation[static_cast<uint8_t>(category)]);
         LedAnimationContext context;
         context.nowMs = now;
@@ -889,9 +917,9 @@ void LedService::render(uint32_t now) {
         context.finishing = snakeFinishActive_;
         if (snakeFinishActive_) context.progress = 100U;
         if (preview) {
-            const uint32_t elapsed = now - previewStartedMs_;
+            const uint32_t elapsed = now - previewStartedMs;
             context.progress = static_cast<uint8_t>(min<uint32_t>(100U,
-                3U + elapsed * 94U / max<uint32_t>(1000U, previewDurationMs_)));
+                3U + elapsed * 94U / max<uint32_t>(1000U, previewDurationMs)));
             context.activeTool = 1U;
             context.activeToolTempC = 205.0f + static_cast<float>(wave8At(now, 31U)) * 25.0f / 255.0f;
             context.bedTempC = 55.0f + static_cast<float>(wave8At(now, 39U, 67U)) * 10.0f / 255.0f;
@@ -919,7 +947,13 @@ void LedService::render(uint32_t now) {
     }
 
     applyOutputPolicies(settings);
-    smoothAndEncode(settings, bootActive_ && bootElapsed < 300U);
+    // coroNET 1 presented only the first boot frame immediately. Keeping the
+    // bypass active while boot audio starts makes low-level RGB values jump
+    // between gamma buckets and turns the intended breathing motion into a
+    // visible blink. After the first frame, always use the normal smoother.
+    const bool firstBootFrame = bootActive_ && !bootFrameInitialized_;
+    smoothAndEncode(settings, firstBootFrame, smoothingStep);
+    if (bootActive_) bootFrameInitialized_ = true;
 }
 
 bool LedService::renderColorCalibration(uint32_t now) {
@@ -1180,7 +1214,12 @@ void LedService::renderBoot(uint32_t elapsedMs, bool full, bool performanceStart
                  hsv(static_cast<uint8_t>(elapsedMs / 15U + 90U), 255U, 255U),
                  static_cast<uint8_t>(static_cast<uint16_t>(powerEnv) * 205U / 255U), 8U, false);
         const uint16_t beatPhase = static_cast<uint16_t>((elapsedMs - 22000U) % 840U);
-        const uint8_t beat = beatPhase < 210U ? static_cast<uint8_t>(255U - beatPhase * 255U / 210U) : 0U;
+        uint8_t beat = 0U;
+        if (beatPhase < 90U) {
+            beat = ease(beatPhase, 90U);
+        } else if (beatPhase < 330U) {
+            beat = static_cast<uint8_t>(255U - ease(beatPhase - 90U, 240U));
+        }
         if (beat) {
             const uint16_t center = hw::OuterCount / 2U;
             const uint8_t reach = static_cast<uint8_t>(2U + static_cast<uint16_t>(beat) * 7U / 255U);
@@ -8199,12 +8238,16 @@ void LedService::applyOutputPolicies(const AppSettings& settings) {
     }
 }
 
-bool LedService::smoothAndEncode(const AppSettings& settings, bool immediate) {
+bool LedService::smoothAndEncode(const AppSettings& settings, bool immediate,
+                                 uint8_t step) {
     bool dirty = false;
-    constexpr uint8_t step = 18U;
+    // The caller supplies the 50 FPS equivalent of coroNET 1's state-specific
+    // smoothing. This keeps the old slew rate while retaining OS2's denser
+    // frame cadence and sub-pixel animation motion.
 
     const bool forceInsideWhite = !bootActive_ &&
         settings.insideColorStyle == InsideColorStyle::White;
+    const bool forceOutputRefresh = encodedMirror_ != frameMirror_;
     portENTER_CRITICAL(&frameMux_);
     for (uint16_t i = 0; i < hw::LedCount; ++i) {
         // Match the proven coroNET 1 boundary: convert every target to its
@@ -8216,26 +8259,56 @@ bool LedService::smoothAndEncode(const AppSettings& settings, bool immediate) {
         const RgbwColor target = perceptualOutput(
             applyUserColorCalibration(targetFrame_[i], settings));
         const bool insideWhite = forceInsideWhite && i >= hw::InsideStart;
+        const uint8_t targetHigh = max(target.r, max(target.g, target.b));
+        const uint8_t targetLow = min(target.r, min(target.g, target.b));
+        const uint8_t targetChroma = targetHigh - targetLow;
+        const uint8_t targetSaturation = targetHigh
+            ? static_cast<uint8_t>(static_cast<uint16_t>(targetChroma) * 255U /
+                                   targetHigh)
+            : 0U;
+        const bool saturatedTarget = targetHigh > 16U && targetSaturation >= 120U;
+        const uint8_t lowChannelLimit = targetHigh / 3U;
+
+        // Preserve coroNET 1's anti-ghosting rule. A channel which is absent
+        // from the next saturated color must fall faster than the normal slew,
+        // otherwise adjacent hues briefly mix into a muddy flash. The minimum
+        // steps are the old 48/96 values scaled from 30 ms to 20 ms.
+        const uint8_t fastRgbStep = static_cast<uint8_t>(min<uint16_t>(
+            255U, max<uint16_t>(32U, static_cast<uint16_t>(step) * 4U)));
+        const uint8_t fastWhiteStep = static_cast<uint8_t>(min<uint16_t>(
+            255U, max<uint16_t>(64U, static_cast<uint16_t>(step) * 6U)));
+        const uint8_t redStep = saturatedTarget && target.r < currentFrame_[i].r &&
+                target.r <= lowChannelLimit
+            ? fastRgbStep : step;
+        const uint8_t greenStep = saturatedTarget && target.g < currentFrame_[i].g &&
+                target.g <= lowChannelLimit
+            ? fastRgbStep : step;
+        const uint8_t blueStep = saturatedTarget && target.b < currentFrame_[i].b &&
+                target.b <= lowChannelLimit
+            ? fastRgbStep : step;
+        const uint8_t whiteStep = saturatedTarget && target.w < currentFrame_[i].w
+            ? fastWhiteStep : step;
         const RgbwColor next = immediate
             ? RgbwColor(insideWhite ? 0U : target.r,
                         insideWhite ? 0U : target.g,
                         insideWhite ? 0U : target.b,
                         target.w)
-            : RgbwColor(insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r, step),
-                        insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g, step),
-                        insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b, step),
-                        smoothStepChannel(currentFrame_[i].w, target.w, step));
+            : RgbwColor(insideWhite ? 0U : smoothStepChannel(currentFrame_[i].r, target.r, redStep),
+                        insideWhite ? 0U : smoothStepChannel(currentFrame_[i].g, target.g, greenStep),
+                        insideWhite ? 0U : smoothStepChannel(currentFrame_[i].b, target.b, blueStep),
+                        smoothStepChannel(currentFrame_[i].w, target.w, whiteStep));
         if (memcmp(&next, &currentFrame_[i], sizeof(next)) != 0) {
             currentFrame_[i] = next;
             dirty = true;
         }
     }
     portEXIT_CRITICAL(&frameMux_);
-    if (!dirty) {
+    if (!dirty && !forceOutputRefresh) {
         ++skippedShows_;
         return false;
     }
     encodeFrame();
+    encodedMirror_ = frameMirror_;
     return true;
 }
 

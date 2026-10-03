@@ -5,6 +5,9 @@
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <WiFi.h>
+#include <esp_attr.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include "BleProtocol.h"
 #include "../companion/PairingService.h"
@@ -26,6 +29,49 @@ NimBLECharacteristic* gStateChr = nullptr;
 NimBLECharacteristic* gCommandChr = nullptr;
 NimBLECharacteristic* gEventChr = nullptr;
 BleService gBleService;
+
+constexpr uint32_t kBleCrashGuardMagic = 0x434E4232UL;
+constexpr uint32_t kBleStableAfterMs = 120000UL;
+// NimBLE OS2 keeps eligible host buffers in PSRAM. Its measured startup cost
+// is about 41 KB, so 96 KB leaves useful headroom without rejecting the normal
+// post-web startup baseline (which is lower than the monolithic OS1 baseline).
+constexpr uint32_t kBleMinInternalFree = 96UL * 1024UL;
+constexpr uint32_t kBleMinInternalLargest = 48UL * 1024UL;
+constexpr uint32_t kBleMinDmaLargest = 24UL * 1024UL;
+RTC_DATA_ATTR uint32_t gBleCrashGuardMagic = 0;
+RTC_DATA_ATTR uint8_t gBleCrashGuardArmed = 0;
+
+bool resetReasonSuggestsCrash() {
+    const esp_reset_reason_t reason = esp_reset_reason();
+    return reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT ||
+           reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
+}
+
+bool previousBleStartupCrashed() {
+    return gBleCrashGuardMagic == kBleCrashGuardMagic &&
+           gBleCrashGuardArmed != 0 && resetReasonSuggestsCrash();
+}
+
+void armBleCrashGuard() {
+    gBleCrashGuardMagic = kBleCrashGuardMagic;
+    gBleCrashGuardArmed = 1;
+}
+
+void disarmBleCrashGuard() {
+    gBleCrashGuardMagic = kBleCrashGuardMagic;
+    gBleCrashGuardArmed = 0;
+}
+
+bool bleResourcesAvailable() {
+    const uint32_t internalFree =
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t internalLargest =
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t dmaLargest = heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
+    return internalFree >= kBleMinInternalFree &&
+           internalLargest >= kBleMinInternalLargest &&
+           dmaLargest >= kBleMinDmaLargest;
+}
 
 void normalizePrinterHost(const char* input, char* out, size_t outSize, uint16_t* port) {
     if (!out || outSize == 0) return;
@@ -138,13 +184,26 @@ void BleService::begin() {
         commandQueue_ = xQueueCreate(CommandQueueDepth, sizeof(QueuedCommand));
         if (!commandQueue_) {
             Serial.println("[ble] command queue allocation failed");
-            state().bleReady = false;
+            updateState([](SystemState& system) { system.bleReady = false; });
             return;
         }
     }
     logHeapDiagnostics("ble-after-queue");
 
     gActiveService = this;
+    if (previousBleStartupCrashed()) {
+        unavailableThisBoot_ = true;
+        disarmBleCrashGuard();
+        updateState([](SystemState& system) {
+            system.bleReady = false;
+            system.bleConnected = false;
+        });
+        Serial.println("[ble] previous startup crashed; BLE disabled for this boot");
+    } else if (gBleCrashGuardMagic == kBleCrashGuardMagic && gBleCrashGuardArmed) {
+        // A clean software/OTA restart during the stabilization window is not a
+        // BLE failure and must not disable the companion connection.
+        disarmBleCrashGuard();
+    }
     strlcpy(deviceId_, deviceIdentity().id(), sizeof(deviceId_));
     appliedSettingsRevision_ = settingsService().revision();
     applySettings();
@@ -154,7 +213,13 @@ void BleService::loop() {
     applySettings();
     if (!started_) return;
 
-    const SystemState& system = state();
+    if (startupGuardActive_ && millis() - stackStartedMs_ >= kBleStableAfterMs) {
+        disarmBleCrashGuard();
+        startupGuardActive_ = false;
+        Serial.println("[ble] startup guard cleared");
+    }
+
+    const SystemState system = stateSnapshot();
     if (observedPrinterTelemetryRevision_ != system.printerTelemetryRevision ||
         observedPrinterConnectionRevision_ != system.printerConnectionRevision ||
         observedPrinterEventSequence_ != system.printerStateEventSequence) {
@@ -177,13 +242,13 @@ void BleService::loop() {
     portEXIT_CRITICAL(&connectionMux_);
 
     if (connectedEvent) {
-        state().bleConnected = true;
+        updateState([](SystemState& system) { system.bleConnected = true; });
         sessionAuthenticated_ = false;
         publishEvent("ble", fallbackActive_ ? "connected_fallback" : "connected");
         publishState(true);
     }
     if (disconnectedEvent) {
-        state().bleConnected = false;
+        updateState([](SystemState& system) { system.bleConnected = false; });
         stateDirty_ = true;
         sessionAuthenticated_ = false;
     }
@@ -219,7 +284,15 @@ void BleService::loop() {
 }
 
 void BleService::startStack() {
-    if (started_) return;
+    if (started_ || unavailableThisBoot_) return;
+
+    if (!bleResourcesAvailable()) {
+        unavailableThisBoot_ = true;
+        updateState([](SystemState& system) { system.bleReady = false; });
+        Serial.println("[ble] insufficient contiguous memory; BLE disabled for this boot");
+        logHeapDiagnostics("ble-resource-gate");
+        return;
+    }
 
     portENTER_CRITICAL(&connectionMux_);
     connectionEventPending_ = false;
@@ -228,6 +301,8 @@ void BleService::startStack() {
 
     logHeapDiagnostics("ble-before-init");
     refreshAdvertisedName();
+    armBleCrashGuard();
+    startupGuardActive_ = true;
     NimBLEDevice::init(advertisedName_);
     logHeapDiagnostics("ble-after-init");
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
@@ -236,6 +311,9 @@ void BleService::startStack() {
     NimBLEServer* server = NimBLEDevice::createServer();
     if (!server) {
         NimBLEDevice::deinit(true);
+        disarmBleCrashGuard();
+        startupGuardActive_ = false;
+        unavailableThisBoot_ = true;
         return;
     }
     logHeapDiagnostics("ble-after-server");
@@ -245,6 +323,9 @@ void BleService::startStack() {
     NimBLEService* service = server->createService(config::BleServiceUuid);
     if (!service) {
         NimBLEDevice::deinit(true);
+        disarmBleCrashGuard();
+        startupGuardActive_ = false;
+        unavailableThisBoot_ = true;
         return;
     }
 
@@ -263,6 +344,9 @@ void BleService::startStack() {
 
     if (!gStateChr || !gCommandChr || !gEventChr) {
         NimBLEDevice::deinit(true);
+        disarmBleCrashGuard();
+        startupGuardActive_ = false;
+        unavailableThisBoot_ = true;
         gStateChr = nullptr;
         gCommandChr = nullptr;
         gEventChr = nullptr;
@@ -282,7 +366,7 @@ void BleService::startStack() {
     portENTER_CRITICAL(&connectionMux_);
     started_ = startOk;
     portEXIT_CRITICAL(&connectionMux_);
-    state().bleReady = startOk;
+    updateState([startOk](SystemState& system) { system.bleReady = startOk; });
     stateDirty_ = true;
     logHeapDiagnostics("ble-after-advert");
     Serial.printf("[ble] advertising id=%s name=%s uuid=%u nameOk=%u start=%u fallback=%u\n",
@@ -291,21 +375,31 @@ void BleService::startStack() {
 
     if (!startOk) {
         NimBLEDevice::deinit(true);
+        disarmBleCrashGuard();
+        startupGuardActive_ = false;
+        unavailableThisBoot_ = true;
         gStateChr = nullptr;
         gCommandChr = nullptr;
         gEventChr = nullptr;
+    } else {
+        stackStartedMs_ = millis();
     }
 }
 
 void BleService::stopStack() {
-    if (!started_ && !state().bleReady) return;
+    if (!started_ && !stateSnapshot().bleReady) return;
 
     portENTER_CRITICAL(&connectionMux_);
     started_ = false;
     connected_ = false;
     portEXIT_CRITICAL(&connectionMux_);
-    state().bleReady = false;
-    state().bleConnected = false;
+    updateState([](SystemState& system) {
+        system.bleReady = false;
+        system.bleConnected = false;
+    });
+    disarmBleCrashGuard();
+    startupGuardActive_ = false;
+    stackStartedMs_ = 0;
     NimBLEDevice::deinit(true);
     portENTER_CRITICAL(&connectionMux_);
     connectionEventPending_ = false;
@@ -320,7 +414,7 @@ void BleService::stopStack() {
 void BleService::applySettings() {
     const AppSettings& cfg = settingsService().settings();
     const uint32_t now = millis();
-    const bool wifiConnected = state().wifiConnected;
+    const bool wifiConnected = stateSnapshot().wifiConnected;
 
     if (cfg.companionTransport == CompanionTransport::Wifi && !wifiConnected) {
         if (wifiOfflineSinceMs_ == 0) wifiOfflineSinceMs_ = now ? now : 1;
@@ -330,13 +424,14 @@ void BleService::applySettings() {
         fallbackActive_ = false;
     }
 
-    const bool radioAllowed = !state().maintenanceMode && !state().otaTlsWindowActive;
+    const SystemState system = stateSnapshot();
+    const bool radioAllowed = !system.maintenanceMode && !system.otaTlsWindowActive;
     bool shouldStart = radioAllowed && (!cfg.apiPaired ||
                        (cfg.bleEnabled && cfg.companionTransport != CompanionTransport::Wifi) ||
                        fallbackActive_);
     if (radioAllowed && !shouldStart && isConnected()) shouldStart = true;
 
-    if (shouldStart && !started_) startStack();
+    if (shouldStart && !started_ && !unavailableThisBoot_) startStack();
     else if (!shouldStart && started_) stopStack();
 
     const uint32_t revision = settingsService().revision();
@@ -489,11 +584,6 @@ void BleService::handleCommand(const char* command, size_t length) {
         return;
     }
 
-    if (strcmp(cmd, "snapshot") == 0) {
-        publishState(true);
-        publishEvent("ack", "snapshot");
-        return;
-    }
     if (strcmp(cmd, "ping") == 0) {
         publishEvent("ack", "pong");
         return;
@@ -505,6 +595,12 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
     if (!pairingCfg.apiPaired) {
         publishEvent("error", "pairing_required");
+        return;
+    }
+
+    if (strcmp(cmd, "snapshot") == 0) {
+        publishState(true);
+        publishEvent("ack", "snapshot");
         return;
     }
 
@@ -574,7 +670,8 @@ void BleService::handleCommand(const char* command, size_t length) {
         return;
     }
     if (strcmp(cmd, "setWifi") == 0) {
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         char ssid[sizeof(cfg.wifiSsid)] = "";
         char password[sizeof(cfg.wifiPassword)] = "";
         if (!readBoundedString(doc["ssid"], ssid, sizeof(ssid), true)) {
@@ -588,15 +685,18 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         strlcpy(cfg.wifiSsid, ssid, sizeof(cfg.wifiSsid));
         if (passwordProvided) strlcpy(cfg.wifiPassword, password, sizeof(cfg.wifiPassword));
-        settingsService().replace(cfg);
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
         publishSettings();
         publishEvent("ack", "wifi_saved");
         return;
     }
 
     if (strcmp(cmd, "setPrinter") == 0) {
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         char rawHost[sizeof(cfg.printerHost) + 16] = "";
         char cleanHost[sizeof(cfg.printerHost)] = "";
         char apiKey[sizeof(cfg.printerApiKey)] = "";
@@ -628,8 +728,10 @@ void BleService::handleCommand(const char* command, size_t length) {
         strlcpy(cfg.printerHost, cleanHost, sizeof(cfg.printerHost));
         cfg.printerPort = port;
         if (apiKeyProvided) strlcpy(cfg.printerApiKey, apiKey, sizeof(cfg.printerApiKey));
-        settingsService().replace(cfg);
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
         publishSettings();
         publishEvent("ack", "printer_saved");
         return;
@@ -649,11 +751,14 @@ void BleService::handleCommand(const char* command, size_t length) {
             publishEvent("error", "setup_done_invalid");
             return;
         }
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         cfg.setupDone = doc["done"].as<bool>();
-        settingsService().replace(cfg);
-        state().setupDone = cfg.setupDone;
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
+        updateState([&cfg](SystemState& system) { system.setupDone = cfg.setupDone; });
         publishSettings();
         publishState(true);
         publishEvent("ack", cfg.setupDone ? "setup_done" : "setup_open");
@@ -661,10 +766,13 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
 
     if (strcmp(cmd, "resetDeviceName") == 0) {
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         cfg.deviceName[0] = '\0';
-        settingsService().replace(cfg);
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
         updateAdvertisingName();
         publishState(true);
         publishEvent("ack", "device_name_reset");
@@ -672,7 +780,8 @@ void BleService::handleCommand(const char* command, size_t length) {
     }
 
     if (strcmp(cmd, "setDeviceName") == 0 || strcmp(cmd, "setName") == 0) {
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         char requestedName[sizeof(cfg.deviceName)] = "";
         char cleanName[sizeof(cfg.deviceName)] = "";
         if (!readBoundedString(doc["name"], requestedName, sizeof(requestedName), true)) {
@@ -681,8 +790,10 @@ void BleService::handleCommand(const char* command, size_t length) {
         }
         deviceIdentity().sanitizeName(requestedName, cleanName, sizeof(cleanName));
         strlcpy(cfg.deviceName, cleanName, sizeof(cfg.deviceName));
-        settingsService().replace(cfg);
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
         updateAdvertisingName();
         publishState(true);
         publishEvent("ack", cleanName[0] ? "device_name_saved" : "device_name_reset");
@@ -696,7 +807,8 @@ void BleService::handleCommand(const char* command, size_t length) {
             return;
         }
 
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         if (strcasecmp(mode, "auto") == 0) cfg.companionTransport = CompanionTransport::Auto;
         else if (strcasecmp(mode, "ble") == 0 || strcasecmp(mode, "bt") == 0) cfg.companionTransport = CompanionTransport::Ble;
         else if (strcasecmp(mode, "wifi") == 0) cfg.companionTransport = CompanionTransport::Wifi;
@@ -704,15 +816,18 @@ void BleService::handleCommand(const char* command, size_t length) {
             publishEvent("error", "transport_mode_invalid");
             return;
         }
-        settingsService().replace(cfg);
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
         publishSettings();
         publishEvent("ack", "transport_saved");
         return;
     }
 
     if (strcmp(cmd, "setSettings") == 0) {
-        AppSettings cfg = settingsService().snapshot();
+        uint32_t baseRevision = 0;
+        AppSettings cfg = settingsService().snapshot(&baseRevision);
         if (doc["displayBrightness"].is<int>()) cfg.displayBrightness = constrain(doc["displayBrightness"].as<int>(), 10, 100);
         if (doc["uiSkin"].is<int>()) cfg.uiSkin = static_cast<UiSkin>(constrain(doc["uiSkin"].as<int>(), 0, 3));
         if (doc["uiColorMode"].is<int>()) cfg.uiColorMode = static_cast<UiColorMode>(constrain(doc["uiColorMode"].as<int>(), 0, 2));
@@ -839,8 +954,10 @@ void BleService::handleCommand(const char* command, size_t length) {
         if (doc["pandaTemperingDurationMinutes"].is<int>()) cfg.pandaTemperingDurationMinutes = constrain(doc["pandaTemperingDurationMinutes"].as<int>(), 1, 180);
         if (doc["pandaTemperingEndTempC"].is<int>()) cfg.pandaTemperingEndTempC = constrain(doc["pandaTemperingEndTempC"].as<int>(), 0, 60);
         if (doc["pandaTemperingAfterPrint"].is<bool>()) cfg.pandaTemperingAfterPrint = doc["pandaTemperingAfterPrint"].as<bool>();
-        settingsService().replace(cfg);
-        settingsService().save();
+        if (!settingsService().replaceIfRevision(cfg, baseRevision)) {
+            publishEvent("error", "settings_changed_retry");
+            return;
+        }
         publishSettings();
         publishEvent("ack", "settings_saved");
         return;
@@ -892,17 +1009,19 @@ void BleService::publishSoundLibrary(uint8_t requestedFolder, uint8_t requestedP
     JsonDocument doc;
     doc["v"] = bleprotocol::Version;
     doc["t"] = "sound_library";
-    doc["sdReady"] = state().sdReady;
+    doc["sdReady"] = stateSnapshot().sdReady;
     doc["folder"] = folder;
     doc["folderCount"] = folderCount;
-    doc["folderName"] = folderCount ? audioService().folderName(folder) : "";
+    char folderName[33] = "";
+    if (folderCount) audioService().folderName(folder, folderName);
+    doc["folderName"] = folderName;
     doc["page"] = page;
     doc["pageCount"] = pageCount;
     doc["fileCount"] = fileCount;
     JsonArray files = doc["files"].to<JsonArray>();
     for (uint8_t index = first; index < fileCount && index < first + PageSize; ++index) {
-        const char* path = audioService().folderFilePath(folder, index);
-        if (!path) continue;
+        char path[65] = "";
+        if (!audioService().folderFilePath(folder, index, path)) continue;
         JsonObject item = files.add<JsonObject>();
         item["path"] = path;
         const char* slash = strrchr(path, '/');
@@ -922,8 +1041,9 @@ void BleService::publishSoundLibrary(uint8_t requestedFolder, uint8_t requestedP
 void BleService::publishSettings() {
     if (!gEventChr || !isConnected()) return;
 
-    const AppSettings& cfg = settingsService().settings();
-    const unsigned long settingsRevision = static_cast<unsigned long>(settingsService().revision());
+    uint32_t settingsRevisionValue = 0;
+    const AppSettings cfg = settingsService().snapshot(&settingsRevisionValue);
+    const unsigned long settingsRevision = static_cast<unsigned long>(settingsRevisionValue);
     char safeName[64];
     char safeSsid[80];
     char safePrinterHost[80];
@@ -1075,8 +1195,8 @@ void BleService::publishPairingChallenge() {
     }
     char safeName[64];
     jsonStringCopy(advertisedName_, safeName, sizeof(safeName));
-    const uint32_t remainingMs = static_cast<int32_t>(pairing.expiresAtMs - millis()) > 0
-                                     ? pairing.expiresAtMs - millis() : 0;
+    const int32_t remaining = static_cast<int32_t>(pairing.expiresAtMs - millis());
+    const uint32_t remainingMs = remaining > 0 ? static_cast<uint32_t>(remaining) : 0U;
     char payload[224];
     const int written = snprintf(payload, sizeof(payload),
                                  "{\"v\":%u,\"t\":\"pairing_challenge\",\"id\":\"%s\",\"name\":\"%s\","
@@ -1124,10 +1244,12 @@ void BleService::publishPairingResult() {
 
 void BleService::publishState(bool force) {
     if (!gStateChr || !isConnected()) return;
+    const AppSettings pairingCfg = settingsService().settings();
+    if (!pairingCfg.apiPaired || !sessionAuthenticated_) return;
     const uint32_t now = millis();
     if (!force && !stateDirty_ && now - lastNotifyMs_ < config::BleStateNotifyIntervalMs) return;
 
-    const SystemState& s = state();
+    const SystemState s = stateSnapshot();
     bleprotocol::StateSnapshotV2 snapshot{};
     snapshot.version = bleprotocol::Version;
     snapshot.messageType = static_cast<uint8_t>(bleprotocol::MessageType::StateSnapshot);

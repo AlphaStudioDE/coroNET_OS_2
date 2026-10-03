@@ -17,6 +17,10 @@ constexpr uint32_t kWorkflowIntervalMs = 500;
 constexpr uint32_t kCommandRefreshMs = 15000;
 constexpr uint32_t kDiscoveryQueryMs = 1200;
 constexpr uint32_t kDiscoveryMessageMs = 5000;
+constexpr uint32_t kTemperatureStaleMs = 10000;
+constexpr float kHeatOnMarginC = 0.6f;
+constexpr float kHeatOffMarginC = 0.2f;
+constexpr float kPreheatReadyMarginC = 0.5f;
 
 }
 
@@ -37,8 +41,9 @@ void PandaBreathService::begin() {
 
 void PandaBreathService::loop() {
     if (!initialized_) return;
-    if (state().maintenanceMode || state().otaTlsWindowActive) {
-        observedPrinterEventSequence_ = state().printerStateEventSequence;
+    SystemState system = stateSnapshot();
+    if (system.maintenanceMode || system.otaTlsWindowActive) {
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
         if (socketConfigured_) disconnect();
         return;
     }
@@ -52,18 +57,22 @@ void PandaBreathService::loop() {
 
     const AppSettings& settings = settingsService().settings();
     if (!settings.pandaEnabled || !configuredHost_[0]) {
-        observedPrinterEventSequence_ = state().printerStateEventSequence;
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
         if (socketConfigured_) disconnect();
-        state().pandaConnected = false;
+        updateState([](SystemState& current) { current.pandaConnected = false; });
         if (static_cast<int32_t>(discoveryStatusUntilMs_ - millis()) <= 0) {
-            setPhase(PandaWorkflowPhase::Idle,
-                     settings.pandaEnabled ? "Panda address required" : "Panda disabled");
+            if (!settings.pandaEnabled && oneShotComplete_) {
+                setPhase(PandaWorkflowPhase::Complete, "Panda cycle complete");
+            } else {
+                setPhase(PandaWorkflowPhase::Idle,
+                         settings.pandaEnabled ? "Panda address required" : "Panda disabled");
+            }
         }
         return;
     }
     if (WiFi.status() != WL_CONNECTED) {
-        observedPrinterEventSequence_ = state().printerStateEventSequence;
-        state().pandaConnected = false;
+        observedPrinterEventSequence_ = system.printerStateEventSequence;
+        updateState([](SystemState& current) { current.pandaConnected = false; });
         setPhase(PandaWorkflowPhase::Idle, "Waiting for Wi-Fi");
         return;
     }
@@ -87,22 +96,30 @@ void PandaBreathService::applyNow() {
 
 void PandaBreathService::requestDiscovery() {
     discoveryRequested_ = true;
-    strlcpy(state().pandaStatusText, "Panda discovery queued", sizeof(state().pandaStatusText));
+    updateState([](SystemState& system) {
+        strlcpy(system.pandaStatusText, "Panda discovery queued", sizeof(system.pandaStatusText));
+    });
 }
 
 void PandaBreathService::performDiscovery() {
     if (WiFi.status() != WL_CONNECTED) {
-        strlcpy(state().pandaStatusText, "Connect Wi-Fi before discovery",
-                sizeof(state().pandaStatusText));
+        updateState([](SystemState& system) {
+            strlcpy(system.pandaStatusText, "Connect Wi-Fi before discovery",
+                    sizeof(system.pandaStatusText));
+        });
         discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
         return;
     }
 
-    strlcpy(state().pandaStatusText, "Searching for Panda Breath",
-            sizeof(state().pandaStatusText));
+    updateState([](SystemState& system) {
+        strlcpy(system.pandaStatusText, "Searching for Panda Breath",
+                sizeof(system.pandaStatusText));
+    });
     if (!wifiService().acquireMdns(1500, pdMS_TO_TICKS(250))) {
-        strlcpy(state().pandaStatusText, "Panda discovery unavailable",
-                sizeof(state().pandaStatusText));
+        updateState([](SystemState& system) {
+            strlcpy(system.pandaStatusText, "Panda discovery unavailable",
+                    sizeof(system.pandaStatusText));
+        });
         discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
         return;
     }
@@ -110,20 +127,24 @@ void PandaBreathService::performDiscovery() {
     const IPAddress address = MDNS.queryHost("PandaBreath", kDiscoveryQueryMs);
     wifiService().releaseMdns();
     if (!address || address == IPAddress(0, 0, 0, 0)) {
-        strlcpy(state().pandaStatusText, "Panda Breath not found",
-                sizeof(state().pandaStatusText));
+        updateState([](SystemState& system) {
+            strlcpy(system.pandaStatusText, "Panda Breath not found",
+                    sizeof(system.pandaStatusText));
+        });
         discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
         return;
     }
 
-    AppSettings& settings = settingsService().mutableSettings();
     const String host = address.toString();
-    strlcpy(settings.pandaHost, host.c_str(), sizeof(settings.pandaHost));
-    settings.pandaEnabled = true;
-    settingsService().save();
+    settingsService().update([&host](AppSettings& settings) {
+        strlcpy(settings.pandaHost, host.c_str(), sizeof(settings.pandaHost));
+        settings.pandaEnabled = true;
+    });
     configureFromSettings();
-    strlcpy(state().pandaStatusText, "Panda Breath found; connecting",
-            sizeof(state().pandaStatusText));
+    updateState([](SystemState& system) {
+        strlcpy(system.pandaStatusText, "Panda Breath found; connecting",
+                sizeof(system.pandaStatusText));
+    });
     discoveryStatusUntilMs_ = millis() + kDiscoveryMessageMs;
 }
 
@@ -132,22 +153,38 @@ void PandaBreathService::disconnect() {
     socket_.disconnect();
     connected_ = false;
     socketConfigured_ = false;
-    state().pandaConnected = false;
+    updateState([](SystemState& system) { system.pandaConnected = false; });
 }
 
 void PandaBreathService::logStatus() const {
+    const AppSettings settings = settingsService().settings();
+    const SystemState system = stateSnapshot();
     Serial.printf(
         "[panda] enabled=%u host=%s socket=%u phase=%u target=%uC current=%.1fC heating=%u status=%s\n",
-        settingsService().settings().pandaEnabled ? 1U : 0U,
+        settings.pandaEnabled ? 1U : 0U,
         configuredHost_[0] ? configuredHost_ : "-", connected_ ? 1U : 0U,
-        static_cast<unsigned>(state().pandaPhase), static_cast<unsigned>(state().pandaTargetTempC),
-        state().pandaCurrentTempC, state().pandaHeating ? 1U : 0U, state().pandaStatusText);
+        static_cast<unsigned>(system.pandaPhase), static_cast<unsigned>(system.pandaTargetTempC),
+        system.pandaCurrentTempC, system.pandaHeating ? 1U : 0U, system.pandaStatusText);
 }
 
 void PandaBreathService::configureFromSettings() {
     observedSettingsRevision_ = settingsService().revision();
+    const AppSettings settings = settingsService().settings();
+    const bool workflowChanged = observedWorkflowSettings_ &&
+        (settings.pandaMode != observedMode_ ||
+         (settings.pandaEnabled && !observedEnabled_));
+    if (workflowChanged) {
+        automaticSawPrint_ = false;
+        holdStartedMs_ = 0;
+        phaseStartedMs_ = 0;
+        temperingStartTempC_ = NAN;
+        oneShotComplete_ = false;
+    }
+    observedMode_ = settings.pandaMode;
+    observedEnabled_ = settings.pandaEnabled;
+    observedWorkflowSettings_ = true;
     char normalized[65] = "";
-    normalizeHost(settingsService().settings().pandaHost, normalized);
+    normalizeHost(settings.pandaHost, normalized);
     if (strcmp(normalized, configuredHost_) != 0) {
         disconnect();
         strlcpy(configuredHost_, normalized, sizeof(configuredHost_));
@@ -162,21 +199,25 @@ void PandaBreathService::connectIfNeeded() {
     lastConnectAttemptMs_ = now;
     socket_.begin(configuredHost_, 80, "/ws");
     socketConfigured_ = true;
-    strlcpy(state().pandaStatusText, "Connecting to Panda Breath", sizeof(state().pandaStatusText));
+    updateState([](SystemState& system) {
+        strlcpy(system.pandaStatusText, "Connecting to Panda Breath", sizeof(system.pandaStatusText));
+    });
 }
 
 void PandaBreathService::handleEvent(WStype_t type, uint8_t* payload, size_t length) {
     switch (type) {
         case WStype_CONNECTED:
             connected_ = true;
-            state().pandaConnected = true;
+            updateState([](SystemState& system) { system.pandaConnected = true; });
             commandDirty_ = true;
             Serial.printf("[panda] connected to %s\n", configuredHost_);
             break;
         case WStype_DISCONNECTED:
             connected_ = false;
-            state().pandaConnected = false;
-            strlcpy(state().pandaStatusText, "Panda disconnected", sizeof(state().pandaStatusText));
+            updateState([](SystemState& system) {
+                system.pandaConnected = false;
+                strlcpy(system.pandaStatusText, "Panda disconnected", sizeof(system.pandaStatusText));
+            });
             break;
         case WStype_TEXT:
             handleMessage(payload, length);
@@ -189,19 +230,29 @@ void PandaBreathService::handleEvent(WStype_t type, uint8_t* payload, size_t len
 void PandaBreathService::handleMessage(const uint8_t* payload, size_t length) {
     JsonDocument document;
     if (deserializeJson(document, payload, length) != DeserializationError::Ok) return;
-    JsonVariantConst root = document.as<JsonVariantConst>();
-    if (root["current_temp"].is<float>()) state().pandaCurrentTempC = root["current_temp"].as<float>();
-    else if (root["temp"].is<float>()) state().pandaCurrentTempC = root["temp"].as<float>();
-    else if (root["temperature"].is<float>()) state().pandaCurrentTempC = root["temperature"].as<float>();
-
-    if (root["target_temp"].is<int>()) state().pandaTargetTempC = root["target_temp"].as<uint8_t>();
-    if (root["work_on"].is<bool>()) state().pandaHeating = root["work_on"].as<bool>();
-    else if (root["isrunning"].is<int>()) state().pandaHeating = root["isrunning"].as<int>() != 0;
+    JsonVariantConst root = document["settings"].is<JsonObjectConst>()
+                                ? document["settings"].as<JsonVariantConst>()
+                                : document.as<JsonVariantConst>();
+    const bool hasCurrent = root["current_temp"].is<float>() || root["temp"].is<float>() ||
+                            root["temperature"].is<float>();
+    const float current = root["current_temp"].is<float>() ? root["current_temp"].as<float>() :
+                          root["temp"].is<float>() ? root["temp"].as<float>() :
+                          root["temperature"].as<float>();
+    const bool hasTarget = root["target_temp"].is<int>();
+    const uint8_t target = hasTarget ? root["target_temp"].as<uint8_t>() : 0;
+    const bool hasHeating = root["work_on"].is<bool>() || root["isrunning"].is<int>();
+    const bool heating = root["work_on"].is<bool>() ? root["work_on"].as<bool>() :
+                         root["isrunning"].as<int>() != 0;
+    updateState([&](SystemState& system) {
+        if (hasCurrent) system.pandaCurrentTempC = current;
+        if (hasTarget) system.pandaTargetTempC = target;
+        if (hasHeating) system.pandaHeating = heating;
+    });
 }
 
 void PandaBreathService::updateWorkflow(uint32_t now) {
     const AppSettings& settings = settingsService().settings();
-    const SystemState& system = state();
+    const SystemState system = stateSnapshot();
     const PrinterState printer = system.printerState;
     const bool printerError = printer == PrinterState::Error;
     const bool printCompleted = system.printerStateEventSequence != observedPrinterEventSequence_ &&
@@ -209,74 +260,133 @@ void PandaBreathService::updateWorkflow(uint32_t now) {
                                  system.printerEventFrom == PrinterState::Paused) &&
                                 system.printerEventTo == PrinterState::Complete;
     observedPrinterEventSequence_ = system.printerStateEventSequence;
+    if (settings.pandaEnabled) oneShotComplete_ = false;
 
     if (settings.pandaMode == PandaBreathMode::Off || printerError) {
+        automaticSawPrint_ = false;
+        holdStartedMs_ = 0;
         requestOff();
         setPhase(printerError ? PandaWorkflowPhase::Fault : PandaWorkflowPhase::Idle,
                  printerError ? "Panda stopped: printer error" : "Panda off");
-    } else if (settings.pandaMode == PandaBreathMode::ForcedOn) {
-        requestHeat(settings.pandaTargetTempC, PandaWorkflowPhase::Holding, "Forced chamber hold");
     } else if (settings.pandaMode == PandaBreathMode::FilamentDrying) {
+        automaticSawPrint_ = false;
         const DryProfile profile = dryProfile();
         requestDry(profile.temperatureC, profile.hours);
         setPhase(PandaWorkflowPhase::Drying, "Filament drying");
-    } else if (settings.pandaMode == PandaBreathMode::Tempering) {
-        if (state().pandaPhase != PandaWorkflowPhase::Tempering &&
-            state().pandaPhase != PandaWorkflowPhase::Complete) {
-            phaseStartedMs_ = now;
-            setPhase(PandaWorkflowPhase::Tempering, "Controlled tempering");
-        }
-        const uint8_t target = temperingTarget(now);
-        if (target == 0U) {
-            requestOff();
-            setPhase(PandaWorkflowPhase::Complete, "Tempering complete");
-        } else {
-            requestHeat(target, PandaWorkflowPhase::Tempering, "Controlled tempering");
-        }
-    } else if (settings.pandaMode == PandaBreathMode::Automatic) {
-        if (printer == PrinterState::Printing || printer == PrinterState::Paused) {
-            requestHeat(settings.pandaPrintTargetTempC, PandaWorkflowPhase::PrintHold,
-                        printer == PrinterState::Paused ? "Print paused: chamber hold" : "Automatic print hold");
-        } else if (printCompleted && settings.pandaTemperingAfterPrint) {
-            phaseStartedMs_ = now;
-            requestHeat(settings.pandaPrintTargetTempC, PandaWorkflowPhase::Tempering,
-                        "Post-print tempering");
-        } else if (state().pandaPhase == PandaWorkflowPhase::Tempering &&
-                   settings.pandaTemperingAfterPrint) {
-            const uint8_t target = temperingTarget(now);
-            if (target) requestHeat(target, PandaWorkflowPhase::Tempering, "Post-print tempering");
-            else {
-                requestOff();
-                setPhase(PandaWorkflowPhase::Complete, "Post-print tempering complete");
-            }
-        } else {
-            requestOff();
-            setPhase(PandaWorkflowPhase::WaitingForPrint, "Automatic: waiting for print");
-        }
     } else {
-        if (printer == PrinterState::Printing || printer == PrinterState::Paused) {
-            requestHeat(settings.pandaPrintTargetTempC, PandaWorkflowPhase::PrintHold, "Print chamber hold");
-        } else {
-            requestHeat(settings.pandaTargetTempC, PandaWorkflowPhase::Preheating, "Preheating chamber");
-            if (!isnan(state().pandaCurrentTempC) &&
-                state().pandaCurrentTempC >= settings.pandaTargetTempC - 1.0f) {
-                if (!holdStartedMs_) holdStartedMs_ = now;
-                requestHeat(settings.pandaTargetTempC, PandaWorkflowPhase::Holding, "Preheat hold");
-                const uint32_t holdMs = static_cast<uint32_t>(settings.pandaPreheatHoldMinutes) * 60000UL;
-                if (now - holdStartedMs_ >= holdMs) setPhase(PandaWorkflowPhase::Complete, "Preheat hold complete");
-            } else {
+        if (settings.pandaMode == PandaBreathMode::Automatic &&
+            (printer == PrinterState::Printing || printer == PrinterState::Paused)) {
+            automaticSawPrint_ = true;
+        }
+        float controlTempC = NAN;
+        if (!controlTemperature(now, controlTempC)) {
+            requestOff();
+            setPhase(PandaWorkflowPhase::Fault, "Waiting for printer chamber temperature");
+            return;
+        }
+
+        if (settings.pandaMode == PandaBreathMode::ForcedOn) {
+            automaticSawPrint_ = false;
+            requestControlledHeat(settings.pandaTargetTempC, controlTempC,
+                                  PandaWorkflowPhase::Holding, "Forced chamber hold");
+        } else if (settings.pandaMode == PandaBreathMode::PreheatHold) {
+            automaticSawPrint_ = false;
+            if (printer == PrinterState::Printing || printer == PrinterState::Paused) {
                 holdStartedMs_ = 0;
+                settingsService().update([](AppSettings& current) {
+                    current.pandaMode = PandaBreathMode::Automatic;
+                });
+                requestControlledHeat(settings.pandaPrintTargetTempC, controlTempC,
+                                      PandaWorkflowPhase::PrintHold, "Print chamber hold");
+                return;
+            }
+            if (!holdStartedMs_ &&
+                controlTempC >= static_cast<float>(settings.pandaTargetTempC) - kPreheatReadyMarginC) {
+                holdStartedMs_ = now;
+            }
+            const PandaWorkflowPhase phase = holdStartedMs_ ? PandaWorkflowPhase::Holding
+                                                            : PandaWorkflowPhase::Preheating;
+            requestControlledHeat(settings.pandaTargetTempC, controlTempC, phase,
+                                  holdStartedMs_ ? "Preheat hold" : "Preheating chamber");
+            const uint32_t holdMs = static_cast<uint32_t>(settings.pandaPreheatHoldMinutes) * 60000UL;
+            if (holdStartedMs_ && now - holdStartedMs_ >= holdMs) {
+                finishOneShotMode(PandaWorkflowPhase::Complete, "Preheat hold complete");
+            }
+        } else if (settings.pandaMode == PandaBreathMode::Automatic) {
+            if (printer == PrinterState::Printing || printer == PrinterState::Paused) {
+                automaticSawPrint_ = true;
+                requestControlledHeat(settings.pandaPrintTargetTempC, controlTempC,
+                                      PandaWorkflowPhase::PrintHold,
+                                      printer == PrinterState::Paused
+                                          ? "Print paused: chamber hold"
+                                          : "Automatic print hold");
+            } else if ((automaticSawPrint_ || printCompleted) &&
+                       settings.pandaTemperingAfterPrint) {
+                automaticSawPrint_ = false;
+                temperingStartTempC_ = constrain(controlTempC, 0.0f, 80.0f);
+                phaseStartedMs_ = now;
+                requestControlledHeat(temperingTarget(now), controlTempC,
+                                      PandaWorkflowPhase::Tempering, "Post-print tempering");
+            } else if (system.pandaPhase == PandaWorkflowPhase::Tempering &&
+                       settings.pandaTemperingAfterPrint) {
+                const uint32_t durationMs =
+                    static_cast<uint32_t>(settings.pandaTemperingDurationMinutes) * 60000UL;
+                if (!durationMs || now - phaseStartedMs_ >= durationMs) {
+                    finishOneShotMode(PandaWorkflowPhase::Complete,
+                                      "Post-print tempering complete");
+                } else {
+                    const uint8_t target = temperingTarget(now);
+                    if (target == 0U) {
+                        requestOff();
+                        setPhase(PandaWorkflowPhase::Tempering, "Post-print tempering to off");
+                    } else {
+                        requestControlledHeat(target, controlTempC,
+                                              PandaWorkflowPhase::Tempering,
+                                              "Post-print tempering");
+                    }
+                }
+            } else if (automaticSawPrint_ || printCompleted) {
+                automaticSawPrint_ = false;
+                finishOneShotMode(PandaWorkflowPhase::Complete, "Print ended: Panda off");
+            } else {
+                requestOff();
+                setPhase(PandaWorkflowPhase::WaitingForPrint, "Automatic: waiting for print");
+            }
+        } else if (settings.pandaMode == PandaBreathMode::Tempering) {
+            automaticSawPrint_ = false;
+            if (system.pandaPhase != PandaWorkflowPhase::Tempering &&
+                system.pandaPhase != PandaWorkflowPhase::Complete) {
+                temperingStartTempC_ = constrain(controlTempC, 0.0f, 80.0f);
+                phaseStartedMs_ = now;
+                setPhase(PandaWorkflowPhase::Tempering, "Controlled tempering");
+            }
+            const uint32_t durationMs =
+                static_cast<uint32_t>(settings.pandaTemperingDurationMinutes) * 60000UL;
+            if (!durationMs || now - phaseStartedMs_ >= durationMs) {
+                finishOneShotMode(PandaWorkflowPhase::Complete, "Tempering complete");
+            } else {
+                const uint8_t target = temperingTarget(now);
+                if (target == 0U) {
+                    requestOff();
+                    setPhase(PandaWorkflowPhase::Tempering, "Tempering ramp to off");
+                } else {
+                    requestControlledHeat(target, controlTempC,
+                                          PandaWorkflowPhase::Tempering,
+                                          "Controlled tempering");
+                }
             }
         }
     }
 }
 
 void PandaBreathService::setPhase(PandaWorkflowPhase phase, const char* text) {
-    if (state().pandaPhase != phase) {
-        state().pandaPhase = phase;
-        phaseStartedMs_ = millis();
-    }
-    strlcpy(state().pandaStatusText, text ? text : "", sizeof(state().pandaStatusText));
+    bool phaseChanged = false;
+    updateState([&](SystemState& system) {
+        phaseChanged = system.pandaPhase != phase;
+        system.pandaPhase = phase;
+        strlcpy(system.pandaStatusText, text ? text : "", sizeof(system.pandaStatusText));
+    });
+    if (phaseChanged) phaseStartedMs_ = millis();
 }
 
 void PandaBreathService::requestOff() {
@@ -285,16 +395,20 @@ void PandaBreathService::requestOff() {
     desiredDrying_ = false;
     desiredTargetC_ = 0;
     desiredHours_ = 0;
-    state().pandaTargetTempC = 0;
+    updateState([](SystemState& system) { system.pandaTargetTempC = 0; });
 }
 
-void PandaBreathService::requestHeat(uint8_t targetC, PandaWorkflowPhase phase, const char* text) {
-    if (!desiredOn_ || desiredDrying_ || desiredTargetC_ != targetC) commandDirty_ = true;
-    desiredOn_ = true;
+void PandaBreathService::requestControlledHeat(uint8_t targetC, float currentTempC,
+                                               PandaWorkflowPhase phase, const char* text) {
+    bool wantsHeat = desiredOn_ && !desiredDrying_;
+    if (currentTempC <= static_cast<float>(targetC) - kHeatOnMarginC) wantsHeat = true;
+    else if (currentTempC >= static_cast<float>(targetC) + kHeatOffMarginC) wantsHeat = false;
+    if (desiredOn_ != wantsHeat || desiredDrying_ || desiredTargetC_ != targetC) commandDirty_ = true;
+    desiredOn_ = wantsHeat;
     desiredDrying_ = false;
     desiredTargetC_ = targetC;
     desiredHours_ = 0;
-    state().pandaTargetTempC = targetC;
+    updateState([targetC](SystemState& system) { system.pandaTargetTempC = targetC; });
     setPhase(phase, text);
 }
 
@@ -304,45 +418,85 @@ void PandaBreathService::requestDry(uint8_t targetC, uint8_t hours) {
     desiredDrying_ = true;
     desiredTargetC_ = targetC;
     desiredHours_ = hours;
-    state().pandaTargetTempC = targetC;
+    updateState([targetC](SystemState& system) { system.pandaTargetTempC = targetC; });
 }
 
 void PandaBreathService::sendDesired(bool force) {
     if (!connected_) return;
     const uint32_t now = millis();
     if (!force && !commandDirty_ && now - lastCommandMs_ < kCommandRefreshMs) return;
-    if (!desiredOn_) sendOff();
-    else if (desiredDrying_) sendDry(desiredTargetC_, desiredHours_);
-    else sendHeat(desiredTargetC_);
+    bool sent = false;
+    if (!desiredOn_) sent = sendOff();
+    else if (desiredDrying_) sent = sendDry(desiredTargetC_, desiredHours_);
+    else sent = sendHeat(desiredTargetC_);
+    if (!sent) return;
     commandDirty_ = false;
     lastCommandMs_ = now;
 }
 
-void PandaBreathService::sendOff() {
-    socket_.sendTXT("{\"isrunning\":0,\"drying_running\":false,\"target_temp\":0}");
-    socket_.sendTXT("{\"work_on\":false}");
-    state().pandaHeating = false;
+bool PandaBreathService::sendSettings(const char* fieldsJson) {
+    if (!connected_ || !fieldsJson || !fieldsJson[0]) return false;
+    String message = "{\"settings\":";
+    message += fieldsJson;
+    message += '}';
+    return socket_.sendTXT(message);
 }
 
-void PandaBreathService::sendHeat(uint8_t targetC) {
+bool PandaBreathService::sendOff() {
+    const bool first = sendSettings("{\"isrunning\":0,\"drying_running\":false,\"target_temp\":0}");
+    const bool second = sendSettings("{\"work_on\":false}");
+    updateState([](SystemState& system) { system.pandaHeating = false; });
+    return first || second;
+}
+
+bool PandaBreathService::sendHeat(uint8_t targetC) {
     char message[96] = "";
-    socket_.sendTXT("{\"isrunning\":0,\"drying_running\":false}");
-    socket_.sendTXT("{\"work_mode\":2}");
+    bool ok = sendSettings("{\"isrunning\":0,\"drying_running\":false}");
+    ok = sendSettings("{\"work_mode\":2}") && ok;
     snprintf(message, sizeof(message), "{\"set_temp\":%u,\"target_temp\":%u}", targetC, targetC);
-    socket_.sendTXT(message);
-    socket_.sendTXT("{\"work_on\":true}");
-    state().pandaHeating = true;
+    ok = sendSettings(message) && ok;
+    ok = sendSettings("{\"work_on\":true}") && ok;
+    if (ok) updateState([](SystemState& system) { system.pandaHeating = true; });
+    return ok;
 }
 
-void PandaBreathService::sendDry(uint8_t targetC, uint8_t hours) {
-    char message[192] = "";
-    socket_.sendTXT("{\"work_mode\":3}");
-    snprintf(message, sizeof(message),
-             "{\"custom_temp\":%u,\"custom_timer\":%u,\"filament_temp\":%u,\"filament_timer\":%u,\"target_temp\":%u}",
-             targetC, hours, targetC, hours, targetC);
-    socket_.sendTXT(message);
-    socket_.sendTXT("{\"isrunning\":1,\"drying_running\":true,\"work_on\":true}");
-    state().pandaHeating = true;
+bool PandaBreathService::sendDry(uint8_t targetC, uint8_t hours) {
+    char message[64] = "";
+    bool ok = sendSettings("{\"work_mode\":3}");
+    snprintf(message, sizeof(message), "{\"custom_temp\":%u}", targetC);
+    ok = sendSettings(message) && ok;
+    snprintf(message, sizeof(message), "{\"custom_timer\":%u}", hours);
+    ok = sendSettings(message) && ok;
+    snprintf(message, sizeof(message), "{\"filament_temp\":%u}", targetC);
+    ok = sendSettings(message) && ok;
+    snprintf(message, sizeof(message), "{\"filament_timer\":%u}", hours);
+    ok = sendSettings(message) && ok;
+    ok = sendSettings("{\"isrunning\":1,\"drying_running\":true}") && ok;
+    ok = sendSettings("{\"work_on\":true}") && ok;
+    if (ok) updateState([](SystemState& system) { system.pandaHeating = true; });
+    return ok;
+}
+
+bool PandaBreathService::controlTemperature(uint32_t now, float& temperatureC) const {
+    const SystemState system = stateSnapshot();
+    if (!system.printerConnected || !system.printerTelemetryValid ||
+        system.lastPrinterUpdateMs == 0U || now - system.lastPrinterUpdateMs > kTemperatureStaleMs ||
+        isnan(system.chamberTempC)) {
+        temperatureC = NAN;
+        return false;
+    }
+    temperatureC = system.chamberTempC;
+    return true;
+}
+
+void PandaBreathService::finishOneShotMode(PandaWorkflowPhase phase, const char* text) {
+    requestOff();
+    automaticSawPrint_ = false;
+    holdStartedMs_ = 0;
+    temperingStartTempC_ = NAN;
+    oneShotComplete_ = true;
+    setPhase(phase, text);
+    settingsService().update([](AppSettings& settings) { settings.pandaEnabled = false; });
 }
 
 PandaBreathService::DryProfile PandaBreathService::dryProfile() const {
@@ -361,12 +515,17 @@ PandaBreathService::DryProfile PandaBreathService::dryProfile() const {
 
 uint8_t PandaBreathService::temperingTarget(uint32_t now) const {
     const AppSettings& settings = settingsService().settings();
-    const uint8_t start = settings.pandaPrintTargetTempC;
+    const float start = isnan(temperingStartTempC_)
+                            ? static_cast<float>(settings.pandaPrintTargetTempC)
+                            : temperingStartTempC_;
     const uint8_t end = settings.pandaTemperingEndTempC;
     const uint32_t duration = static_cast<uint32_t>(settings.pandaTemperingDurationMinutes) * 60000UL;
     if (!duration || now - phaseStartedMs_ >= duration) return 0;
     const uint32_t elapsed = now - phaseStartedMs_;
-    return static_cast<uint8_t>(start - (static_cast<uint32_t>(start - min(start, end)) * elapsed / duration));
+    const float ratio = static_cast<float>(elapsed) / static_cast<float>(duration);
+    const float target = start + (static_cast<float>(end) - start) * ratio;
+    if (target <= 0.5f) return 0;
+    return static_cast<uint8_t>(constrain(static_cast<int>(roundf(target)), 1, 60));
 }
 
 void PandaBreathService::normalizeHost(const char* input, char output[65]) {

@@ -185,6 +185,10 @@ void SetupWizard::loop() {
 }
 
 void SetupWizard::reset() {
+    if (gActiveSetupWizard == this &&
+        wifiService().connectionStatus() != WifiConnectStatus::Idle) {
+        wifiService().cancelConnectionTest();
+    }
     if (gActiveSetupWizard == this) gActiveSetupWizard = nullptr;
     root_ = nullptr;
     content_ = nullptr;
@@ -563,7 +567,7 @@ void SetupWizard::renderPrinterDiscovery() {
 
     PrinterDiscoverySnapshot discovery;
     printerService().discoverySnapshot(discovery);
-    if (discovery.status == PrinterDiscoveryStatus::Idle && state().wifiConnected) {
+    if (discovery.status == PrinterDiscoveryStatus::Idle && stateSnapshot().wifiConnected) {
         printerService().requestDiscovery();
         printerService().discoverySnapshot(discovery);
     }
@@ -571,7 +575,7 @@ void SetupWizard::renderPrinterDiscovery() {
 
     const char* statusText = discovery.message[0] ? discovery.message : "Ready to search";
     uint32_t statusColor = ColorCyan;
-    if (!state().wifiConnected) {
+    if (!stateSnapshot().wifiConnected) {
         statusText = "Wi-Fi is not connected. Go back or enter the printer manually.";
         statusColor = ColorRed;
     } else if (discovery.status == PrinterDiscoveryStatus::Scanning) {
@@ -585,7 +589,7 @@ void SetupWizard::renderPrinterDiscovery() {
     lv_obj_set_size(refresh, 66, 24);
     lv_obj_set_pos(refresh, 366, 47);
     styleButton(refresh, false);
-    if (!state().wifiConnected || discovery.status == PrinterDiscoveryStatus::Scanning) {
+    if (!stateSnapshot().wifiConnected || discovery.status == PrinterDiscoveryStatus::Scanning) {
         lv_obj_add_state(refresh, LV_STATE_DISABLED);
     }
     lv_obj_add_event_cb(refresh, actionEvent, LV_EVENT_CLICKED,
@@ -721,39 +725,48 @@ void SetupWizard::renderReady() {
 }
 
 void SetupWizard::commitCurrentStep() {
-    AppSettings& settings = settingsService().mutableSettings();
     switch (step_) {
         case Step::Identity: {
-            char cleanName[sizeof(settings.deviceName)] = "";
+            char cleanName[sizeof(AppSettings::deviceName)] = "";
             deviceIdentity().sanitizeName(nameField_ ? lv_textarea_get_text(nameField_) : "",
                                           cleanName, sizeof(cleanName));
-            strlcpy(settings.deviceName, cleanName, sizeof(settings.deviceName));
+            settingsService().update([&cleanName](AppSettings& settings) {
+                strlcpy(settings.deviceName, cleanName, sizeof(settings.deviceName));
+            });
             break;
         }
-        case Step::Network:
+        case Step::Network: {
             if (networkCredentialsView_ && networkConnectionVerified_) {
-                strlcpy(settings.wifiSsid,
-                        selectedSsid_[0]
-                            ? selectedSsid_
-                            : (ssidField_ ? lv_textarea_get_text(ssidField_) : ""),
-                        sizeof(settings.wifiSsid));
-                strlcpy(settings.wifiPassword,
-                        selectedNetworkSecured_ ? networkPassword_ : "",
-                        sizeof(settings.wifiPassword));
+                char ssid[sizeof(AppSettings::wifiSsid)] = "";
+                char password[sizeof(AppSettings::wifiPassword)] = "";
+                strlcpy(ssid,
+                        selectedSsid_[0] ? selectedSsid_
+                                         : (ssidField_ ? lv_textarea_get_text(ssidField_) : ""),
+                        sizeof(ssid));
+                strlcpy(password, selectedNetworkSecured_ ? networkPassword_ : "",
+                        sizeof(password));
+                settingsService().update([&ssid, &password](AppSettings& settings) {
+                    strlcpy(settings.wifiSsid, ssid, sizeof(settings.wifiSsid));
+                    strlcpy(settings.wifiPassword, password, sizeof(settings.wifiPassword));
+                });
             }
             break;
+        }
         case Step::Printer: {
             if (!printerDetailsView_) break;
+            const AppSettings settings = settingsService().snapshot();
             uint16_t port = settings.printerPort ? settings.printerPort : 7125;
             if (printerPortField_) {
                 const int parsed = atoi(lv_textarea_get_text(printerPortField_));
                 if (parsed > 0 && parsed <= 65535) port = static_cast<uint16_t>(parsed);
             }
-            char cleanHost[sizeof(settings.printerHost)] = "";
+            char cleanHost[sizeof(AppSettings::printerHost)] = "";
             normalizePrinterHost(printerHostField_ ? lv_textarea_get_text(printerHostField_) : "",
                                  cleanHost, sizeof(cleanHost), port);
-            strlcpy(settings.printerHost, cleanHost, sizeof(settings.printerHost));
-            settings.printerPort = port;
+            settingsService().update([&cleanHost, port](AppSettings& current) {
+                strlcpy(current.printerHost, cleanHost, sizeof(current.printerHost));
+                current.printerPort = port;
+            });
             break;
         }
         case Step::Welcome:
@@ -762,7 +775,6 @@ void SetupWizard::commitCurrentStep() {
         case Step::Count:
             break;
     }
-    settingsService().save();
 }
 
 void SetupWizard::moveNext() {
@@ -798,7 +810,7 @@ void SetupWizard::moveNext() {
         return;
     }
     step_ = static_cast<Step>(static_cast<uint8_t>(step_) + 1);
-    if (step_ == Step::Printer && state().wifiConnected) {
+    if (step_ == Step::Printer && stateSnapshot().wifiConnected) {
         printerService().requestDiscovery();
     }
     renderPending_ = true;
@@ -817,10 +829,10 @@ void SetupWizard::moveBack() {
 }
 
 void SetupWizard::finish() {
-    AppSettings& settings = settingsService().mutableSettings();
-    settings.setupDone = true;
-    state().setupDone = true;
-    settingsService().save();
+    settingsService().update([](AppSettings& settings) {
+        settings.setupDone = true;
+    });
+    updateState([](SystemState& system) { system.setupDone = true; });
     settingsService().flush();
     finished_ = true;
     Serial.println("[setup] first-run wizard completed");
@@ -941,7 +953,6 @@ void SetupWizard::actionEvent(lv_event_t* event) {
         return;
     }
 
-    AppSettings& settings = settingsService().mutableSettings();
     switch (action) {
         case Action::Back:
             wizard->moveBack();
@@ -950,21 +961,24 @@ void SetupWizard::actionEvent(lv_event_t* event) {
             wizard->moveNext();
             break;
         case Action::TransportAuto:
-            settings.companionTransport = CompanionTransport::Auto;
-            settings.bleEnabled = true;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.companionTransport = CompanionTransport::Auto;
+                settings.bleEnabled = true;
+            });
             wizard->renderPending_ = true;
             break;
         case Action::TransportBle:
-            settings.companionTransport = CompanionTransport::Ble;
-            settings.bleEnabled = true;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.companionTransport = CompanionTransport::Ble;
+                settings.bleEnabled = true;
+            });
             wizard->renderPending_ = true;
             break;
         case Action::TransportWifi:
-            settings.companionTransport = CompanionTransport::Wifi;
-            settings.bleEnabled = true;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.companionTransport = CompanionTransport::Wifi;
+                settings.bleEnabled = true;
+            });
             wizard->renderPending_ = true;
             break;
         case Action::NetworkRefresh:

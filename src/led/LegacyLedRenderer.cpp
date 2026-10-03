@@ -461,6 +461,9 @@ static uint8_t previousAnimation[static_cast<uint8_t>(LedCategory::Count)] = {
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 };
 static uint32_t previousRenderMs = 0;
+static uint32_t nextRenderMs = 0;
+static int16_t previousColorRemixDegrees = INT16_MIN;
+constexpr uint32_t LEGACY_RENDER_INTERVAL_MS = 30U;
 
 static inline uint8_t scale8(uint8_t value, uint8_t maximum) {
     return static_cast<uint8_t>(static_cast<uint16_t>(value) * maximum / 255U);
@@ -4815,9 +4818,33 @@ void renderLegacyLedAnimation(LedCategory category, uint8_t animation,
                               int16_t colorRemixDegrees,
                               ::coronet::RgbwColor* output, size_t outputCount) {
     if (!output || outputCount < legacy::LED_COUNT) return;
-    legacy::prepareRuntime(category, normalizeLedAnimation(category, animation), context);
-    legacy::renderSelected(category);
-    legacy::applyColorRemix(category, animation, colorRemixDegrees);
+    const uint8_t normalizedAnimation = normalizeLedAnimation(category, animation);
+    const uint8_t categoryIndex = static_cast<uint8_t>(category);
+    const bool selectionChanged = category != legacy::previousCategory ||
+        legacy::previousAnimation[categoryIndex] != normalizedAnimation;
+    const bool previewChanged = context.preview != legacy::previousPreview;
+    const bool remixChanged = colorRemixDegrees != legacy::previousColorRemixDegrees;
+    const bool rendererWasAway = legacy::previousRenderMs &&
+        context.nowMs - legacy::previousRenderMs > 200U;
+    const bool deadlineReached = !legacy::nextRenderMs ||
+        static_cast<int32_t>(context.nowMs - legacy::nextRenderMs) >= 0;
+
+    if (selectionChanged || previewChanged || remixChanged || rendererWasAway ||
+        deadlineReached) {
+        legacy::prepareRuntime(category, normalizedAnimation, context);
+        legacy::renderSelected(category);
+        legacy::applyColorRemix(category, normalizedAnimation, colorRemixDegrees);
+        legacy::previousColorRemixDegrees = colorRemixDegrees;
+
+        if (!legacy::nextRenderMs || selectionChanged || previewChanged ||
+            remixChanged || rendererWasAway) {
+            legacy::nextRenderMs = context.nowMs + legacy::LEGACY_RENDER_INTERVAL_MS;
+        } else {
+            do {
+                legacy::nextRenderMs += legacy::LEGACY_RENDER_INTERVAL_MS;
+            } while (static_cast<int32_t>(context.nowMs - legacy::nextRenderMs) >= 0);
+        }
+    }
     for (uint16_t i = 0; i < legacy::LED_COUNT; ++i) {
         output[i] = ::coronet::RgbwColor(legacy::targetFrame[i].R,
                                         legacy::targetFrame[i].G,

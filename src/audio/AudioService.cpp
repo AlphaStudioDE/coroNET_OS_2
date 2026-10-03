@@ -22,7 +22,7 @@ constexpr uint8_t kGuardSilenceBuffers = 2;
 
 bool quietSuppressesSound(SoundScenario scenario) {
     const AppSettings settings = settingsService().snapshot();
-    if (!state().quietActive) return false;
+    if (!stateSnapshot().quietActive) return false;
     if (scenario == SoundScenario::Error && settings.quietErrorsBypass) return false;
     return settings.quietTarget == QuietTarget::Sound ||
            settings.quietTarget == QuietTarget::SoundAndLeds;
@@ -78,10 +78,13 @@ AudioService& audioService() {
 }
 
 void AudioService::begin() {
-    state().audioReady = false;
-    state().audioPlaying = false;
-    state().sdReady = false;
-    strlcpy(state().audioStatusText, "Initializing audio...", sizeof(state().audioStatusText));
+    updateState([](SystemState& system) {
+        system.audioReady = false;
+        system.audioPlaying = false;
+        system.sdReady = false;
+        strlcpy(system.audioStatusText, "Initializing audio...",
+                sizeof(system.audioStatusText));
+    });
 
     pcmBuffer_ = static_cast<int16_t*>(heap_caps_calloc(
         BufferFrames * OutputChannels, sizeof(int16_t),
@@ -99,7 +102,11 @@ void AudioService::begin() {
     if (!pcmBuffer_ || !rawBuffer_ || !fileIndex_ || !folderQueue_ ||
         !libraryFolderNames_ || !fileFolderIds_) {
         Serial.println("[audio] PSRAM buffer allocation failed");
-        strlcpy(state().audioStatusText, "Audio memory allocation failed", sizeof(state().audioStatusText));
+        releaseBuffers();
+        updateState([](SystemState& system) {
+            strlcpy(system.audioStatusText, "Audio memory allocation failed",
+                    sizeof(system.audioStatusText));
+        });
         return;
     }
 
@@ -109,7 +116,11 @@ void AudioService::begin() {
         taskEntry, "coronet-audio", TaskStackBytes, this, TaskPriority, &task_, TaskCore);
     if (created != pdPASS) {
         Serial.println("[audio] task creation failed");
-        strlcpy(state().audioStatusText, "Audio task could not start", sizeof(state().audioStatusText));
+        releaseBuffers();
+        updateState([](SystemState& system) {
+            strlcpy(system.audioStatusText, "Audio task could not start",
+                    sizeof(system.audioStatusText));
+        });
         task_ = nullptr;
         return;
     }
@@ -118,29 +129,37 @@ void AudioService::begin() {
     while (!taskInitDone_ && millis() - initStarted < 2000U) vTaskDelay(pdMS_TO_TICKS(1));
     if (!taskInitDone_ || !taskInitOk_) {
         Serial.println("[audio] Core 0 I2S initialization failed or timed out");
-        strlcpy(state().audioStatusText, "I2S initialization failed", sizeof(state().audioStatusText));
+        // A failed task clears task_ before exiting. A timed-out task may still
+        // be starting and therefore must retain the buffers it can still use.
+        if (taskInitDone_ && !task_) releaseBuffers();
+        updateState([](SystemState& system) {
+            strlcpy(system.audioStatusText, "I2S initialization failed",
+                    sizeof(system.audioStatusText));
+        });
         return;
     }
 
-    state().audioReady = true;
-    strlcpy(state().audioStatusText, "Ready", sizeof(state().audioStatusText));
+    updateState([](SystemState& system) {
+        system.audioReady = true;
+        strlcpy(system.audioStatusText, "Ready", sizeof(system.audioStatusText));
+    });
     Serial.println("[audio] ready; I2S interrupt and WAV playback run on Core 0");
     logStatus();
 
 }
 
 void AudioService::loop() {
-    state().audioPlaying = playing_;
-    if (playing_ && !bootAudioActive_ && state().lastTouchMs > playbackStartedMs_) {
+    const SystemState system = stateSnapshot();
+    if (system.audioPlaying && !bootAudioActive_ && system.lastTouchMs > playbackStartedMs_) {
         stop();
     }
     processPrinterSoundEvents();
 }
 
 bool AudioService::mountStorage() {
-    if (storageReady_ && SD_MMC.cardType() != CARD_NONE) return true;
-    storageReady_ = false;
-    state().sdReady = false;
+    if (storageReadySnapshot() && SD_MMC.cardType() != CARD_NONE) return true;
+    setStorageReady(false);
+    updateState([](SystemState& system) { system.sdReady = false; });
     SD_MMC.end();
     delay(250);
     for (uint8_t attempt = 0; attempt < 3; ++attempt) {
@@ -150,8 +169,8 @@ bool AudioService::mountStorage() {
         }
         if (SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT) &&
             SD_MMC.cardType() != CARD_NONE) {
-            storageReady_ = true;
-            state().sdReady = true;
+            setStorageReady(true);
+            updateState([](SystemState& system) { system.sdReady = true; });
             Serial.printf("[audio] SD ready: %lluMB\n", SD_MMC.cardSize() / (1024ULL * 1024ULL));
             refreshFileIndex();
             return true;
@@ -161,69 +180,134 @@ bool AudioService::mountStorage() {
         delay(300);
     }
     SD_MMC.end();
-    state().sdReady = false;
-    strlcpy(state().audioStatusText, "SD card unavailable", sizeof(state().audioStatusText));
+    updateState([](SystemState& system) {
+        system.sdReady = false;
+        strlcpy(system.audioStatusText, "SD card unavailable",
+                sizeof(system.audioStatusText));
+    });
     return false;
 }
 
-const char* AudioService::filePath(uint8_t index) const {
-    return fileIndex_ && !indexingFiles_ && index < fileCount_ ? fileIndex_[index] : nullptr;
-}
-
-const char* AudioService::folderName(uint8_t folder) const {
-    return libraryFolderNames_ && !indexingFiles_ && folder < libraryFolderCount_
-               ? libraryFolderNames_[folder]
-               : nullptr;
-}
-
-uint8_t AudioService::folderFileCount(uint8_t folder) const {
-    if (indexingFiles_ || !fileFolderIds_ || folder >= libraryFolderCount_) return 0;
-    uint8_t count = 0;
-    for (uint8_t index = 0; index < fileCount_; ++index) {
-        if (fileFolderIds_[index] == folder) ++count;
-    }
+uint8_t AudioService::fileCount() const {
+    portENTER_CRITICAL(&libraryMux_);
+    const uint8_t count = indexingFiles_ ? 0U : fileCount_;
+    portEXIT_CRITICAL(&libraryMux_);
     return count;
 }
 
-const char* AudioService::folderFilePath(uint8_t folder, uint8_t index) const {
-    if (indexingFiles_ || !fileIndex_ || !fileFolderIds_ ||
-        folder >= libraryFolderCount_) {
-        return nullptr;
+bool AudioService::filePath(uint8_t index, char output[65]) const {
+    if (!output) return false;
+    bool valid = false;
+    portENTER_CRITICAL(&libraryMux_);
+    if (fileIndex_ && !indexingFiles_ && index < fileCount_) {
+        strlcpy(output, fileIndex_[index], 65);
+        valid = true;
+    } else {
+        output[0] = '\0';
     }
+    portEXIT_CRITICAL(&libraryMux_);
+    return valid;
+}
+
+uint8_t AudioService::folderCount() const {
+    portENTER_CRITICAL(&libraryMux_);
+    const uint8_t count = indexingFiles_ ? 0U : libraryFolderCount_;
+    portEXIT_CRITICAL(&libraryMux_);
+    return count;
+}
+
+bool AudioService::folderName(uint8_t folder, char output[33]) const {
+    if (!output) return false;
+    bool valid = false;
+    portENTER_CRITICAL(&libraryMux_);
+    if (libraryFolderNames_ && !indexingFiles_ && folder < libraryFolderCount_) {
+        strlcpy(output, libraryFolderNames_[folder], 33);
+        valid = true;
+    } else {
+        output[0] = '\0';
+    }
+    portEXIT_CRITICAL(&libraryMux_);
+    return valid;
+}
+
+uint8_t AudioService::folderFileCount(uint8_t folder) const {
+    uint8_t count = 0;
+    portENTER_CRITICAL(&libraryMux_);
+    if (!indexingFiles_ && fileFolderIds_ && folder < libraryFolderCount_) {
+        for (uint8_t index = 0; index < fileCount_; ++index) {
+            if (fileFolderIds_[index] == folder) ++count;
+        }
+    }
+    portEXIT_CRITICAL(&libraryMux_);
+    return count;
+}
+
+bool AudioService::folderFilePath(uint8_t folder, uint8_t index, char output[65]) const {
+    if (!output) return false;
+    bool valid = false;
     uint8_t position = 0;
-    for (uint8_t file = 0; file < fileCount_; ++file) {
-        if (fileFolderIds_[file] != folder) continue;
-        if (position++ == index) return fileIndex_[file];
+    portENTER_CRITICAL(&libraryMux_);
+    if (!indexingFiles_ && fileIndex_ && fileFolderIds_ && folder < libraryFolderCount_) {
+        for (uint8_t file = 0; file < fileCount_; ++file) {
+            if (fileFolderIds_[file] != folder) continue;
+            if (position++ == index) {
+                strlcpy(output, fileIndex_[file], 65);
+                valid = true;
+                break;
+            }
+        }
     }
-    return nullptr;
+    if (!valid) output[0] = '\0';
+    portEXIT_CRITICAL(&libraryMux_);
+    return valid;
 }
 
 uint8_t AudioService::folderForPath(const char* path) const {
-    if (indexingFiles_ || !fileIndex_ || !fileFolderIds_ || !path || !path[0]) return UINT8_MAX;
-    for (uint8_t index = 0; index < fileCount_; ++index) {
-        if (strcasecmp(fileIndex_[index], path) == 0) return fileFolderIds_[index];
+    if (!path || !path[0]) return UINT8_MAX;
+    uint8_t folder = UINT8_MAX;
+    portENTER_CRITICAL(&libraryMux_);
+    if (!indexingFiles_ && fileIndex_ && fileFolderIds_) {
+        for (uint8_t index = 0; index < fileCount_; ++index) {
+            if (strcasecmp(fileIndex_[index], path) == 0) {
+                folder = fileFolderIds_[index];
+                break;
+            }
+        }
     }
-    return UINT8_MAX;
+    portEXIT_CRITICAL(&libraryMux_);
+    return folder;
 }
 
 bool AudioService::pathAvailable(const char* path) const {
-    if (!storageReady_ || indexingFiles_ || !fileIndex_ || !path || path[0] != '/') return false;
-    for (uint8_t index = 0; index < fileCount_; ++index) {
-        if (strcasecmp(fileIndex_[index], path) == 0) return true;
+    if (!path || path[0] != '/') return false;
+    bool available = false;
+    portENTER_CRITICAL(&libraryMux_);
+    if (storageReady_ && !indexingFiles_ && fileIndex_) {
+        for (uint8_t index = 0; index < fileCount_; ++index) {
+            if (strcasecmp(fileIndex_[index], path) == 0) {
+                available = true;
+                break;
+            }
+        }
     }
-    return false;
+    portEXIT_CRITICAL(&libraryMux_);
+    return available;
 }
 
 bool AudioService::refreshFileIndex() {
-    if (!storageReady_ || !fileIndex_ || playing_) return false;
+    if (!storageReadySnapshot() || !fileIndex_ || stateSnapshot().audioPlaying) return false;
     if (SD_MMC.cardType() == CARD_NONE) {
-        storageReady_ = false;
-        state().sdReady = false;
-        state().audioFileCount = 0;
-        state().audioAssetsValid = false;
-        strlcpy(state().audioAssetStatus, "SD card removed", sizeof(state().audioAssetStatus));
+        setStorageReady(false);
+        updateState([](SystemState& system) {
+            system.sdReady = false;
+            system.audioFileCount = 0;
+            system.audioAssetsValid = false;
+            strlcpy(system.audioAssetStatus, "SD card removed",
+                    sizeof(system.audioAssetStatus));
+        });
         return false;
     }
+    portENTER_CRITICAL(&libraryMux_);
     indexingFiles_ = true;
     fileCount_ = 0;
     folderQueueCount_ = 0;
@@ -233,6 +317,7 @@ bool AudioService::refreshFileIndex() {
     memset(folderQueue_, 0, MaxScanFolders * sizeof(FolderScanEntry));
     memset(libraryFolderNames_, 0, MaxLibraryFolders * 33U);
     memset(fileFolderIds_, 0, MaxIndexedFiles * sizeof(uint8_t));
+    portEXIT_CRITICAL(&libraryMux_);
     // The organized /sounds library has priority. Root WAV files are retained
     // only as a compatibility fallback when the bounded index still has room.
     enqueueDirectory("/sounds", 0U);
@@ -243,23 +328,35 @@ bool AudioService::refreshFileIndex() {
     indexDirectory("/", 0U, false);
     sortFileIndex();
     buildLibraryFolders();
+    portENTER_CRITICAL(&libraryMux_);
     indexingFiles_ = false;
-    state().audioFileCount = fileCount_;
+    portEXIT_CRITICAL(&libraryMux_);
     validateAssets();
-    snprintf(state().audioStatusText, sizeof(state().audioStatusText),
-             "%u status WAV file%s ready", static_cast<unsigned>(fileCount_),
-             fileCount_ == 1U ? "" : "s");
+    const uint8_t fileCount = fileCount_;
+    updateState([fileCount](SystemState& system) {
+        system.audioFileCount = fileCount;
+        snprintf(system.audioStatusText, sizeof(system.audioStatusText),
+                 "%u status WAV file%s ready", static_cast<unsigned>(fileCount),
+                 fileCount == 1U ? "" : "s");
+    });
+    const SystemState system = stateSnapshot();
     Serial.printf("[audio] indexed %u WAV files in %u folders; assets=%s\n",
                   static_cast<unsigned>(fileCount_),
-                  static_cast<unsigned>(libraryFolderCount_), state().audioAssetStatus);
+                  static_cast<unsigned>(libraryFolderCount_), system.audioAssetStatus);
     return true;
 }
 
 bool AudioService::requestStorageRefresh() {
     if (!task_ || bootAudioActive_) return false;
-    strlcpy(state().audioAssetStatus, "Scanning SD card...", sizeof(state().audioAssetStatus));
-    strlcpy(state().audioStatusText, "Scanning SD card...", sizeof(state().audioStatusText));
-    submitRequest(RequestType::RescanStorage, "", 0, false, SoundScenario::Start, false);
+    const uint32_t sequence = submitRequest(
+        RequestType::RescanStorage, "", 0, false, SoundScenario::Start, false);
+    if (!sequence) return false;
+    updateState([](SystemState& system) {
+        strlcpy(system.audioAssetStatus, "Scanning SD card...",
+                sizeof(system.audioAssetStatus));
+        strlcpy(system.audioStatusText, "Scanning SD card...",
+                sizeof(system.audioStatusText));
+    });
     return true;
 }
 
@@ -374,60 +471,85 @@ void AudioService::validateAssets() {
         if (!resolveScenarioPathOnStorage(static_cast<SoundScenario>(i), resolved)) ++missing;
     }
     const bool bootPresent = SD_MMC.exists("/boot.wav");
-    state().audioAssetsValid = missing == 0 && bootPresent;
-    if (missing == 0 && bootPresent) strlcpy(state().audioAssetStatus, "All required WAV assets ready", sizeof(state().audioAssetStatus));
-    else if (!bootPresent) strlcpy(state().audioAssetStatus, "boot.wav missing or scenarios incomplete", sizeof(state().audioAssetStatus));
-    else snprintf(state().audioAssetStatus, sizeof(state().audioAssetStatus), "%u scenario file(s) missing", static_cast<unsigned>(missing));
+    updateState([missing, bootPresent](SystemState& system) {
+        system.audioAssetsValid = missing == 0 && bootPresent;
+        if (missing == 0 && bootPresent) {
+            strlcpy(system.audioAssetStatus, "All required WAV assets ready",
+                    sizeof(system.audioAssetStatus));
+        } else if (!bootPresent) {
+            strlcpy(system.audioAssetStatus, "boot.wav missing or scenarios incomplete",
+                    sizeof(system.audioAssetStatus));
+        } else {
+            snprintf(system.audioAssetStatus, sizeof(system.audioAssetStatus),
+                     "%u scenario file(s) missing", static_cast<unsigned>(missing));
+        }
+    });
 }
 
 bool AudioService::playTestTone(uint32_t durationMs) {
-    if (!driverReady_ || !task_) return false;
+    if (!task_ || !stateSnapshot().audioReady) return false;
     durationMs = constrain(durationMs, 250U, 60000U);
-    submitRequest(RequestType::Tone, "", 100, false, SoundScenario::Start, false, durationMs);
-    return true;
+    return submitRequest(RequestType::Tone, "", 100, false, SoundScenario::Start,
+                         false, durationMs) != 0U;
 }
 
 bool AudioService::playFile(const char* path, uint8_t volumePercent, bool repeat,
                             SoundScenario scenario, bool bootAudio) {
-    if (!driverReady_ || !task_ || !path || path[0] != '/') return false;
-    submitRequest(RequestType::Wav, path, constrain(volumePercent, 0, 100), repeat,
-                  scenario, bootAudio);
-    return true;
+    if (!task_ || !stateSnapshot().audioReady || !path || path[0] != '/') return false;
+    return submitRequest(RequestType::Wav, path, constrain(volumePercent, 0, 100),
+                         repeat, scenario, bootAudio) != 0U;
 }
 
 bool AudioService::playScenario(SoundScenario scenario) {
     const uint8_t index = static_cast<uint8_t>(scenario);
-    if (index >= enumCount(SoundScenario{})) return false;
+    if (index >= enumCount(SoundScenario{}) || !task_ || !stateSnapshot().audioReady) return false;
     if (quietSuppressesSound(scenario)) {
         stop();
         return false;
     }
     const AppSettings settings = settingsService().snapshot();
-    submitRequest(RequestType::Scenario, "", constrain(settings.soundVolume[index], 0, 100),
-                  settings.soundRepeat[index], scenario, false);
-    return true;
+    return submitRequest(RequestType::Scenario, "",
+                         constrain(settings.soundVolume[index], 0, 100),
+                         settings.soundRepeat[index], scenario, false) != 0U;
 }
 
 void AudioService::stop() {
     if (!task_) return;
-    strlcpy(state().audioStatusText, playing_ ? "Stopping playback..." : "Ready",
-            sizeof(state().audioStatusText));
+    const bool playing = stateSnapshot().audioPlaying;
+    updateState([playing](SystemState& system) {
+        strlcpy(system.audioStatusText, playing ? "Stopping playback..." : "Ready",
+                sizeof(system.audioStatusText));
+    });
     submitRequest(RequestType::Stop, "", 0, false, SoundScenario::Start, false);
 }
 
-void AudioService::release() {
-    if (!stopAndWait()) {
+bool AudioService::release() {
+    portENTER_CRITICAL(&requestMux_);
+    acceptingRequests_ = false;
+    const bool taskRunning = task_ != nullptr;
+    portEXIT_CRITICAL(&requestMux_);
+    if (taskRunning && !stopAndWait()) {
+        portENTER_CRITICAL(&requestMux_);
+        acceptingRequests_ = true;
+        portEXIT_CRITICAL(&requestMux_);
         Serial.println("[audio] release aborted: task did not stop");
-        return;
+        return false;
     }
     uninstallDriver();
-    state().audioReady = false;
+    updateState([](SystemState& system) { system.audioReady = false; });
     logMemory("released");
+    return true;
 }
 
 bool AudioService::useDmaProfile(AudioDmaProfile profile) {
     if (profile == profile_ && driverReady_) return true;
+    portENTER_CRITICAL(&requestMux_);
+    acceptingRequests_ = false;
+    portEXIT_CRITICAL(&requestMux_);
     if (!stopAndWait()) {
+        portENTER_CRITICAL(&requestMux_);
+        acceptingRequests_ = true;
+        portEXIT_CRITICAL(&requestMux_);
         Serial.println("[audio] DMA profile change aborted: task did not stop");
         return false;
     }
@@ -436,32 +558,51 @@ bool AudioService::useDmaProfile(AudioDmaProfile profile) {
     const uint16_t count = profile == AudioDmaProfile::Coronet1
                                ? Coronet1DmaBufferCount
                                : BalancedDmaBufferCount;
-    state().audioReady = installDriver(count) && task_;
+    const bool ready = installDriver(count) && task_;
+    portENTER_CRITICAL(&requestMux_);
+    acceptingRequests_ = true;
+    portEXIT_CRITICAL(&requestMux_);
+    updateState([ready](SystemState& system) { system.audioReady = ready; });
     logStatus();
-    return state().audioReady;
+    return ready;
 }
 
 void AudioService::logStatus() const {
     const UBaseType_t stackHeadroom = task_ ? uxTaskGetStackHighWaterMark(task_) : 0;
+    const SystemState system = stateSnapshot();
+    uint8_t indexedFiles = 0;
+    uint8_t folders = 0;
+    bool storageReady = false;
+    portENTER_CRITICAL(&libraryMux_);
+    indexedFiles = fileCount_;
+    folders = libraryFolderCount_;
+    storageReady = storageReady_;
+    portEXIT_CRITICAL(&libraryMux_);
     Serial.printf(
         "[audio] ready=%u sd=%u playing=%u boot=%u profile=%s stereo/16-bit/%luHz dma=%ux%u failures=%lu retries=%lu indexed=%u folders=%u completed=%lu stackHeadroom=%uB status=%s path=%s\n",
-        driverReady_ ? 1U : 0U, storageReady_ ? 1U : 0U, playing_ ? 1U : 0U,
+        driverReady_ ? 1U : 0U, storageReady ? 1U : 0U, system.audioPlaying ? 1U : 0U,
         bootAudioActive_ ? 1U : 0U, profileName(profile_), static_cast<unsigned long>(sampleRate_),
         static_cast<unsigned>(dmaBufferCount_), static_cast<unsigned>(BufferFrames),
         static_cast<unsigned long>(writeFailures_), static_cast<unsigned long>(writeRetries_),
-        static_cast<unsigned>(fileCount_),
-        static_cast<unsigned>(libraryFolderCount_),
+        static_cast<unsigned>(indexedFiles),
+        static_cast<unsigned>(folders),
         static_cast<unsigned long>(completedFiles_),
         static_cast<unsigned>(stackHeadroom),
-        state().audioStatusText,
-        state().activeSoundPath[0] ? state().activeSoundPath : "-");
+        system.audioStatusText,
+        system.activeSoundPath[0] ? system.activeSoundPath : "-");
     logMemory("status");
 }
 
 uint32_t AudioService::submitRequest(RequestType type, const char* path, uint8_t volumePercent,
                                      bool repeat, SoundScenario scenario, bool bootAudio,
                                      uint32_t durationMs) {
+    TaskHandle_t task = task_;
+    if (!task) return 0;
     portENTER_CRITICAL(&requestMux_);
+    if (!acceptingRequests_ && type != RequestType::Stop) {
+        portEXIT_CRITICAL(&requestMux_);
+        return 0;
+    }
     requestedType_ = type;
     strlcpy(requestedPath_, path ? path : "", sizeof(requestedPath_));
     requestedVolume_ = volumePercent;
@@ -472,7 +613,7 @@ uint32_t AudioService::submitRequest(RequestType type, const char* path, uint8_t
     const uint32_t sequence = requestSequence_ + 1U;
     requestSequence_ = sequence;
     portEXIT_CRITICAL(&requestMux_);
-    xTaskNotifyGive(task_);
+    xTaskNotifyGive(task);
     return sequence;
 }
 
@@ -481,7 +622,7 @@ bool AudioService::stopAndWait(uint32_t timeoutMs) {
     const uint32_t sequence = submitRequest(
         RequestType::Stop, "", 0, false, SoundScenario::Start, false);
     const uint32_t started = millis();
-    while (static_cast<int32_t>(completedRequestSequence_ - sequence) < 0) {
+    while (static_cast<int32_t>(completedRequestSequenceSnapshot() - sequence) < 0) {
         if (millis() - started >= timeoutMs) return false;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
@@ -503,6 +644,60 @@ void AudioService::snapshotRequest(uint32_t& sequence, RequestType& type, char p
     portEXIT_CRITICAL(&requestMux_);
 }
 
+uint32_t AudioService::requestSequenceSnapshot() const {
+    portENTER_CRITICAL(&requestMux_);
+    const uint32_t sequence = requestSequence_;
+    portEXIT_CRITICAL(&requestMux_);
+    return sequence;
+}
+
+uint32_t AudioService::completedRequestSequenceSnapshot() const {
+    portENTER_CRITICAL(&requestMux_);
+    const uint32_t sequence = completedRequestSequence_;
+    portEXIT_CRITICAL(&requestMux_);
+    return sequence;
+}
+
+void AudioService::markRequestCompleted(uint32_t sequence) {
+    portENTER_CRITICAL(&requestMux_);
+    if (static_cast<int32_t>(sequence - completedRequestSequence_) > 0) {
+        completedRequestSequence_ = sequence;
+    }
+    portEXIT_CRITICAL(&requestMux_);
+}
+
+bool AudioService::requestIsCurrent(uint32_t sequence) const {
+    return requestSequenceSnapshot() == sequence;
+}
+
+bool AudioService::storageReadySnapshot() const {
+    portENTER_CRITICAL(&libraryMux_);
+    const bool ready = storageReady_;
+    portEXIT_CRITICAL(&libraryMux_);
+    return ready;
+}
+
+void AudioService::setStorageReady(bool ready) {
+    portENTER_CRITICAL(&libraryMux_);
+    storageReady_ = ready;
+    portEXIT_CRITICAL(&libraryMux_);
+}
+
+void AudioService::releaseBuffers() {
+    heap_caps_free(pcmBuffer_);
+    heap_caps_free(rawBuffer_);
+    heap_caps_free(fileIndex_);
+    heap_caps_free(folderQueue_);
+    heap_caps_free(libraryFolderNames_);
+    heap_caps_free(fileFolderIds_);
+    pcmBuffer_ = nullptr;
+    rawBuffer_ = nullptr;
+    fileIndex_ = nullptr;
+    folderQueue_ = nullptr;
+    libraryFolderNames_ = nullptr;
+    fileFolderIds_ = nullptr;
+}
+
 void AudioService::taskEntry(void* context) {
     static_cast<AudioService*>(context)->taskLoop();
 }
@@ -518,7 +713,7 @@ void AudioService::taskLoop() {
 
     uint32_t handledSequence = 0;
     while (true) {
-        if (handledSequence == requestSequence_) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (handledSequence == requestSequenceSnapshot()) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         uint32_t sequence = 0;
         RequestType type = RequestType::Stop;
@@ -535,37 +730,47 @@ void AudioService::taskLoop() {
         playing_ = false;
         bootAudioActive_ = false;
         vTaskPrioritySet(nullptr, TaskPriority);
-        state().audioPlaying = false;
-        state().activeSoundPath[0] = '\0';
+        updateState([](SystemState& system) {
+            system.audioPlaying = false;
+            system.activeSoundPath[0] = '\0';
+        });
         primeSilence();
         if (type == RequestType::Stop) {
-            strlcpy(state().audioStatusText, "Ready", sizeof(state().audioStatusText));
-            completedRequestSequence_ = sequence;
+            updateState([](SystemState& system) {
+                strlcpy(system.audioStatusText, "Ready", sizeof(system.audioStatusText));
+            });
+            markRequestCompleted(sequence);
             continue;
         }
         if (type == RequestType::RescanStorage) {
-            storageReady_ = false;
-            state().sdReady = false;
-            state().audioFileCount = 0;
+            setStorageReady(false);
+            updateState([](SystemState& system) {
+                system.sdReady = false;
+                system.audioFileCount = 0;
+            });
             SD_MMC.end();
             vTaskDelay(pdMS_TO_TICKS(30));
             mountStorage();
-            completedRequestSequence_ = sequence;
+            markRequestCompleted(sequence);
             continue;
         }
 
         if (type == RequestType::Wav || type == RequestType::Scenario) {
-            if (!storageReady_ && !mountStorage()) {
-                strlcpy(state().audioStatusText, "SD card unavailable",
-                        sizeof(state().audioStatusText));
-                completedRequestSequence_ = sequence;
+            if (!storageReadySnapshot() && !mountStorage()) {
+                updateState([](SystemState& system) {
+                    strlcpy(system.audioStatusText, "SD card unavailable",
+                            sizeof(system.audioStatusText));
+                });
+                markRequestCompleted(sequence);
                 continue;
             }
             if (type == RequestType::Scenario && !resolveScenarioPathOnStorage(scenario, path)) {
-                snprintf(state().audioStatusText, sizeof(state().audioStatusText),
-                         "%s sound missing", scenarioStem(scenario));
+                updateState([scenario](SystemState& system) {
+                    snprintf(system.audioStatusText, sizeof(system.audioStatusText),
+                             "%s sound missing", scenarioStem(scenario));
+                });
                 Serial.printf("[audio] scenario file not found: %s\n", scenarioStem(scenario));
-                completedRequestSequence_ = sequence;
+                markRequestCompleted(sequence);
                 continue;
             }
         }
@@ -574,59 +779,65 @@ void AudioService::taskLoop() {
         playing_ = true;
         bootAudioActive_ = bootAudio;
         vTaskPrioritySet(nullptr, bootAudio ? BootTaskPriority : TaskPriority);
-        state().audioPlaying = true;
-        state().activeSoundScenario = scenario;
+        updateState([scenario](SystemState& system) {
+            system.audioPlaying = true;
+            system.activeSoundScenario = scenario;
+        });
 
         if (type == RequestType::Tone) {
             phase_ = 0;
             outputFrames_ = 0;
             const uint32_t stopAt = millis() + durationMs;
             bool writeOk = true;
-            while (requestSequence_ == sequence && static_cast<int32_t>(millis() - stopAt) < 0) {
+            while (requestIsCurrent(sequence) && static_cast<int32_t>(millis() - stopAt) < 0) {
                 if (!writeToneBuffer(stopAt)) {
                     ++writeFailures_;
                     writeOk = false;
                     break;
                 }
             }
-            const bool interrupted = requestSequence_ != sequence;
+            const bool interrupted = !requestIsCurrent(sequence);
             if (interrupted && !fadeToneToSilence()) {
                 ++writeFailures_;
                 writeOk = false;
             }
             finishPlayback(writeOk && !interrupted, interrupted);
-            completedRequestSequence_ = sequence;
+            markRequestCompleted(sequence);
             continue;
         }
 
-        strlcpy(state().activeSoundPath, path, sizeof(state().activeSoundPath));
-        snprintf(state().audioStatusText, sizeof(state().audioStatusText),
-                 "Playing %s", pathLeaf(path));
+        updateState([&path](SystemState& system) {
+            strlcpy(system.activeSoundPath, path, sizeof(system.activeSoundPath));
+            snprintf(system.audioStatusText, sizeof(system.audioStatusText),
+                     "Playing %s", pathLeaf(path));
+        });
         bool naturalEnd = false;
         do {
             if (!openWav(path)) {
                 Serial.printf("[audio] WAV could not be opened: %s\n", path);
-                snprintf(state().audioStatusText, sizeof(state().audioStatusText),
-                         "WAV unavailable: %s", pathLeaf(path));
+                updateState([&path](SystemState& system) {
+                    snprintf(system.audioStatusText, sizeof(system.audioStatusText),
+                             "WAV unavailable: %s", pathLeaf(path));
+                });
                 break;
             }
-            while (requestSequence_ == sequence &&
+            while (requestIsCurrent(sequence) &&
                    wav_.outputFrames < wav_.outputFramesTotal) {
                 if (!writeWavBuffer(volume)) {
                     ++writeFailures_;
                     break;
                 }
             }
-            naturalEnd = requestSequence_ == sequence &&
+            naturalEnd = requestIsCurrent(sequence) &&
                          wav_.outputFrames >= wav_.outputFramesTotal;
-            if (!naturalEnd && requestSequence_ != sequence && !fadeWavToSilence(volume)) {
+            if (!naturalEnd && !requestIsCurrent(sequence) && !fadeWavToSilence(volume)) {
                 ++writeFailures_;
             }
             closeWav();
             if (naturalEnd) ++completedFiles_;
-        } while (repeat && naturalEnd && requestSequence_ == sequence);
-        finishPlayback(naturalEnd, requestSequence_ != sequence);
-        completedRequestSequence_ = sequence;
+        } while (repeat && naturalEnd && requestIsCurrent(sequence));
+        finishPlayback(naturalEnd, !requestIsCurrent(sequence));
+        markRequestCompleted(sequence);
     }
 }
 
@@ -966,18 +1177,20 @@ void AudioService::finishPlayback(bool naturalEnd, bool interrupted) {
     playing_ = false;
     bootAudioActive_ = false;
     vTaskPrioritySet(nullptr, TaskPriority);
-    state().audioPlaying = false;
-    state().activeSoundPath[0] = '\0';
     const char* status = naturalEnd ? "Playback complete"
                          : interrupted ? "Playback stopped"
                                        : "Playback failed";
-    strlcpy(state().audioStatusText, status, sizeof(state().audioStatusText));
+    updateState([status](SystemState& system) {
+        system.audioPlaying = false;
+        system.activeSoundPath[0] = '\0';
+        strlcpy(system.audioStatusText, status, sizeof(system.audioStatusText));
+    });
     if (!naturalEnd && !interrupted) Serial.println("[audio] playback failed");
 }
 
 bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) const {
     const uint8_t index = static_cast<uint8_t>(scenario);
-    if (index >= enumCount(SoundScenario{}) || !storageReady_) return false;
+    if (index >= enumCount(SoundScenario{}) || !storageReadySnapshot()) return false;
     const AppSettings settings = settingsService().snapshot();
     const char* custom = settings.soundPath[index];
     if (custom[0] == '/' && pathAvailable(custom)) {
@@ -992,7 +1205,7 @@ bool AudioService::resolveScenarioPath(SoundScenario scenario, char path[65]) co
 
 bool AudioService::resolveScenarioPathOnStorage(SoundScenario scenario, char path[65]) const {
     const uint8_t index = static_cast<uint8_t>(scenario);
-    if (index >= enumCount(SoundScenario{}) || !storageReady_) return false;
+    if (index >= enumCount(SoundScenario{}) || !storageReadySnapshot()) return false;
     const AppSettings settings = settingsService().snapshot();
     const char* custom = settings.soundPath[index];
     if (custom[0] == '/' && SD_MMC.exists(custom)) {
@@ -1006,57 +1219,65 @@ bool AudioService::resolveScenarioPathOnStorage(SoundScenario scenario, char pat
 }
 
 void AudioService::processPrinterSoundEvents() {
-    const SystemState& system = state();
+    const SystemState system = stateSnapshot();
     if (bootExperience().active() || bootAudioActive_) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
         pendingFinishSound_ = false;
+        lastPrintCompleteMs_ = 0;
         return;
     }
 
-    if (pendingFinishSound_) {
-        if (system.printerStateEventSequence != pendingFinishEventSequence_) {
-            pendingFinishSound_ = false;
-        } else if (static_cast<int32_t>(millis() - pendingFinishSoundDueMs_) >= 0) {
+    const uint32_t now = millis();
+    const bool newEvent = system.printerStateEventSequence != observedPrinterEventSequence_;
+    if (!newEvent) {
+        if (pendingFinishSound_ &&
+            static_cast<int32_t>(now - pendingFinishSoundDueMs_) >= 0) {
             pendingFinishSound_ = false;
             playScenario(SoundScenario::Finish);
-            return;
-        } else {
-            return;
         }
+        return;
     }
-    if (system.printerStateEventSequence == observedPrinterEventSequence_) return;
     observedPrinterEventSequence_ = system.printerStateEventSequence;
 
     SoundScenario scenario = SoundScenario::Idle;
     bool shouldPlay = false;
     if (system.printerEventTo == PrinterState::Error) {
+        pendingFinishSound_ = false;
         scenario = SoundScenario::Error;
         shouldPlay = true;
     } else if (system.printerEventTo == PrinterState::Printing) {
+        pendingFinishSound_ = false;
         scenario = SoundScenario::Start;
         shouldPlay = true;
     } else if (system.printerEventTo == PrinterState::Paused) {
+        pendingFinishSound_ = false;
         scenario = SoundScenario::Pause;
         shouldPlay = true;
-    } else if (system.printerEventTo == PrinterState::Complete) {
+    } else if (system.printerEventTo == PrinterState::Complete &&
+               (system.printerEventFrom == PrinterState::Printing ||
+                system.printerEventFrom == PrinterState::Paused)) {
+        lastPrintCompleteMs_ = now;
         const AppSettings settings = settingsService().snapshot();
         const uint8_t selectedPrintAnimation = normalizeLedAnimation(
             LedCategory::Print,
             settings.ledAnimation[static_cast<uint8_t>(LedCategory::Print)]);
         if (settings.ledEnabled && !settings.ledOtherMode &&
-            (system.printerEventFrom == PrinterState::Printing ||
-             system.printerEventFrom == PrinterState::Paused) &&
             selectedPrintAnimation == static_cast<uint8_t>(PrintAnimation::Snake)) {
             pendingFinishSound_ = true;
-            pendingFinishEventSequence_ = system.printerStateEventSequence;
-            pendingFinishSoundDueMs_ = millis() + SnakeFinishDurationMs;
+            pendingFinishSoundDueMs_ = now + SnakeFinishDurationMs;
             return;
         }
         scenario = SoundScenario::Finish;
         shouldPlay = true;
     } else if (system.printerEventTo == PrinterState::Idle) {
-        scenario = SoundScenario::Idle;
-        shouldPlay = true;
+        const bool followsCompletedPrint =
+            system.printerEventFrom == PrinterState::Complete &&
+            lastPrintCompleteMs_ != 0U && now - lastPrintCompleteMs_ < 15000U;
+        if (!followsCompletedPrint) {
+            pendingFinishSound_ = false;
+            scenario = SoundScenario::Idle;
+            shouldPlay = true;
+        }
     }
     if (shouldPlay) playScenario(scenario);
 }

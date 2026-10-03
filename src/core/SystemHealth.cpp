@@ -72,23 +72,31 @@ void SystemHealth::loop() {
 }
 
 void SystemHealth::sample() {
-    SystemState& s = state();
-    s.uptimeMs = millis();
-    s.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    s.internalLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    s.dmaFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
-    s.dmaLargest = heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
-    s.psramFree = ESP.getFreePsram();
-    s.psramLargest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    s.heapFree = s.internalFree;
-    s.heapLargest = s.internalLargest;
-    if (s.internalMinFree == 0 || s.internalFree < s.internalMinFree) s.internalMinFree = s.internalFree;
-    if (s.dmaMinFree == 0 || s.dmaFree < s.dmaMinFree) s.dmaMinFree = s.dmaFree;
-    if (s.psramMinFree == 0 || s.psramFree < s.psramMinFree) s.psramMinFree = s.psramFree;
+    const uint32_t uptimeMs = millis();
+    const uint32_t internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t internalLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t dmaFree = heap_caps_get_free_size(MALLOC_CAP_DMA);
+    const uint32_t dmaLargest = heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
+    const uint32_t psramFree = ESP.getFreePsram();
+    const uint32_t psramLargest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    updateState([=](SystemState& s) {
+        s.uptimeMs = uptimeMs;
+        s.internalFree = internalFree;
+        s.internalLargest = internalLargest;
+        s.dmaFree = dmaFree;
+        s.dmaLargest = dmaLargest;
+        s.psramFree = psramFree;
+        s.psramLargest = psramLargest;
+        s.heapFree = internalFree;
+        s.heapLargest = internalLargest;
+        if (s.internalMinFree == 0 || internalFree < s.internalMinFree) s.internalMinFree = internalFree;
+        if (s.dmaMinFree == 0 || dmaFree < s.dmaMinFree) s.dmaMinFree = dmaFree;
+        if (s.psramMinFree == 0 || psramFree < s.psramMinFree) s.psramMinFree = psramFree;
+    });
 }
 
 void SystemHealth::log() const {
-    const SystemState& s = state();
+    const SystemState s = stateSnapshot();
     Serial.printf(
         "[health] up=%lums internal=%lu/%lu min=%lu dma=%lu/%lu min=%lu psram=%lu/%lu min=%lu psramReady=%u extMalloc=%u/%luB wifi=%u web=%u printer=%u/%u/%u telem=%lu event=%lu ble=%u audio=%u display=%u touch=%u touches=%lu\n",
         static_cast<unsigned long>(s.uptimeMs),
@@ -120,7 +128,7 @@ void SystemHealth::log() const {
 
 void SystemHealth::checkpoint(const char* label) {
     sample();
-    const SystemState& s = state();
+    const SystemState s = stateSnapshot();
     const int32_t internalDelta = checkpointReady_
                                       ? static_cast<int32_t>(s.internalFree) - static_cast<int32_t>(checkpointInternalFree_)
                                       : 0;

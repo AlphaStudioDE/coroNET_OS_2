@@ -25,6 +25,24 @@ constexpr int kCardSliderRight = 422;
 constexpr int kSliderClickPadding = 13;
 constexpr uint8_t kSoundBrowserRows = 4;
 
+uint32_t mixHash(uint32_t hash, const void* data, size_t length) {
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+    for (size_t index = 0; index < length; ++index) {
+        hash ^= bytes[index];
+        hash *= 16777619UL;
+    }
+    return hash;
+}
+
+template <typename T>
+uint32_t mixValue(uint32_t hash, const T& value) {
+    return mixHash(hash, &value, sizeof(value));
+}
+
+uint32_t mixText(uint32_t hash, const char* text) {
+    return mixHash(hash, text ? text : "", text ? strlen(text) : 0U);
+}
+
 const char* kCategoryNames[] = {"IDLE", "PRINT", "PAUSE", "ERROR", "FINISH", "OTHER"};
 const char* kSectionNames[] = {"RIGHT", "CENTER", "LEFT", "INSIDE"};
 const char* kScenarioNames[] = {"PRINT START", "PRINT FINISH", "ERROR", "PAUSE", "IDLE"};
@@ -92,6 +110,7 @@ void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCall
     page_ = page;
     bindingCount_ = 0;
     settingsRevisionSeen_ = 0;
+    viewSignatureSeen_ = UINT32_MAX;
     root_ = lv_obj_create(nullptr);
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(root_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
@@ -359,10 +378,10 @@ void ControlScreen::buildVentPage() {
     pandaHoursLabel_ = makeLabel(panda, "12 H", ui::ColorMuted, &lv_font_montserrat_10, 214, 169, 55);
     pandaHoursSlider_ = makeSlider(panda, 272, 165, kCardSliderRight - 272,
                                    1, 24, 12, Action::PandaHours);
+    const AppSettings pandaSettings = settingsService().snapshot();
     pandaHostLabel_ = makeLabel(
         panda,
-        settingsService().settings().pandaHost[0] ? settingsService().settings().pandaHost
-                                                  : "Panda address not configured",
+        pandaSettings.pandaHost[0] ? pandaSettings.pandaHost : "Panda address not configured",
         ui::ColorMuted, &lv_font_montserrat_10, 14, 211, 300);
     pandaDiscoverLabel_ = makeButton(panda, 324, 202, 110, 30, "DISCOVER", Action::PandaDiscover);
 
@@ -401,7 +420,7 @@ void ControlScreen::buildSoundPage() {
 
     lv_obj_t* storage = makeCard(content, 284, 116, "AUDIO STORAGE");
     makeLabel(storage, "SD CARD", ui::ColorMuted, &lv_font_montserrat_10, 14, 38);
-    soundStorageLabel_ = makeLabel(storage, "", state().sdReady ? ui::ColorGreen : ui::ColorRed,
+    soundStorageLabel_ = makeLabel(storage, "", stateSnapshot().sdReady ? ui::ColorGreen : ui::ColorRed,
                                    &lv_font_montserrat_12, 84, 35, 240);
     makeButton(storage, 334, 27, 100, 34, LV_SYMBOL_REFRESH " RESCAN", Action::SoundRescan);
     makeLabel(storage, "Use PCM WAV files in the SD root or /sounds. Audio is streamed through PSRAM.",
@@ -457,13 +476,59 @@ void ControlScreen::buildSoundBrowserOverlay() {
 
 void ControlScreen::update() {
     if (!root_) return;
-    const SystemState& system = state();
-    ui::updateHeader(header_, system.wifiConnected, system.bleConnected,
-                     system.printerConnected);
-    if (page_ == ui::Page::Led) refreshLed();
-    else if (page_ == ui::Page::Vent) refreshVent();
-    else refreshSound();
-    settingsRevisionSeen_ = settingsService().revision();
+    const SystemState system = stateSnapshot();
+    const uint32_t settingsRevision = settingsService().revision();
+    uint32_t signature = 2166136261UL;
+    signature = mixValue(signature, settingsRevision);
+    signature = mixValue(signature, page_);
+    signature = mixValue(signature, system.wifiConnected);
+    signature = mixValue(signature, system.bleConnected);
+    signature = mixValue(signature, system.printerConnected);
+
+    if (page_ == ui::Page::Led) {
+        signature = mixValue(signature, selectedCategory_);
+        signature = mixValue(signature, selectedSection_);
+        signature = mixValue(signature, calibrationOpen_);
+        signature = mixValue(signature, selectedCalibrationColor_);
+    } else if (page_ == ui::Page::Vent) {
+        signature = mixValue(signature, system.fanPercent);
+        signature = mixValue(signature, system.flapPercent);
+        signature = mixValue(signature, system.ventFailsafe);
+        signature = mixValue(signature, system.diyHeaterHigh);
+        signature = mixValue(signature, system.pandaConnected);
+        signature = mixValue(signature, system.pandaPhase);
+        signature = mixValue(signature, system.pandaCurrentTempC);
+        signature = mixValue(signature, system.pandaTargetTempC);
+        signature = mixValue(signature, system.pandaHeating);
+        signature = mixText(signature, system.ventStatusText);
+        signature = mixText(signature, system.pandaStatusText);
+    } else {
+        signature = mixValue(signature, selectedSound_);
+        signature = mixValue(signature, soundBrowserOpen_);
+        signature = mixValue(signature, soundBrowserFolder_);
+        signature = mixValue(signature, soundBrowserPage_);
+        signature = mixValue(signature, system.audioReady);
+        signature = mixValue(signature, system.sdReady);
+        signature = mixValue(signature, system.audioPlaying);
+        signature = mixValue(signature, system.audioFileCount);
+        signature = mixValue(signature, system.audioAssetsValid);
+        signature = mixText(signature, system.audioStatusText);
+        signature = mixText(signature, system.audioAssetStatus);
+    }
+
+    if (signature != viewSignatureSeen_) {
+        ui::updateHeader(header_, system.wifiConnected, system.bleConnected,
+                         system.printerConnected);
+        if (page_ == ui::Page::Led) refreshLed();
+        else if (page_ == ui::Page::Vent) refreshVent();
+        else refreshSound();
+        viewSignatureSeen_ = signature;
+        settingsRevisionSeen_ = settingsRevision;
+    } else if (page_ == ui::Page::Led) {
+        // The physical preview keeps moving even when controls and telemetry do
+        // not. Redraw only its pixels, not every label, slider and style.
+        refreshLedCanvas();
+    }
 }
 
 void ControlScreen::refreshLed() {
@@ -490,7 +555,7 @@ void ControlScreen::refreshLed() {
 void ControlScreen::openLedCalibration() {
     if (!calibrationOverlay_ || calibrationOpen_) return;
     settingsService().flush();
-    AppSettings& settings = settingsService().mutableSettings();
+    const AppSettings settings = settingsService().snapshot();
     memcpy(calibrationHueBackup_, settings.ledCalibrationHue,
            sizeof(calibrationHueBackup_));
     memcpy(calibrationSaturationBackup_, settings.ledCalibrationSaturation,
@@ -507,17 +572,18 @@ void ControlScreen::openLedCalibration() {
 
 void ControlScreen::closeLedCalibration(bool save) {
     if (!calibrationOpen_) return;
-    AppSettings& settings = settingsService().mutableSettings();
     if (save) {
         settingsService().save();
         settingsService().flush();
     } else {
-        memcpy(settings.ledCalibrationHue, calibrationHueBackup_,
-               sizeof(calibrationHueBackup_));
-        memcpy(settings.ledCalibrationSaturation, calibrationSaturationBackup_,
-               sizeof(calibrationSaturationBackup_));
-        memcpy(settings.ledCalibrationBrightness, calibrationBrightnessBackup_,
-               sizeof(calibrationBrightnessBackup_));
+        settingsService().update([this](AppSettings& settings) {
+            memcpy(settings.ledCalibrationHue, calibrationHueBackup_,
+                   sizeof(calibrationHueBackup_));
+            memcpy(settings.ledCalibrationSaturation, calibrationSaturationBackup_,
+                   sizeof(calibrationSaturationBackup_));
+            memcpy(settings.ledCalibrationBrightness, calibrationBrightnessBackup_,
+                   sizeof(calibrationBrightnessBackup_));
+        }, false);
     }
     ledService().stopColorCalibration();
     calibrationOpen_ = false;
@@ -613,8 +679,9 @@ void ControlScreen::refreshLedCanvas() {
 
 void ControlScreen::refreshVent() {
     const AppSettings& settings = settingsService().settings();
+    const SystemState system = stateSnapshot();
     lv_label_set_text_fmt(ventStatusLabel_, "%s  |  output %u%% / flap %u%%",
-                          state().ventStatusText, state().fanPercent, state().flapPercent);
+                          system.ventStatusText, system.fanPercent, system.flapPercent);
     for (uint8_t i = 0; i < 3; ++i) {
         lv_obj_t* button = lv_obj_get_parent(ventModeLabels_[i]);
         const bool active = static_cast<uint8_t>(settings.ventMode) == i;
@@ -637,7 +704,7 @@ void ControlScreen::refreshVent() {
                                   lv_color_hex(settings.diyHeaterOutputHigh ? ui::ColorRed : ui::ColorBorder),
                                   LV_PART_MAIN);
     lv_obj_set_style_text_color(diyHeaterStatusLabel_,
-                                lv_color_hex(state().diyHeaterHigh ? ui::ColorAmber : ui::ColorMuted),
+                                lv_color_hex(system.diyHeaterHigh ? ui::ColorAmber : ui::ColorMuted),
                                 LV_PART_MAIN);
     if (!lv_obj_has_state(servoClosedSlider_, LV_STATE_PRESSED)) lv_slider_set_value(servoClosedSlider_, settings.servoClosedUs, LV_ANIM_OFF);
     if (!lv_obj_has_state(servoOpenSlider_, LV_STATE_PRESSED)) lv_slider_set_value(servoOpenSlider_, settings.servoOpenUs, LV_ANIM_OFF);
@@ -654,18 +721,19 @@ void ControlScreen::refreshVent() {
     if (!lv_obj_has_state(pandaTargetSlider_, LV_STATE_PRESSED)) lv_slider_set_value(pandaTargetSlider_, settings.pandaTargetTempC, LV_ANIM_OFF);
     if (!lv_obj_has_state(pandaHoursSlider_, LV_STATE_PRESSED)) lv_slider_set_value(pandaHoursSlider_, settings.pandaDryHours, LV_ANIM_OFF);
     char pandaTemperature[16] = "--.-";
-    if (!isnan(state().pandaCurrentTempC)) {
-        const int16_t tenths = static_cast<int16_t>(lroundf(state().pandaCurrentTempC * 10.0f));
+    if (!isnan(system.pandaCurrentTempC)) {
+        const int16_t tenths = static_cast<int16_t>(lroundf(system.pandaCurrentTempC * 10.0f));
         snprintf(pandaTemperature, sizeof(pandaTemperature), "%d.%d",
                  static_cast<int>(tenths / 10), static_cast<int>(abs(tenths % 10)));
     }
     lv_label_set_text_fmt(pandaStatusLabel_, "%s  |  %s C  |  %s",
-                          state().pandaStatusText, pandaTemperature,
-                          state().pandaConnected ? "CONNECTED" : "OFFLINE");
+                          system.pandaStatusText, pandaTemperature,
+                          system.pandaConnected ? "CONNECTED" : "OFFLINE");
 }
 
 void ControlScreen::refreshSound() {
     const AppSettings& settings = settingsService().settings();
+    const SystemState system = stateSnapshot();
     lv_label_set_text(soundScenarioLabel_, kScenarioNames[selectedSound_]);
     lv_label_set_text(soundScenarioDescriptionLabel_, kScenarioDescriptions[selectedSound_]);
     const char* custom = settings.soundPath[selectedSound_];
@@ -680,13 +748,13 @@ void ControlScreen::refreshSound() {
     lv_label_set_text_fmt(soundVolumeLabel_, "VOLUME %u%%", settings.soundVolume[selectedSound_]);
     if (!lv_obj_has_state(soundVolumeSlider_, LV_STATE_PRESSED)) lv_slider_set_value(soundVolumeSlider_, settings.soundVolume[selectedSound_], LV_ANIM_OFF);
     lv_label_set_text(soundRepeatLabel_, settings.soundRepeat[selectedSound_] ? "REPEAT: ON" : "REPEAT: OFF");
-    lv_label_set_text(soundRuntimeLabel_, state().audioStatusText);
+    lv_label_set_text(soundRuntimeLabel_, system.audioStatusText);
     lv_label_set_text_fmt(soundStorageLabel_, "%s  |  %u WAV  |  %s",
-                          state().sdReady ? "READY" : "UNAVAILABLE",
-                          static_cast<unsigned>(state().audioFileCount), state().audioAssetStatus);
+                          system.sdReady ? "READY" : "UNAVAILABLE",
+                          static_cast<unsigned>(system.audioFileCount), system.audioAssetStatus);
     lv_obj_set_style_text_color(soundStorageLabel_,
-                                lv_color_hex(!state().sdReady ? ui::ColorRed
-                                                             : state().audioAssetsValid
+                                lv_color_hex(!system.sdReady ? ui::ColorRed
+                                                             : system.audioAssetsValid
                                                                    ? ui::ColorGreen
                                                                    : ui::ColorAmber),
                                 LV_PART_MAIN);
@@ -695,7 +763,8 @@ void ControlScreen::refreshSound() {
 
 void ControlScreen::openSoundBrowser() {
     if (!soundBrowserOverlay_ || soundBrowserOpen_) return;
-    const char* selected = settingsService().settings().soundPath[selectedSound_];
+    const AppSettings settings = settingsService().settings();
+    const char* selected = settings.soundPath[selectedSound_];
     soundBrowserFolder_ = 0U;
     soundBrowserPage_ = 0U;
     if (selected[0]) {
@@ -704,8 +773,9 @@ void ControlScreen::openSoundBrowser() {
             soundBrowserFolder_ = folder;
             const uint8_t count = audioService().folderFileCount(folder);
             for (uint8_t index = 0; index < count; ++index) {
-                const char* path = audioService().folderFilePath(folder, index);
-                if (path && strcmp(path, selected) == 0) {
+                char path[65] = "";
+                if (audioService().folderFilePath(folder, index, path) &&
+                    strcmp(path, selected) == 0) {
                     soundBrowserPage_ = index / kSoundBrowserRows;
                     break;
                 }
@@ -739,13 +809,14 @@ void ControlScreen::refreshSoundBrowser() {
 
     lv_label_set_text_fmt(soundBrowserTitleLabel_, "SELECT %s STATUS SOUND",
                           kScenarioNames[selectedSound_]);
-    const char* folderName = audioService().folderName(soundBrowserFolder_);
+    char folderName[33] = "";
+    const bool folderNameValid = audioService().folderName(soundBrowserFolder_, folderName);
     if (folderCount == 0U) {
         lv_label_set_text(soundBrowserFolderLabel_, "NO SOUND FOLDERS");
     } else {
         lv_label_set_text_fmt(soundBrowserFolderLabel_, "FOLDER %u/%u  |  %s",
                               static_cast<unsigned>(soundBrowserFolder_ + 1U),
-                              static_cast<unsigned>(folderCount), folderName ? folderName : "-");
+                              static_cast<unsigned>(folderCount), folderNameValid ? folderName : "-");
     }
     for (uint8_t row = 0; row < kSoundBrowserRows; ++row) {
         lv_obj_t* label = soundBrowserRowLabels_[row];
@@ -755,17 +826,20 @@ void ControlScreen::refreshSoundBrowser() {
             lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
             continue;
         }
-        const char* path = audioService().folderFilePath(soundBrowserFolder_, indexInFolder);
+        char path[65] = "";
+        const bool pathValid = audioService().folderFilePath(
+            soundBrowserFolder_, indexInFolder, path);
         lv_obj_clear_flag(button, LV_OBJ_FLAG_HIDDEN);
-        const bool active = path && selected[0] && strcmp(path, selected) == 0;
-        lv_label_set_text_fmt(label, "%s  %s", active ? LV_SYMBOL_OK : "", pathLeaf(path));
+        const bool active = pathValid && selected[0] && strcmp(path, selected) == 0;
+        lv_label_set_text_fmt(label, "%s  %s", active ? LV_SYMBOL_OK : "",
+                              pathValid ? pathLeaf(path) : "-");
         lv_obj_set_style_border_color(button,
                                       lv_color_hex(active ? ui::ColorCyan : ui::ColorBorder),
                                       LV_PART_MAIN);
     }
 
     if (count == 0U) {
-        lv_label_set_text(soundBrowserPageLabel_, state().sdReady
+        lv_label_set_text(soundBrowserPageLabel_, stateSnapshot().sdReady
                                                       ? "NO STATUS WAV FILES - USE RESCAN"
                                                       : "SD CARD UNAVAILABLE");
     } else {
@@ -779,68 +853,125 @@ void ControlScreen::refreshSoundBrowser() {
 
 void ControlScreen::selectSoundBrowserRow(uint8_t row) {
     const uint8_t index = static_cast<uint8_t>(soundBrowserPage_ * kSoundBrowserRows + row);
-    const char* path = audioService().folderFilePath(soundBrowserFolder_, index);
-    if (!path) return;
-    AppSettings& settings = settingsService().mutableSettings();
-    strlcpy(settings.soundPath[selectedSound_], path, sizeof(settings.soundPath[selectedSound_]));
-    settingsService().save();
+    char selectedPath[65] = "";
+    if (!audioService().folderFilePath(soundBrowserFolder_, index, selectedPath)) return;
+    const uint8_t selectedSound = selectedSound_;
+    settingsService().update([selectedSound, &selectedPath](AppSettings& settings) {
+        strlcpy(settings.soundPath[selectedSound], selectedPath,
+                sizeof(settings.soundPath[selectedSound]));
+    });
     closeSoundBrowser();
 }
 
 void ControlScreen::handleAction(Action action, lv_event_t* event) {
-    AppSettings& settings = settingsService().mutableSettings();
     const lv_event_code_t code = lv_event_get_code(event);
     const bool commit = code == LV_EVENT_CLICKED || code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST;
     switch (action) {
-        case Action::AnimationLibrary:
-            settings.ledLegacyAnimations = !settings.ledLegacyAnimations;
-            settingsService().save();
+        case Action::AnimationLibrary: {
+            bool legacy = false;
+            uint8_t animation = 0;
+            settingsService().update([this, &legacy, &animation](AppSettings& settings) {
+                settings.ledLegacyAnimations = !settings.ledLegacyAnimations;
+                legacy = settings.ledLegacyAnimations;
+                animation = settings.ledAnimation[selectedCategory_];
+            });
             ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
-                                        settings.ledAnimation[selectedCategory_],
-                                        10000U, settings.ledLegacyAnimations);
+                                        animation, 10000U, legacy);
             break;
+        }
         case Action::CategoryPrev:
             selectedCategory_ = (selectedCategory_ + 5U) % 6U;
+            {
+                const AppSettings settings = settingsService().snapshot();
             ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
                                         settings.ledAnimation[selectedCategory_],
                                         10000U, settings.ledLegacyAnimations);
+            }
             break;
         case Action::CategoryNext:
             selectedCategory_ = (selectedCategory_ + 1U) % 6U;
+            {
+                const AppSettings settings = settingsService().snapshot();
             ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
                                         settings.ledAnimation[selectedCategory_],
                                         10000U, settings.ledLegacyAnimations);
+            }
             break;
         case Action::AnimationPrev: {
             const LedCategory category = static_cast<LedCategory>(selectedCategory_);
             const uint8_t count = ledAnimationCount(category);
-            const uint8_t current = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
-            settings.ledAnimation[selectedCategory_] = static_cast<uint8_t>((current + count - 1U) % count);
-            settings.ledLegacyAnimation[selectedCategory_] = settings.ledAnimation[selectedCategory_];
-            settingsService().save();
-            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_],
-                                        10000U, settings.ledLegacyAnimations);
+            uint8_t animation = 0;
+            bool legacy = false;
+            settingsService().update([this, category, count, &animation, &legacy](AppSettings& settings) {
+                const uint8_t current = normalizeLedAnimation(
+                    category, settings.ledAnimation[selectedCategory_]);
+                animation = static_cast<uint8_t>((current + count - 1U) % count);
+                settings.ledAnimation[selectedCategory_] = animation;
+                legacy = settings.ledLegacyAnimations;
+            });
+            ledService().requestPreview(category, animation, 10000U, legacy);
             break;
         }
         case Action::AnimationNext: {
             const LedCategory category = static_cast<LedCategory>(selectedCategory_);
             const uint8_t count = ledAnimationCount(category);
-            const uint8_t current = normalizeLedAnimation(category, settings.ledAnimation[selectedCategory_]);
-            settings.ledAnimation[selectedCategory_] = static_cast<uint8_t>((current + 1U) % count);
-            settings.ledLegacyAnimation[selectedCategory_] = settings.ledAnimation[selectedCategory_];
-            settingsService().save();
-            ledService().requestPreview(category, settings.ledAnimation[selectedCategory_],
-                                        10000U, settings.ledLegacyAnimations);
+            uint8_t animation = 0;
+            bool legacy = false;
+            settingsService().update([this, category, count, &animation, &legacy](AppSettings& settings) {
+                const uint8_t current = normalizeLedAnimation(
+                    category, settings.ledAnimation[selectedCategory_]);
+                animation = static_cast<uint8_t>((current + 1U) % count);
+                settings.ledAnimation[selectedCategory_] = animation;
+                legacy = settings.ledLegacyAnimations;
+            });
+            ledService().requestPreview(category, animation, 10000U, legacy);
             break;
         }
-        case Action::InsideStyle: settings.insideColorStyle = settings.insideColorStyle == InsideColorStyle::White ? InsideColorStyle::Ambient : InsideColorStyle::White; settingsService().save(); break;
-        case Action::Mirror: settings.mirrorLedLayout = !settings.mirrorLedLayout; settingsService().save(); break;
+        case Action::InsideStyle:
+            settingsService().update([](AppSettings& settings) {
+                settings.insideColorStyle = settings.insideColorStyle == InsideColorStyle::White
+                                                ? InsideColorStyle::Ambient
+                                                : InsideColorStyle::White;
+            });
+            break;
+        case Action::Mirror:
+            settingsService().update([](AppSettings& settings) {
+                settings.mirrorLedLayout = !settings.mirrorLedLayout;
+            });
+            break;
         case Action::SectionNext: selectedSection_ = (selectedSection_ + 1U) % 4U; break;
-        case Action::Brightness: settings.ledBrightness[selectedSection_] = lv_slider_get_value(brightnessSlider_); if (commit) settingsService().save(); break;
-        case Action::DimmToggle: settings.ledDimmEnabled[selectedSection_] = !settings.ledDimmEnabled[selectedSection_]; settingsService().save(); break;
-        case Action::DimmPercent: settings.ledDimmPercent[selectedSection_] = lv_slider_get_value(dimmSlider_); if (commit) settingsService().save(); break;
-        case Action::RemixDefault: settings.ledColorRemixDegrees[selectedCategory_] = 0; settingsService().save(); break;
-        case Action::Remix: settings.ledColorRemixDegrees[selectedCategory_] = lv_slider_get_value(remixSlider_); if (commit) settingsService().save(); break;
+        case Action::Brightness: {
+            const uint8_t value = lv_slider_get_value(brightnessSlider_);
+            settingsService().update([this, value](AppSettings& settings) {
+                settings.ledBrightness[selectedSection_] = value;
+            }, commit);
+            break;
+        }
+        case Action::DimmToggle:
+            settingsService().update([this](AppSettings& settings) {
+                settings.ledDimmEnabled[selectedSection_] =
+                    !settings.ledDimmEnabled[selectedSection_];
+            });
+            break;
+        case Action::DimmPercent: {
+            const uint8_t value = lv_slider_get_value(dimmSlider_);
+            settingsService().update([this, value](AppSettings& settings) {
+                settings.ledDimmPercent[selectedSection_] = value;
+            }, commit);
+            break;
+        }
+        case Action::RemixDefault:
+            settingsService().update([this](AppSettings& settings) {
+                settings.ledColorRemixDegrees[selectedCategory_] = 0;
+            });
+            break;
+        case Action::Remix: {
+            const int16_t value = lv_slider_get_value(remixSlider_);
+            settingsService().update([this, value](AppSettings& settings) {
+                settings.ledColorRemixDegrees[selectedCategory_] = value;
+            }, commit);
+            break;
+        }
         case Action::CalibrationOpen: openLedCalibration(); break;
         case Action::CalibrationRed: selectLedCalibrationColor(0U); break;
         case Action::CalibrationOrange: selectLedCalibrationColor(1U); break;
@@ -850,58 +981,73 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::CalibrationBlue: selectLedCalibrationColor(5U); break;
         case Action::CalibrationViolet: selectLedCalibrationColor(6U); break;
         case Action::CalibrationMagenta: selectLedCalibrationColor(7U); break;
-        case Action::CalibrationHue:
-            settings.ledCalibrationHue[selectedCalibrationColor_] =
-                static_cast<int8_t>(lv_slider_get_value(calibrationHueSlider_));
+        case Action::CalibrationHue: {
+            const int8_t value = static_cast<int8_t>(lv_slider_get_value(calibrationHueSlider_));
+            settingsService().update([this, value](AppSettings& settings) {
+                settings.ledCalibrationHue[selectedCalibrationColor_] = value;
+            }, false);
             break;
-        case Action::CalibrationSaturation:
-            settings.ledCalibrationSaturation[selectedCalibrationColor_] =
-                static_cast<uint8_t>(lv_slider_get_value(calibrationSaturationSlider_));
+        }
+        case Action::CalibrationSaturation: {
+            const uint8_t value = static_cast<uint8_t>(
+                lv_slider_get_value(calibrationSaturationSlider_));
+            settingsService().update([this, value](AppSettings& settings) {
+                settings.ledCalibrationSaturation[selectedCalibrationColor_] = value;
+            }, false);
             break;
-        case Action::CalibrationBrightness:
-            settings.ledCalibrationBrightness[selectedCalibrationColor_] =
-                static_cast<uint8_t>(lv_slider_get_value(calibrationBrightnessSlider_));
+        }
+        case Action::CalibrationBrightness: {
+            const uint8_t value = static_cast<uint8_t>(
+                lv_slider_get_value(calibrationBrightnessSlider_));
+            settingsService().update([this, value](AppSettings& settings) {
+                settings.ledCalibrationBrightness[selectedCalibrationColor_] = value;
+            }, false);
             break;
+        }
         case Action::CalibrationResetColor:
-            settings.ledCalibrationHue[selectedCalibrationColor_] =
-                DefaultLedCalibrationHue[selectedCalibrationColor_];
-            settings.ledCalibrationSaturation[selectedCalibrationColor_] =
-                DefaultLedCalibrationSaturation;
-            settings.ledCalibrationBrightness[selectedCalibrationColor_] =
-                DefaultLedCalibrationBrightness;
+            settingsService().update([this](AppSettings& settings) {
+                settings.ledCalibrationHue[selectedCalibrationColor_] =
+                    DefaultLedCalibrationHue[selectedCalibrationColor_];
+                settings.ledCalibrationSaturation[selectedCalibrationColor_] =
+                    DefaultLedCalibrationSaturation;
+                settings.ledCalibrationBrightness[selectedCalibrationColor_] =
+                    DefaultLedCalibrationBrightness;
+            }, false);
             break;
         case Action::CalibrationResetAll:
-            for (uint8_t index = 0; index < 8U; ++index) {
-                settings.ledCalibrationHue[index] = DefaultLedCalibrationHue[index];
-                settings.ledCalibrationSaturation[index] = DefaultLedCalibrationSaturation;
-                settings.ledCalibrationBrightness[index] = DefaultLedCalibrationBrightness;
-            }
+            settingsService().update([](AppSettings& settings) {
+                for (uint8_t index = 0; index < 8U; ++index) {
+                    settings.ledCalibrationHue[index] = DefaultLedCalibrationHue[index];
+                    settings.ledCalibrationSaturation[index] = DefaultLedCalibrationSaturation;
+                    settings.ledCalibrationBrightness[index] = DefaultLedCalibrationBrightness;
+                }
+            }, false);
             break;
         case Action::CalibrationCancel: closeLedCalibration(false); break;
         case Action::CalibrationSave: closeLedCalibration(true); break;
-        case Action::VentAuto: settings.ventMode = VentMode::Automatic; settingsService().save(); ventService().applyNow(); break;
-        case Action::VentTarget: settings.ventMode = VentMode::CavityTarget; settingsService().save(); ventService().applyNow(); break;
-        case Action::VentManual: settings.ventMode = VentMode::Manual; settingsService().save(); ventService().applyNow(); break;
-        case Action::VentTargetTemp: settings.ventTargetTempC = lv_slider_get_value(ventTargetSlider_); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::ManualFan: settings.manualFanPercent = lv_slider_get_value(fanSlider_); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::ManualFlap: settings.manualFlapPercent = lv_slider_get_value(flapSlider_); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::ServoClosed: settings.servoClosedUs = lv_slider_get_value(servoClosedSlider_); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::ServoOpen: settings.servoOpenUs = lv_slider_get_value(servoOpenSlider_); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::ServoReverse: settings.servoReverse = !settings.servoReverse; settingsService().save(); ventService().applyNow(); break;
-        case Action::FanMinimum: settings.fanMinPercent = min<int>(lv_slider_get_value(fanMinSlider_), settings.fanMaxPercent); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::FanMaximum: settings.fanMaxPercent = max<int>(lv_slider_get_value(fanMaxSlider_), settings.fanMinPercent); ventService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::DiyHeaterToggle: settings.diyHeaterOutputHigh = !settings.diyHeaterOutputHigh; settingsService().save(); ventService().applyNow(); break;
-        case Action::PandaEnabled: settings.pandaEnabled = !settings.pandaEnabled; settingsService().save(); pandaBreathService().applyNow(); break;
-        case Action::PandaMode: settings.pandaMode = static_cast<PandaBreathMode>((static_cast<uint8_t>(settings.pandaMode) + 1U) % static_cast<uint8_t>(PandaBreathMode::Count)); settingsService().save(); pandaBreathService().applyNow(); break;
-        case Action::PandaTarget: settings.pandaTargetTempC = lv_slider_get_value(pandaTargetSlider_); pandaBreathService().applyNow(); if (commit) settingsService().save(); break;
-        case Action::PandaPreset: settings.pandaDryPreset = static_cast<PandaDryPreset>((static_cast<uint8_t>(settings.pandaDryPreset) + 1U) % static_cast<uint8_t>(PandaDryPreset::Count)); settingsService().save(); pandaBreathService().applyNow(); break;
-        case Action::PandaHours: settings.pandaDryHours = lv_slider_get_value(pandaHoursSlider_); pandaBreathService().applyNow(); if (commit) settingsService().save(); break;
+        case Action::VentAuto: settingsService().update([](AppSettings& s) { s.ventMode = VentMode::Automatic; }); ventService().applyNow(); break;
+        case Action::VentTarget: settingsService().update([](AppSettings& s) { s.ventMode = VentMode::CavityTarget; }); ventService().applyNow(); break;
+        case Action::VentManual: settingsService().update([](AppSettings& s) { s.ventMode = VentMode::Manual; }); ventService().applyNow(); break;
+        case Action::VentTargetTemp: { const uint8_t v = lv_slider_get_value(ventTargetSlider_); settingsService().update([v](AppSettings& s) { s.ventTargetTempC = v; }, commit); ventService().applyNow(); break; }
+        case Action::ManualFan: { const uint8_t v = lv_slider_get_value(fanSlider_); settingsService().update([v](AppSettings& s) { s.manualFanPercent = v; }, commit); ventService().applyNow(); break; }
+        case Action::ManualFlap: { const uint8_t v = lv_slider_get_value(flapSlider_); settingsService().update([v](AppSettings& s) { s.manualFlapPercent = v; }, commit); ventService().applyNow(); break; }
+        case Action::ServoClosed: { const uint16_t v = lv_slider_get_value(servoClosedSlider_); settingsService().update([v](AppSettings& s) { s.servoClosedUs = v; }, commit); ventService().applyNow(); break; }
+        case Action::ServoOpen: { const uint16_t v = lv_slider_get_value(servoOpenSlider_); settingsService().update([v](AppSettings& s) { s.servoOpenUs = v; }, commit); ventService().applyNow(); break; }
+        case Action::ServoReverse: settingsService().update([](AppSettings& s) { s.servoReverse = !s.servoReverse; }); ventService().applyNow(); break;
+        case Action::FanMinimum: { const uint8_t v = lv_slider_get_value(fanMinSlider_); settingsService().update([v](AppSettings& s) { s.fanMinPercent = min<uint8_t>(v, s.fanMaxPercent); }, commit); ventService().applyNow(); break; }
+        case Action::FanMaximum: { const uint8_t v = lv_slider_get_value(fanMaxSlider_); settingsService().update([v](AppSettings& s) { s.fanMaxPercent = max<uint8_t>(v, s.fanMinPercent); }, commit); ventService().applyNow(); break; }
+        case Action::DiyHeaterToggle: settingsService().update([](AppSettings& s) { s.diyHeaterOutputHigh = !s.diyHeaterOutputHigh; }); ventService().applyNow(); break;
+        case Action::PandaEnabled: settingsService().update([](AppSettings& s) { s.pandaEnabled = !s.pandaEnabled; }); pandaBreathService().applyNow(); break;
+        case Action::PandaMode: settingsService().update([](AppSettings& s) { s.pandaMode = static_cast<PandaBreathMode>((static_cast<uint8_t>(s.pandaMode) + 1U) % static_cast<uint8_t>(PandaBreathMode::Count)); }); pandaBreathService().applyNow(); break;
+        case Action::PandaTarget: { const uint8_t v = lv_slider_get_value(pandaTargetSlider_); settingsService().update([v](AppSettings& s) { s.pandaTargetTempC = v; }, commit); pandaBreathService().applyNow(); break; }
+        case Action::PandaPreset: settingsService().update([](AppSettings& s) { s.pandaDryPreset = static_cast<PandaDryPreset>((static_cast<uint8_t>(s.pandaDryPreset) + 1U) % static_cast<uint8_t>(PandaDryPreset::Count)); }); pandaBreathService().applyNow(); break;
+        case Action::PandaHours: { const uint8_t v = lv_slider_get_value(pandaHoursSlider_); settingsService().update([v](AppSettings& s) { s.pandaDryHours = v; }, commit); pandaBreathService().applyNow(); break; }
         case Action::PandaDiscover: pandaBreathService().requestDiscovery(); break;
         case Action::SoundPrev: selectedSound_ = (selectedSound_ + 4U) % 5U; break;
         case Action::SoundNext: selectedSound_ = (selectedSound_ + 1U) % 5U; break;
         case Action::SoundBrowse: openSoundBrowser(); break;
-        case Action::SoundVolume: settings.soundVolume[selectedSound_] = lv_slider_get_value(soundVolumeSlider_); if (commit) settingsService().save(); break;
-        case Action::SoundRepeat: settings.soundRepeat[selectedSound_] = !settings.soundRepeat[selectedSound_]; settingsService().save(); break;
+        case Action::SoundVolume: { const uint8_t v = lv_slider_get_value(soundVolumeSlider_); settingsService().update([this, v](AppSettings& s) { s.soundVolume[selectedSound_] = v; }, commit); break; }
+        case Action::SoundRepeat: settingsService().update([this](AppSettings& s) { s.soundRepeat[selectedSound_] = !s.soundRepeat[selectedSound_]; }); break;
         case Action::SoundPlay: audioService().playScenario(static_cast<SoundScenario>(selectedSound_)); break;
         case Action::SoundStop: audioService().stop(); break;
         case Action::SoundRescan: audioService().requestStorageRefresh(); break;
@@ -944,6 +1090,8 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::SoundBrowserRow4: selectSoundBrowserRow(4U); break;
         case Action::SoundBrowserRow5: selectSoundBrowserRow(5U); break;
     }
+    // A user action must be reflected immediately; idle updates remain cached.
+    viewSignatureSeen_ = UINT32_MAX;
     update();
 }
 

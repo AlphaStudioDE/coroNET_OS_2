@@ -44,14 +44,15 @@ public:
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         const uint32_t largestBefore = heap_caps_get_largest_free_block(
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        state().otaTlsWindowActive = true;
+        updateState([](SystemState& state) { state.otaTlsWindowActive = true; });
         const uint32_t started = millis();
-        while ((state().bleReady || !printerService().realtimeResourcesReleased() ||
-                !pandaBreathService().realtimeResourcesReleased()) &&
-               millis() - started < 1500U) {
+        while (millis() - started < 1500U) {
+            const SystemState state = stateSnapshot();
+            if (!state.bleReady && printerService().realtimeResourcesReleased() &&
+                pandaBreathService().realtimeResourcesReleased()) break;
             vTaskDelay(pdMS_TO_TICKS(20));
         }
-        const bool bleReleased = !state().bleReady;
+        const bool bleReleased = !stateSnapshot().bleReady;
         prepared_ = bleReleased && printerService().realtimeResourcesReleased() &&
                     pandaBreathService().realtimeResourcesReleased();
         const uint32_t freeAfter = heap_caps_get_free_size(
@@ -69,7 +70,9 @@ public:
     }
 
     ~ScopedTlsResourceWindow() {
-        if (active_) state().otaTlsWindowActive = false;
+        if (active_) {
+            updateState([](SystemState& state) { state.otaTlsWindowActive = false; });
+        }
     }
 
     ScopedTlsResourceWindow(const ScopedTlsResourceWindow&) = delete;
@@ -204,7 +207,8 @@ void OtaService::loop() {
     const uint32_t now = millis();
     if (now - stableSinceMs_ < kValidationDelayMs ||
         now - lastValidationAttemptMs_ < kValidationRetryMs) return;
-    if (!state().displayReady || !state().touchReady || !state().ledReady) return;
+    const SystemState state = stateSnapshot();
+    if (!state.displayReady || !state.touchReady || !state.ledReady) return;
 
     lastValidationAttemptMs_ = now;
     const esp_err_t result = esp_ota_mark_app_valid_cancel_rollback();
@@ -281,7 +285,7 @@ void OtaService::taskLoop(Request request) {
     if (request == Request::SdRecovery) {
         ok = installFromSd();
     } else {
-        if (!state().wifiConnected) {
+        if (!stateSnapshot().wifiConnected) {
             setState(OtaState::Failed, "Wi-Fi connection required");
             return;
         }
@@ -311,7 +315,7 @@ void OtaService::taskLoop(Request request) {
 
 bool OtaService::ensureSecureClock() {
     if (time(nullptr) >= kMinimumTrustedEpoch) {
-        state().timeReady = true;
+        updateState([](SystemState& state) { state.timeReady = true; });
         return true;
     }
     setState(OtaState::Checking, "Synchronizing secure clock");
@@ -319,7 +323,7 @@ bool OtaService::ensureSecureClock() {
     const uint32_t started = millis();
     while (millis() - started < 8000U) {
         if (time(nullptr) >= kMinimumTrustedEpoch) {
-            state().timeReady = true;
+            updateState([](SystemState& state) { state.timeReady = true; });
             return true;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -329,12 +333,14 @@ bool OtaService::ensureSecureClock() {
 }
 
 bool OtaService::checkLatestRelease() {
-    if (!state().wifiConnected) {
+    if (!stateSnapshot().wifiConnected) {
         setState(OtaState::Failed, "Wi-Fi connection required");
         return false;
     }
-    state().otaUpdateAvailable = false;
-    state().otaAvailableVersion[0] = '\0';
+    updateState([](SystemState& state) {
+        state.otaUpdateAvailable = false;
+        state.otaAvailableVersion[0] = '\0';
+    });
     downloadUrl_[0] = '\0';
     checksumUrl_[0] = '\0';
     expectedImageSize_ = 0;
@@ -344,12 +350,12 @@ bool OtaService::checkLatestRelease() {
 
     TrustedNetworkClient client;
     HTTPClient http;
-    http.setConnectTimeout(10000);
-    http.setTimeout(15000);
     if (!http.begin(client, config::GitHubLatestReleaseApi)) {
         setState(OtaState::Failed, "Could not open update service");
         return false;
     }
+    http.setConnectTimeout(10000);
+    http.setTimeout(15000);
     http.addHeader("Accept", "application/vnd.github+json");
     http.addHeader("X-GitHub-Api-Version", "2022-11-28");
     http.addHeader("User-Agent", "coroNET-OS-2");
@@ -440,12 +446,14 @@ bool OtaService::checkLatestRelease() {
         return false;
     }
 
-    strlcpy(state().otaAvailableVersion, tag, sizeof(state().otaAvailableVersion));
+    updateState([&](SystemState& state) {
+        strlcpy(state.otaAvailableVersion, tag, sizeof(state.otaAvailableVersion));
+        state.otaUpdateAvailable = comparison > 0;
+    });
     strlcpy(downloadUrl_, selectedUrl, sizeof(downloadUrl_));
     strlcpy(checksumUrl_, checksumUrl, sizeof(checksumUrl_));
     expectedImageSize_ = selectedSize;
     releaseComparison_ = static_cast<int8_t>(comparison);
-    state().otaUpdateAvailable = comparison > 0;
     http.end();
 
     if (comparison > 0) setState(OtaState::UpdateAvailable, "Update available", 100);
@@ -460,10 +468,10 @@ bool OtaService::fetchExpectedMd5(const char* url, char output[33]) {
 
     TrustedNetworkClient client;
     HTTPClient http;
-    http.setConnectTimeout(10000);
-    http.setTimeout(15000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (!http.begin(client, url)) return false;
+    http.setConnectTimeout(10000);
+    http.setTimeout(15000);
     http.addHeader("User-Agent", "coroNET-OS-2");
     if (http.GET() != HTTP_CODE_OK) {
         http.end();
@@ -490,18 +498,25 @@ bool OtaService::fetchExpectedMd5(const char* url, char output[33]) {
     return false;
 }
 
-void OtaService::enterMaintenance() {
+bool OtaService::enterMaintenance() {
     setState(OtaState::Preparing, "Preparing system for update");
     settingsService().flush();
-    state().maintenanceMode = true;
+    updateState([](SystemState& state) { state.maintenanceMode = true; });
     ledService().cancelPreview();
     pandaBreathService().disconnect();
     ventService().applyNow();
-    audioWasReady_ = state().audioReady;
-    audioService().release();
+    audioWasReady_ = stateSnapshot().audioReady;
+    if (!audioService().release()) {
+        audioWasReady_ = false;
+        updateState([](SystemState& state) { state.maintenanceMode = false; });
+        setState(OtaState::Failed, "Audio could not stop safely for update");
+        return false;
+    }
 
     const uint32_t started = millis();
-    while (millis() - started < 800U && (state().bleReady || state().webReady)) {
+    while (millis() - started < 800U) {
+        const SystemState state = stateSnapshot();
+        if (!state.bleReady && !state.webReady) break;
         vTaskDelay(pdMS_TO_TICKS(20));
     }
     Serial.printf("[ota-memory] dma=%lu largest=%lu internal=%lu largest=%lu\n",
@@ -509,11 +524,12 @@ void OtaService::enterMaintenance() {
                   static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),
                   static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
                   static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+    return true;
 }
 
 void OtaService::leaveMaintenance() {
-    state().maintenanceMode = false;
-    if (audioWasReady_ && !state().audioReady) {
+    updateState([](SystemState& state) { state.maintenanceMode = false; });
+    if (audioWasReady_ && !stateSnapshot().audioReady) {
         audioService().useDmaProfile(AudioDmaProfile::Balanced);
     }
     audioWasReady_ = false;
@@ -536,18 +552,18 @@ bool OtaService::installFromUrl(const char* url) {
         setState(OtaState::Failed, "Firmware checksum could not be verified");
         return false;
     }
-    enterMaintenance();
+    if (!enterMaintenance()) return false;
 
     TrustedNetworkClient client;
     HTTPClient http;
-    http.setConnectTimeout(12000);
-    http.setTimeout(30000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     if (!http.begin(client, url)) {
         leaveMaintenance();
         setState(OtaState::Failed, "Firmware download could not start");
         return false;
     }
+    http.setConnectTimeout(12000);
+    http.setTimeout(30000);
     http.addHeader("User-Agent", "coroNET-OS-2");
     const int code = http.GET();
     const int length = http.getSize();
@@ -571,8 +587,9 @@ bool OtaService::installFromUrl(const char* url) {
     setState(OtaState::Downloading, "Downloading firmware", 1);
     Update.onProgress([](size_t current, size_t total) {
         if (total > 0) {
-            state().otaProgress = static_cast<uint8_t>(constrain(
+            const uint8_t progress = static_cast<uint8_t>(constrain(
                 static_cast<uint32_t>((static_cast<uint64_t>(current) * 98ULL) / total), 1U, 98U));
+            updateState([progress](SystemState& state) { state.otaProgress = progress; });
         }
     });
     const size_t written = Update.writeStream(*stream);
@@ -591,7 +608,7 @@ bool OtaService::installFromUrl(const char* url) {
 
 bool OtaService::installFromSd() {
     setState(OtaState::Preparing, "Checking /firmware.bin on SD");
-    enterMaintenance();
+    if (!enterMaintenance()) return false;
     if (!audioService().mountStorage()) {
         leaveMaintenance();
         setState(OtaState::Failed, "SD card unavailable");
@@ -616,8 +633,9 @@ bool OtaService::installFromSd() {
     setState(OtaState::Installing, "Installing recovery firmware", 1);
     Update.onProgress([](size_t current, size_t total) {
         if (total > 0) {
-            state().otaProgress = static_cast<uint8_t>(constrain(
+            const uint8_t progress = static_cast<uint8_t>(constrain(
                 static_cast<uint32_t>((static_cast<uint64_t>(current) * 99ULL) / total), 1U, 99U));
+            updateState([progress](SystemState& state) { state.otaProgress = progress; });
         }
     });
     const size_t written = Update.writeStream(firmware);
@@ -641,18 +659,23 @@ void OtaService::factoryReset() {
 }
 
 void OtaService::setState(OtaState value, const char* message, uint8_t progress) {
-    state().otaState = value;
-    state().otaProgress = progress;
-    strlcpy(state().otaStatusText, message ? message : "", sizeof(state().otaStatusText));
+    char status[96] = "";
+    strlcpy(status, message ? message : "", sizeof(status));
+    updateState([&](SystemState& state) {
+        state.otaState = value;
+        state.otaProgress = progress;
+        strlcpy(state.otaStatusText, status, sizeof(state.otaStatusText));
+    });
     Serial.printf("[ota] state=%s progress=%u %s\n", otaStateName(value),
-                  static_cast<unsigned>(progress), state().otaStatusText);
+                  static_cast<unsigned>(progress), status);
 }
 
 void OtaService::logStatus() const {
+    const SystemState state = stateSnapshot();
     Serial.printf("[ota] state=%s progress=%u available=%u version=%s status=%s\n",
-                  otaStateName(state().otaState), static_cast<unsigned>(state().otaProgress),
-                  state().otaUpdateAvailable, state().otaAvailableVersion,
-                  state().otaStatusText);
+                  otaStateName(state.otaState), static_cast<unsigned>(state.otaProgress),
+                  state.otaUpdateAvailable, state.otaAvailableVersion,
+                  state.otaStatusText);
 }
 
 }

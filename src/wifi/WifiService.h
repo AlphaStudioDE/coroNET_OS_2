@@ -76,12 +76,18 @@ private:
     SemaphoreHandle_t mdnsMutex_ = nullptr;
     volatile bool mdnsRunning_ = false;
     bool wifiWasConnected_ = false;
+    bool reconnectInProgress_ = false;
     uint32_t wifiConnectedSinceMs_ = 0;
+    uint32_t reconnectStartedMs_ = 0;
+    uint32_t lastReconnectAttemptMs_ = 0;
     volatile uint32_t mdnsStartedMs_ = 0;
     uint32_t mdnsGeneration_ = 0;
     uint32_t mdnsIp_ = 0;
 
     void applySettings();
+    void configureRealtimeRadio();
+    void startSavedConnection();
+    void maintainConnection();
     void startPreparedScan();
     void pollScan();
     void pollConnectionTest();

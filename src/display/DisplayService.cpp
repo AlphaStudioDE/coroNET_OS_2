@@ -22,8 +22,10 @@ constexpr uint32_t kFirstFrameSettleMs = 25;
 
 void touchFeedback(lv_indev_drv_t*, uint8_t rawCode) {
     const lv_event_code_t code = static_cast<lv_event_code_t>(rawCode);
-    SystemState& system = state();
-    if (code == LV_EVENT_PRESSED) system.touchCount++;
+    const SystemState system = stateSnapshot();
+    if (code == LV_EVENT_PRESSED) {
+        updateState([](SystemState& current) { current.touchCount++; });
+    }
 
     const bool touchActivity = code == LV_EVENT_PRESSED ||
                                code == LV_EVENT_PRESSING ||
@@ -34,7 +36,8 @@ void touchFeedback(lv_indev_drv_t*, uint8_t rawCode) {
     // While waking, wait for the whole gesture to end before rebuilding the UI.
     if (system.screenSaverActive &&
         code != LV_EVENT_RELEASED && code != LV_EVENT_PRESS_LOST) return;
-    system.lastTouchMs = millis();
+    const uint32_t now = millis();
+    updateState([now](SystemState& current) { current.lastTouchMs = now; });
 }
 
 }
@@ -55,18 +58,22 @@ void DisplayService::begin() {
     lv_disp_t* display = bsp_display_start_with_config(&cfg);
     if (!display || !lv_disp_get_default()) {
         Serial.println("DisplayService failed: LVGL display was not created");
-        state().displayReady = false;
+        updateState([](SystemState& system) { system.displayReady = false; });
         return;
     }
 
-    state().displayReady = true;
     lv_indev_t* touchInput = bsp_display_get_input_dev();
-    state().touchReady = touchInput != nullptr;
+    const bool touchReady = touchInput != nullptr;
+    updateState([touchReady](SystemState& system) {
+        system.displayReady = true;
+        system.touchReady = touchReady;
+    });
 
     bool firstFrameReady = false;
     if (bsp_display_lock(kLvglLockTimeoutMs)) {
         if (touchInput && touchInput->driver) touchInput->driver->feedback_cb = touchFeedback;
-        state().setupDone = settingsService().settings().setupDone;
+        const bool setupDone = settingsService().settings().setupDone;
+        updateState([setupDone](SystemState& system) { system.setupDone = setupDone; });
         bootScreen_.begin();
         bootActive_ = true;
         lv_obj_invalidate(lv_scr_act());
@@ -78,7 +85,7 @@ void DisplayService::begin() {
     }
 
     if (!firstFrameReady) {
-        state().displayReady = false;
+        updateState([](SystemState& system) { system.displayReady = false; });
         return;
     }
 
@@ -90,7 +97,7 @@ void DisplayService::begin() {
 
     Serial.printf("DisplayService ready, brightness=%u%%, touch=%s\n",
                   static_cast<unsigned>(settingsService().settings().displayBrightness),
-                  state().touchReady ? "ready" : "missing");
+                  stateSnapshot().touchReady ? "ready" : "missing");
 }
 
 void DisplayService::loop() {
@@ -116,13 +123,13 @@ void DisplayService::loop() {
         }
         return;
     }
-    const OtaState otaState = state().otaState;
+    const OtaState otaState = stateSnapshot().otaState;
     const bool otaModal = otaState == OtaState::Preparing ||
                           otaState == OtaState::Downloading ||
                           otaState == OtaState::Installing ||
                           otaState == OtaState::Success;
     if (otaModal && screenSaverActive_) {
-        state().lastTouchMs = now;
+        updateState([now](SystemState& system) { system.lastTouchMs = now; });
         leaveScreenSaver(true);
     }
     updateScreenSaver(now);
@@ -164,7 +171,7 @@ void DisplayService::loop() {
 }
 
 void DisplayService::updateOtaOverlay() {
-    const SystemState& system = state();
+    const SystemState system = stateSnapshot();
     const bool visible = system.otaState == OtaState::Preparing ||
                          system.otaState == OtaState::Downloading ||
                          system.otaState == OtaState::Installing ||
@@ -248,7 +255,8 @@ void DisplayService::updateOtaOverlay() {
 void DisplayService::updateTheme() {
     const AppSettings& settings = settingsService().settings();
     bool daytime = false;
-    if (settings.uiColorMode == UiColorMode::Auto && state().timeReady) {
+    const SystemState system = stateSnapshot();
+    if (settings.uiColorMode == UiColorMode::Auto && system.timeReady) {
         time_t now = time(nullptr);
         struct tm local = {};
         daytime = localtime_r(&now, &local) && local.tm_hour >= 7 && local.tm_hour < 19;
@@ -263,7 +271,7 @@ void DisplayService::updateTheme() {
                    settings.accentHueDegrees, daytime);
     const bool wasApplied = appliedThemeSignature_ != UINT32_MAX;
     appliedThemeSignature_ = signature;
-    if (!started_ || !wasApplied || bootActive_ || wizardActive_ || state().displaySleeping) return;
+    if (!started_ || !wasApplied || bootActive_ || wizardActive_ || system.displaySleeping) return;
     if (bsp_display_lock(100)) {
         if (screenSaverActive_ && screenSaverClock_) clockScreen_.begin(settings.clockStyle);
         else if (!screenSaverActive_) showPage(activePage_, false, true);
@@ -279,20 +287,23 @@ void DisplayService::updateTimeService(uint32_t now) {
         setenv("TZ", configuredTimeZone_, 1);
         tzset();
     }
-    if (!state().wifiConnected) {
-        state().timeReady = time(nullptr) >= 1700000000;
+    SystemState system = stateSnapshot();
+    if (!system.wifiConnected) {
+        const bool ready = time(nullptr) >= 1700000000;
+        updateState([ready](SystemState& current) { current.timeReady = ready; });
         return;
     }
     if (timeZoneChanged ||
-        (!state().timeReady && now - lastTimeSyncRequestMs_ >= 60000U)) {
+        (!system.timeReady && now - lastTimeSyncRequestMs_ >= 60000U)) {
         configTzTime(configuredTimeZone_, "pool.ntp.org", "time.nist.gov");
         lastTimeSyncRequestMs_ = now;
     }
-    state().timeReady = time(nullptr) >= 1700000000;
+    const bool ready = time(nullptr) >= 1700000000;
+    updateState([ready](SystemState& current) { current.timeReady = ready; });
 }
 
 void DisplayService::updateScreenSaver(uint32_t now) {
-    const SystemState& system = state();
+    SystemState system = stateSnapshot();
     if (wizardActive_) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
         return;
@@ -303,18 +314,19 @@ void DisplayService::updateScreenSaver(uint32_t now) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
     }
     if (newPrinterEvent && system.printerEventTo == PrinterState::Error) {
-        state().lastTouchMs = now;
+        updateState([now](SystemState& current) { current.lastTouchMs = now; });
+        system.lastTouchMs = now;
         if (screenSaverActive_) leaveScreenSaver(true);
     }
     if (printerError) return;
 
     if (screenSaverActive_) {
-        if (state().lastTouchMs != screenSaverActivityMark_) leaveScreenSaver(screenSaverClock_);
+        if (system.lastTouchMs != screenSaverActivityMark_) leaveScreenSaver(screenSaverClock_);
         return;
     }
     const AppSettings& settings = settingsService().settings();
     if (settings.screenSaverMode == ScreenSaverMode::Disabled) return;
-    const uint32_t activity = state().lastTouchMs ? state().lastTouchMs : state().bootMs;
+    const uint32_t activity = system.lastTouchMs ? system.lastTouchMs : system.bootMs;
     const uint32_t delayMs = static_cast<uint32_t>(settings.screenSaverDelayMinutes) * 60000UL;
     if (now - activity >= delayMs) enterScreenSaver();
 }
@@ -325,17 +337,32 @@ void DisplayService::enterScreenSaver() {
     if (now - lastScreenTransitionMs_ < 350U) return;
     const AppSettings& settings = settingsService().settings();
     const bool clockMode = settings.screenSaverMode == ScreenSaverMode::Clock;
-    if (clockMode) {
-        if (!bsp_display_lock(100)) return;
-        clockScreen_.begin(settings.clockStyle);
-        bsp_display_unlock();
-    }
-    screenSaverActivityMark_ = state().lastTouchMs;
+    if (!bsp_display_lock(100)) return;
+    if (clockMode) clockScreen_.begin(settings.clockStyle);
+
+    // Keep the whole wake gesture away from the controls below the saver. The
+    // overlay is also required for Display off, where the active page remains
+    // loaded behind a dark backlight.
+    if (screenSaverWakeOverlay_) lv_obj_del(screenSaverWakeOverlay_);
+    screenSaverWakeOverlay_ = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(screenSaverWakeOverlay_, 480, 320);
+    lv_obj_set_pos(screenSaverWakeOverlay_, 0, 0);
+    lv_obj_clear_flag(screenSaverWakeOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(screenSaverWakeOverlay_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(screenSaverWakeOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(screenSaverWakeOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(screenSaverWakeOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screenSaverWakeOverlay_, LV_OPA_TRANSP, LV_PART_MAIN);
+    bsp_display_unlock();
+    screenSaverActivityMark_ = stateSnapshot().lastTouchMs;
     screenSaverClock_ = clockMode;
     screenSaverActive_ = true;
     lastScreenTransitionMs_ = now;
-    state().screenSaverActive = true;
-    state().displaySleeping = !screenSaverClock_;
+    const bool displaySleeping = !screenSaverClock_;
+    updateState([displaySleeping](SystemState& system) {
+        system.screenSaverActive = true;
+        system.displaySleeping = displaySleeping;
+    });
     if (screenSaverClock_) {
         applyBrightness(settings.clockBrightness);
         appliedBrightness_ = settings.clockBrightness;
@@ -349,16 +376,20 @@ void DisplayService::leaveScreenSaver(bool rebuildPage) {
     if (!screenSaverActive_) return;
     const uint32_t now = millis();
     if (now - lastScreenTransitionMs_ < 350U) return;
-    if (rebuildPage) {
-        if (!bsp_display_lock(100)) return;
-        showPage(activePage_, false, true);
-        bsp_display_unlock();
+    if (!bsp_display_lock(100)) return;
+    if (screenSaverWakeOverlay_) {
+        lv_obj_del(screenSaverWakeOverlay_);
+        screenSaverWakeOverlay_ = nullptr;
     }
+    if (rebuildPage) showPage(activePage_, false, true);
+    bsp_display_unlock();
     screenSaverActive_ = false;
     screenSaverClock_ = false;
     lastScreenTransitionMs_ = now;
-    state().screenSaverActive = false;
-    state().displaySleeping = false;
+    updateState([](SystemState& system) {
+        system.screenSaverActive = false;
+        system.displaySleeping = false;
+    });
     applyBrightness(settingsService().settings().displayBrightness);
     appliedBrightness_ = settingsService().settings().displayBrightness;
 }
@@ -384,10 +415,10 @@ void DisplayService::showPage(ui::Page page, bool animate, bool preservePageStat
 
 void DisplayService::reopenSetupWizard() {
     if (wizardActive_) return;
-    AppSettings& settings = settingsService().mutableSettings();
-    settings.setupDone = false;
-    state().setupDone = false;
-    settingsService().save();
+    settingsService().update([](AppSettings& settings) {
+        settings.setupDone = false;
+    });
+    updateState([](SystemState& system) { system.setupDone = false; });
     settingsService().flush();
     setupWizard_.begin();
     wizardActive_ = true;

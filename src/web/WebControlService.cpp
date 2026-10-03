@@ -125,7 +125,7 @@ void normalizePrinterHost(const char* input, char* out, size_t outSize, uint16_t
 }
 
 void addCommonState(JsonDocument& doc) {
-    const SystemState& s = state();
+    const SystemState s = stateSnapshot();
     const AppSettings& cfg = settingsService().settings();
 
     char name[25];
@@ -168,7 +168,7 @@ void addCommonState(JsonDocument& doc) {
 }
 
 void addPrinterState(JsonDocument& doc) {
-    const SystemState& s = state();
+    const SystemState s = stateSnapshot();
     JsonObject printer = doc["printer"].to<JsonObject>();
     printer["configured"] = s.printerConfigured;
     printer["connected"] = s.printerConnected;
@@ -272,7 +272,8 @@ void WebControlService::updateRuntimeState() {
     } else if (serverRunning_) {
         stop();
     }
-    state().webReady = serverRunning_;
+    const bool ready = serverRunning_;
+    updateState([ready](SystemState& system) { system.webReady = ready; });
 }
 
 void WebControlService::start() {
@@ -293,7 +294,7 @@ void WebControlService::start() {
 void WebControlService::stop() {
     server_.stop();
     serverRunning_ = false;
-    state().webReady = false;
+    updateState([](SystemState& system) { system.webReady = false; });
     Serial.println("[web] stopped");
 }
 
@@ -308,14 +309,15 @@ void WebControlService::publishMdnsIfNeeded() {
 }
 
 bool WebControlService::shouldRun() const {
-    if (state().maintenanceMode) return false;
+    if (stateSnapshot().maintenanceMode) return false;
     const AppSettings& cfg = settingsService().settings();
     if (cfg.companionTransport == CompanionTransport::Ble) return false;
     return WiFi.status() == WL_CONNECTED;
 }
 
 bool WebControlService::authorizeRequest() {
-    const char* expected = settingsService().settings().apiToken;
+    const AppSettings settings = settingsService().settings();
+    const char* expected = settings.apiToken;
     String supplied = server_.header("X-coroNET-Token");
     if (supplied.isEmpty()) {
         supplied = server_.header("Authorization");
@@ -455,7 +457,8 @@ void WebControlService::handleState() {
 }
 
 void WebControlService::handleSettings() {
-    const AppSettings& cfg = settingsService().settings();
+    uint32_t settingsRevision = 0;
+    const AppSettings cfg = settingsService().snapshot(&settingsRevision);
 
     char name[25];
     deviceIdentity().effectiveName(cfg.deviceName, name, sizeof(name));
@@ -480,7 +483,7 @@ void WebControlService::handleSettings() {
     doc["clockStyle"] = static_cast<uint8_t>(cfg.clockStyle);
     doc["clock24Hour"] = cfg.clock24Hour;
     doc["timeZone"] = cfg.timeZone;
-    doc["settingsRevision"] = settingsService().revision();
+    doc["settingsRevision"] = settingsRevision;
     doc["quietTarget"] = static_cast<uint8_t>(cfg.quietTarget);
     doc["quietDurationMinutes"] = cfg.quietDurationMinutes;
     doc["quietErrorsBypass"] = cfg.quietErrorsBypass;
@@ -571,7 +574,8 @@ void WebControlService::handleUpdateSettings() {
         return;
     }
 
-    AppSettings cfg = settingsService().snapshot();
+    uint32_t baseRevision = 0;
+    AppSettings cfg = settingsService().snapshot(&baseRevision);
 
     if (doc["deviceName"].is<const char*>()) {
         char cleanName[sizeof(cfg.deviceName)] = "";
@@ -756,13 +760,16 @@ void WebControlService::handleUpdateSettings() {
         strlcpy(cfg.printerApiKey, doc["apiKey"].as<const char*>(), sizeof(cfg.printerApiKey));
     }
 
-    settingsService().replace(cfg);
-    state().setupDone = cfg.setupDone;
-    settingsService().save();
+    uint32_t appliedRevision = 0;
+    if (!settingsService().replaceIfRevision(cfg, baseRevision, &appliedRevision)) {
+        sendJson(409, "{\"ok\":false,\"error\":\"settings_changed_retry\"}");
+        return;
+    }
+    updateState([&cfg](SystemState& system) { system.setupDone = cfg.setupDone; });
 
     JsonDocument reply;
     reply["ok"] = true;
-    reply["settingsRevision"] = settingsService().revision();
+    reply["settingsRevision"] = appliedRevision;
     reply["transport"] = transportName(cfg.companionTransport);
     reply["wifiReconnectMayFollow"] = doc["wifiSsid"].is<const char*>() || doc["wifiPassword"].is<const char*>();
 
@@ -829,8 +836,13 @@ void WebControlService::handleLedFrame() {
 }
 
 void WebControlService::handleLedPreview() {
+    const String body = server_.arg("plain");
+    if (body.length() > config::WebMaxJsonBodyBytes) {
+        sendJson(413, "{\"ok\":false,\"error\":\"payload_too_large\"}");
+        return;
+    }
     JsonDocument doc;
-    if (deserializeJson(doc, server_.arg("plain")) || !doc["category"].is<int>() || !doc["animation"].is<int>()) {
+    if (deserializeJson(doc, body) || !doc["category"].is<int>() || !doc["animation"].is<int>()) {
         sendJson(400, "{\"ok\":false,\"error\":\"invalid_preview\"}");
         return;
     }
@@ -849,8 +861,13 @@ void WebControlService::handleLedPreview() {
 }
 
 void WebControlService::handleLedCalibration() {
+    const String body = server_.arg("plain");
+    if (body.length() > config::WebMaxJsonBodyBytes) {
+        sendJson(413, "{\"ok\":false,\"error\":\"payload_too_large\"}");
+        return;
+    }
     JsonDocument doc;
-    if (deserializeJson(doc, server_.arg("plain")) || !doc["active"].is<bool>()) {
+    if (deserializeJson(doc, body) || !doc["active"].is<bool>()) {
         sendJson(400, "{\"ok\":false,\"error\":\"invalid_calibration\"}");
         return;
     }
@@ -898,21 +915,24 @@ void WebControlService::handleAudioLibrary() {
 
     JsonDocument doc;
     doc["ok"] = true;
-    doc["sdReady"] = state().sdReady;
+    doc["sdReady"] = stateSnapshot().sdReady;
     doc["folder"] = folder;
     doc["folderCount"] = folderCount;
-    doc["folderName"] = folderCount ? audioService().folderName(folder) : "";
+    char folderName[33] = "";
+    if (folderCount) audioService().folderName(folder, folderName);
+    doc["folderName"] = folderName;
     doc["page"] = page;
     doc["pageCount"] = pageCount;
     doc["fileCount"] = fileCount;
     JsonArray folders = doc["folders"].to<JsonArray>();
     for (uint8_t index = 0; index < folderCount; ++index) {
-        folders.add(audioService().folderName(index));
+        char name[33] = "";
+        if (audioService().folderName(index, name)) folders.add(name);
     }
     JsonArray files = doc["files"].to<JsonArray>();
     for (uint8_t index = first; index < fileCount && index < first + PageSize; ++index) {
-        const char* path = audioService().folderFilePath(folder, index);
-        if (!path) continue;
+        char path[65] = "";
+        if (!audioService().folderFilePath(folder, index, path)) continue;
         JsonObject item = files.add<JsonObject>();
         item["path"] = path;
         const char* slash = strrchr(path, '/');
@@ -925,8 +945,13 @@ void WebControlService::handleAudioLibrary() {
 }
 
 void WebControlService::handleAudioPlay() {
+    const String body = server_.arg("plain");
+    if (body.length() > config::WebMaxJsonBodyBytes) {
+        sendJson(413, "{\"ok\":false,\"error\":\"payload_too_large\"}");
+        return;
+    }
     JsonDocument doc;
-    if (deserializeJson(doc, server_.arg("plain")) || !doc["scenario"].is<int>()) {
+    if (deserializeJson(doc, body) || !doc["scenario"].is<int>()) {
         sendJson(400, "{\"ok\":false,\"error\":\"invalid_audio_scenario\"}");
         return;
     }

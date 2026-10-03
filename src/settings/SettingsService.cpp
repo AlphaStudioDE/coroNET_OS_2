@@ -2,6 +2,7 @@
 
 #include <Preferences.h>
 #include <esp_system.h>
+#include <nvs.h>
 
 #include "../config/AppConfig.h"
 #include "../led/LedAnimations.h"
@@ -46,6 +47,8 @@ SettingsService& settingsService() {
 }
 
 void SettingsService::begin() {
+    saveMutex_ = xSemaphoreCreateMutex();
+    if (!saveMutex_) Serial.println("[settings] save mutex allocation failed");
     load();
     const bool tokenWasMissing = settings_.apiToken[0] == '\0';
     ensureApiToken();
@@ -53,12 +56,16 @@ void SettingsService::begin() {
 }
 
 void SettingsService::loop() {
-    if (!savePending_) return;
-
     const uint32_t now = millis();
-    const bool debounceElapsed = now - lastChangeMs_ >= config::SettingsSaveDebounceMs;
-    const bool maxDelayElapsed = now - dirtySinceMs_ >= config::SettingsSaveMaxDelayMs;
-    if (debounceElapsed || maxDelayElapsed) saveNow();
+    bool saveDue = false;
+    portENTER_CRITICAL(&settingsMux_);
+    if (savePending_) {
+        const bool debounceElapsed = now - lastChangeMs_ >= config::SettingsSaveDebounceMs;
+        const bool maxDelayElapsed = now - dirtySinceMs_ >= config::SettingsSaveMaxDelayMs;
+        saveDue = debounceElapsed || maxDelayElapsed;
+    }
+    portEXIT_CRITICAL(&settingsMux_);
+    if (saveDue) saveNow();
 }
 
 void SettingsService::load() {
@@ -256,7 +263,7 @@ void SettingsService::load() {
         settings_.screenSaverMode = ScreenSaverMode::Clock;
     }
     settings_.screenSaverDelayMinutes = clampValue<uint8_t>(settings_.screenSaverDelayMinutes, 1, 60);
-    settings_.clockBrightness = clampValue<uint8_t>(settings_.clockBrightness, 1, 100);
+    settings_.clockBrightness = clampValue<uint8_t>(settings_.clockBrightness, 5, 100);
     if (static_cast<uint8_t>(settings_.clockStyle) >= static_cast<uint8_t>(ClockStyle::Count)) {
         settings_.clockStyle = ClockStyle::Digital;
     }
@@ -276,6 +283,7 @@ void SettingsService::load() {
 }
 
 void SettingsService::save() {
+    portENTER_CRITICAL(&settingsMux_);
     memcpy(settings_.ledLegacyAnimation, settings_.ledAnimation,
            sizeof(settings_.ledLegacyAnimation));
     const uint32_t now = millis();
@@ -283,123 +291,217 @@ void SettingsService::save() {
     lastChangeMs_ = now;
     savePending_ = true;
     revision_++;
+    portEXIT_CRITICAL(&settingsMux_);
 }
 
-AppSettings SettingsService::snapshot() const {
+AppSettings SettingsService::snapshot(uint32_t* revision) const {
     AppSettings copy;
     portENTER_CRITICAL(&settingsMux_);
     copy = settings_;
+    if (revision) *revision = revision_;
     portEXIT_CRITICAL(&settingsMux_);
     return copy;
+}
+
+uint32_t SettingsService::revision() const {
+    uint32_t revision = 0;
+    portENTER_CRITICAL(&settingsMux_);
+    revision = revision_;
+    portEXIT_CRITICAL(&settingsMux_);
+    return revision;
 }
 
 void SettingsService::replace(const AppSettings& settings) {
     portENTER_CRITICAL(&settingsMux_);
     settings_ = settings;
+    memcpy(settings_.ledLegacyAnimation, settings_.ledAnimation,
+           sizeof(settings_.ledLegacyAnimation));
+    const uint32_t now = millis();
+    if (!savePending_) dirtySinceMs_ = now;
+    lastChangeMs_ = now;
+    savePending_ = true;
+    revision_++;
     portEXIT_CRITICAL(&settingsMux_);
 }
 
+bool SettingsService::replaceIfRevision(const AppSettings& settings,
+                                        uint32_t expectedRevision,
+                                        uint32_t* appliedRevision) {
+    bool replaced = false;
+    portENTER_CRITICAL(&settingsMux_);
+    if (revision_ == expectedRevision) {
+        settings_ = settings;
+        memcpy(settings_.ledLegacyAnimation, settings_.ledAnimation,
+               sizeof(settings_.ledLegacyAnimation));
+        const uint32_t now = millis();
+        if (!savePending_) dirtySinceMs_ = now;
+        lastChangeMs_ = now;
+        savePending_ = true;
+        revision_++;
+        if (appliedRevision) *appliedRevision = revision_;
+        replaced = true;
+    }
+    portEXIT_CRITICAL(&settingsMux_);
+    return replaced;
+}
+
 void SettingsService::flush() {
-    if (savePending_) saveNow();
+    bool pending = false;
+    portENTER_CRITICAL(&settingsMux_);
+    pending = savePending_;
+    portEXIT_CRITICAL(&settingsMux_);
+    if (pending) saveNow();
 }
 
 void SettingsService::saveNow() {
-    Preferences prefs;
-    if (!prefs.begin(Namespace, false)) return;
-    prefs.putUShort("schema", CurrentSchema);
-    prefs.putBool("setupDone", settings_.setupDone);
-    prefs.putBool("ble", settings_.bleEnabled);
-    prefs.putUChar("brightness", settings_.displayBrightness);
-    prefs.putUChar("uiSkin", static_cast<uint8_t>(settings_.uiSkin));
-    prefs.putUChar("uiColor", static_cast<uint8_t>(settings_.uiColorMode));
-    prefs.putUChar("transport", static_cast<uint8_t>(settings_.companionTransport));
-    prefs.putString("deviceName", settings_.deviceName);
-    prefs.putString("ssid", settings_.wifiSsid);
-    prefs.putString("wifiPass", settings_.wifiPassword);
-    prefs.putString("printerHost", settings_.printerHost);
-    prefs.putUShort("printerPort", sanePort(settings_.printerPort));
-    prefs.putString("printerKey", settings_.printerApiKey);
-    prefs.putString("apiToken", settings_.apiToken);
-    prefs.putBool("apiPaired", settings_.apiPaired);
+    if (saveMutex_ && xSemaphoreTake(saveMutex_, portMAX_DELAY) != pdTRUE) return;
 
-    prefs.putBool("ledEn", settings_.ledEnabled);
-    prefs.putBool("ledOther", settings_.ledOtherMode);
-    prefs.putBool("ledLegacy", settings_.ledLegacyAnimations);
-    prefs.putBytes("ledBr", settings_.ledBrightness, sizeof(settings_.ledBrightness));
-    prefs.putBytes("ledDimEn", settings_.ledDimmEnabled, sizeof(settings_.ledDimmEnabled));
-    prefs.putBytes("ledDimPct", settings_.ledDimmPercent, sizeof(settings_.ledDimmPercent));
-    prefs.putUChar("inStyle", static_cast<uint8_t>(settings_.insideColorStyle));
-    prefs.putBool("ledMirror", settings_.mirrorLedLayout);
-    prefs.putBytes("ledAnim", settings_.ledAnimation, sizeof(settings_.ledAnimation));
-    prefs.putBytes("ledLegAnim", settings_.ledLegacyAnimation,
-                   sizeof(settings_.ledLegacyAnimation));
-    prefs.putBytes("ledRemix", settings_.ledColorRemixDegrees, sizeof(settings_.ledColorRemixDegrees));
-    prefs.putBytes("ledCalHue", settings_.ledCalibrationHue, sizeof(settings_.ledCalibrationHue));
-    prefs.putBytes("ledCalSat", settings_.ledCalibrationSaturation,
-                   sizeof(settings_.ledCalibrationSaturation));
-    prefs.putBytes("ledCalVal", settings_.ledCalibrationBrightness,
-                   sizeof(settings_.ledCalibrationBrightness));
+    AppSettings stored;
+    uint32_t storedRevision = 0;
+    portENTER_CRITICAL(&settingsMux_);
+    stored = settings_;
+    memcpy(stored.ledLegacyAnimation, stored.ledAnimation,
+           sizeof(stored.ledLegacyAnimation));
+    storedRevision = revision_;
+    portEXIT_CRITICAL(&settingsMux_);
 
-    prefs.putBytes("sndVol", settings_.soundVolume, sizeof(settings_.soundVolume));
-    prefs.putBytes("sndRepeat", settings_.soundRepeat, sizeof(settings_.soundRepeat));
-    for (uint8_t index = 0; index < enumCount(SoundScenario{}); ++index) {
-        char key[8] = "";
-        snprintf(key, sizeof(key), "snd%u", static_cast<unsigned>(index));
-        prefs.putString(key, settings_.soundPath[index]);
+    // Preferences commits after every put call. coroNET 1 avoided the resulting
+    // multi-second flash stall by writing all keys through NVS and committing once.
+    nvs_handle_t handle = 0;
+    esp_err_t writeError = nvs_open(Namespace, NVS_READWRITE, &handle);
+    if (writeError == ESP_OK) {
+        auto write = [&writeError](esp_err_t result) {
+            if (writeError == ESP_OK && result != ESP_OK) writeError = result;
+        };
+
+        write(nvs_set_u16(handle, "schema", CurrentSchema));
+        write(nvs_set_u8(handle, "setupDone", stored.setupDone ? 1U : 0U));
+        write(nvs_set_u8(handle, "ble", stored.bleEnabled ? 1U : 0U));
+        write(nvs_set_u8(handle, "brightness", stored.displayBrightness));
+        write(nvs_set_u8(handle, "uiSkin", static_cast<uint8_t>(stored.uiSkin)));
+        write(nvs_set_u8(handle, "uiColor", static_cast<uint8_t>(stored.uiColorMode)));
+        write(nvs_set_u8(handle, "transport", static_cast<uint8_t>(stored.companionTransport)));
+        write(nvs_set_str(handle, "deviceName", stored.deviceName));
+        write(nvs_set_str(handle, "ssid", stored.wifiSsid));
+        write(nvs_set_str(handle, "wifiPass", stored.wifiPassword));
+        write(nvs_set_str(handle, "printerHost", stored.printerHost));
+        write(nvs_set_u16(handle, "printerPort", sanePort(stored.printerPort)));
+        write(nvs_set_str(handle, "printerKey", stored.printerApiKey));
+        write(nvs_set_str(handle, "apiToken", stored.apiToken));
+        write(nvs_set_u8(handle, "apiPaired", stored.apiPaired ? 1U : 0U));
+
+        write(nvs_set_u8(handle, "ledEn", stored.ledEnabled ? 1U : 0U));
+        write(nvs_set_u8(handle, "ledOther", stored.ledOtherMode ? 1U : 0U));
+        write(nvs_set_u8(handle, "ledLegacy", stored.ledLegacyAnimations ? 1U : 0U));
+        write(nvs_set_blob(handle, "ledBr", stored.ledBrightness, sizeof(stored.ledBrightness)));
+        write(nvs_set_blob(handle, "ledDimEn", stored.ledDimmEnabled, sizeof(stored.ledDimmEnabled)));
+        write(nvs_set_blob(handle, "ledDimPct", stored.ledDimmPercent, sizeof(stored.ledDimmPercent)));
+        write(nvs_set_u8(handle, "inStyle", static_cast<uint8_t>(stored.insideColorStyle)));
+        write(nvs_set_u8(handle, "ledMirror", stored.mirrorLedLayout ? 1U : 0U));
+        write(nvs_set_blob(handle, "ledAnim", stored.ledAnimation, sizeof(stored.ledAnimation)));
+        write(nvs_set_blob(handle, "ledLegAnim", stored.ledLegacyAnimation,
+                           sizeof(stored.ledLegacyAnimation)));
+        write(nvs_set_blob(handle, "ledRemix", stored.ledColorRemixDegrees,
+                           sizeof(stored.ledColorRemixDegrees)));
+        write(nvs_set_blob(handle, "ledCalHue", stored.ledCalibrationHue,
+                           sizeof(stored.ledCalibrationHue)));
+        write(nvs_set_blob(handle, "ledCalSat", stored.ledCalibrationSaturation,
+                           sizeof(stored.ledCalibrationSaturation)));
+        write(nvs_set_blob(handle, "ledCalVal", stored.ledCalibrationBrightness,
+                           sizeof(stored.ledCalibrationBrightness)));
+
+        write(nvs_set_blob(handle, "sndVol", stored.soundVolume, sizeof(stored.soundVolume)));
+        write(nvs_set_blob(handle, "sndRepeat", stored.soundRepeat, sizeof(stored.soundRepeat)));
+        for (uint8_t index = 0; index < enumCount(SoundScenario{}); ++index) {
+            char key[8] = "";
+            snprintf(key, sizeof(key), "snd%u", static_cast<unsigned>(index));
+            write(nvs_set_str(handle, key, stored.soundPath[index]));
+        }
+
+        write(nvs_set_u8(handle, "ventMode", static_cast<uint8_t>(stored.ventMode)));
+        write(nvs_set_u8(handle, "ventTarget", stored.ventTargetTempC));
+        write(nvs_set_u8(handle, "manFan", stored.manualFanPercent));
+        write(nvs_set_u8(handle, "manFlap", stored.manualFlapPercent));
+        write(nvs_set_u8(handle, "fanMin", stored.fanMinPercent));
+        write(nvs_set_u8(handle, "fanMax", stored.fanMaxPercent));
+        write(nvs_set_u8(handle, "failFan", stored.failsafeFanPercent));
+        write(nvs_set_u8(handle, "failFlap", stored.failsafeFlapPercent));
+        write(nvs_set_u16(handle, "srvClosed", stored.servoClosedUs));
+        write(nvs_set_u16(handle, "srvOpen", stored.servoOpenUs));
+        write(nvs_set_u8(handle, "srvRev", stored.servoReverse ? 1U : 0U));
+        write(nvs_set_u8(handle, "diyHeatHi", stored.diyHeaterOutputHigh ? 1U : 0U));
+
+        write(nvs_set_str(handle, "pandaHost", stored.pandaHost));
+        write(nvs_set_u8(handle, "pandaEn", stored.pandaEnabled ? 1U : 0U));
+        write(nvs_set_u8(handle, "pandaMode", static_cast<uint8_t>(stored.pandaMode)));
+        write(nvs_set_u8(handle, "pandaTgt", stored.pandaTargetTempC));
+        write(nvs_set_u8(handle, "pandaPrint", stored.pandaPrintTargetTempC));
+        write(nvs_set_u8(handle, "pandaPreset", static_cast<uint8_t>(stored.pandaDryPreset)));
+        write(nvs_set_u8(handle, "pandaHours", stored.pandaDryHours));
+        write(nvs_set_u8(handle, "pandaHold", stored.pandaPreheatHoldMinutes));
+        write(nvs_set_u8(handle, "pandaTempMin", stored.pandaTemperingDurationMinutes));
+        write(nvs_set_u8(handle, "pandaTempEnd", stored.pandaTemperingEndTempC));
+        write(nvs_set_u8(handle, "pandaTempAft", stored.pandaTemperingAfterPrint ? 1U : 0U));
+
+        write(nvs_set_u16(handle, "accentHue", stored.accentHueDegrees));
+        write(nvs_set_u8(handle, "saverMode", static_cast<uint8_t>(stored.screenSaverMode)));
+        write(nvs_set_u8(handle, "saverDelay", stored.screenSaverDelayMinutes));
+        write(nvs_set_u8(handle, "clockBright", stored.clockBrightness));
+        write(nvs_set_u8(handle, "clockStyle", static_cast<uint8_t>(stored.clockStyle)));
+        write(nvs_set_u8(handle, "clock24", stored.clock24Hour ? 1U : 0U));
+        write(nvs_set_str(handle, "timeZone", stored.timeZone));
+        write(nvs_set_u8(handle, "quietTarget", static_cast<uint8_t>(stored.quietTarget)));
+        write(nvs_set_u16(handle, "quietMin", stored.quietDurationMinutes));
+        write(nvs_set_u8(handle, "quietErr", stored.quietErrorsBypass ? 1U : 0U));
+
+        if (writeError == ESP_OK) writeError = nvs_commit(handle);
+        nvs_close(handle);
     }
 
-    prefs.putUChar("ventMode", static_cast<uint8_t>(settings_.ventMode));
-    prefs.putUChar("ventTarget", settings_.ventTargetTempC);
-    prefs.putUChar("manFan", settings_.manualFanPercent);
-    prefs.putUChar("manFlap", settings_.manualFlapPercent);
-    prefs.putUChar("fanMin", settings_.fanMinPercent);
-    prefs.putUChar("fanMax", settings_.fanMaxPercent);
-    prefs.putUChar("failFan", settings_.failsafeFanPercent);
-    prefs.putUChar("failFlap", settings_.failsafeFlapPercent);
-    prefs.putUShort("srvClosed", settings_.servoClosedUs);
-    prefs.putUShort("srvOpen", settings_.servoOpenUs);
-    prefs.putBool("srvRev", settings_.servoReverse);
-    prefs.putBool("diyHeatHi", settings_.diyHeaterOutputHigh);
+    portENTER_CRITICAL(&settingsMux_);
+    if (writeError == ESP_OK && revision_ == storedRevision) {
+        savePending_ = false;
+    } else if (writeError != ESP_OK) {
+        dirtySinceMs_ = millis();
+        lastChangeMs_ = dirtySinceMs_;
+    }
+    portEXIT_CRITICAL(&settingsMux_);
 
-    prefs.putString("pandaHost", settings_.pandaHost);
-    prefs.putBool("pandaEn", settings_.pandaEnabled);
-    prefs.putUChar("pandaMode", static_cast<uint8_t>(settings_.pandaMode));
-    prefs.putUChar("pandaTgt", settings_.pandaTargetTempC);
-    prefs.putUChar("pandaPrint", settings_.pandaPrintTargetTempC);
-    prefs.putUChar("pandaPreset", static_cast<uint8_t>(settings_.pandaDryPreset));
-    prefs.putUChar("pandaHours", settings_.pandaDryHours);
-    prefs.putUChar("pandaHold", settings_.pandaPreheatHoldMinutes);
-    prefs.putUChar("pandaTempMin", settings_.pandaTemperingDurationMinutes);
-    prefs.putUChar("pandaTempEnd", settings_.pandaTemperingEndTempC);
-    prefs.putBool("pandaTempAft", settings_.pandaTemperingAfterPrint);
-
-    prefs.putUShort("accentHue", settings_.accentHueDegrees);
-    prefs.putUChar("saverMode", static_cast<uint8_t>(settings_.screenSaverMode));
-    prefs.putUChar("saverDelay", settings_.screenSaverDelayMinutes);
-    prefs.putUChar("clockBright", settings_.clockBrightness);
-    prefs.putUChar("clockStyle", static_cast<uint8_t>(settings_.clockStyle));
-    prefs.putBool("clock24", settings_.clock24Hour);
-    prefs.putString("timeZone", settings_.timeZone);
-    prefs.putUChar("quietTarget", static_cast<uint8_t>(settings_.quietTarget));
-    prefs.putUShort("quietMin", settings_.quietDurationMinutes);
-    prefs.putBool("quietErr", settings_.quietErrorsBypass);
-    prefs.end();
-    savePending_ = false;
+    if (writeError != ESP_OK) {
+        Serial.printf("[settings] NVS save failed: %s\n", esp_err_to_name(writeError));
+    }
+    if (saveMutex_) xSemaphoreGive(saveMutex_);
 }
 
 void SettingsService::resetToDefaults() {
-    settings_ = AppSettings{};
-    settings_.schemaVersion = CurrentSchema;
-    ensureApiToken();
+    AppSettings defaults;
+    defaults.schemaVersion = CurrentSchema;
+    static constexpr char Hex[] = "0123456789abcdef";
+    for (size_t offset = 0; offset < 32; offset += 8) {
+        const uint32_t randomValue = esp_random();
+        for (size_t nibble = 0; nibble < 8; ++nibble) {
+            const uint8_t shift = static_cast<uint8_t>((7 - nibble) * 4);
+            defaults.apiToken[offset + nibble] = Hex[(randomValue >> shift) & 0x0F];
+        }
+    }
+    defaults.apiToken[32] = '\0';
+    replace(defaults);
     loaded_ = true;
-    save();
 }
 
 void SettingsService::resetApiPairing() {
-    settings_.apiPaired = false;
-    settings_.apiToken[0] = '\0';
-    ensureApiToken();
-    save();
+    update([](AppSettings& settings) {
+        settings.apiPaired = false;
+        static constexpr char Hex[] = "0123456789abcdef";
+        for (size_t offset = 0; offset < 32; offset += 8) {
+            const uint32_t randomValue = esp_random();
+            for (size_t nibble = 0; nibble < 8; ++nibble) {
+                const uint8_t shift = static_cast<uint8_t>((7 - nibble) * 4);
+                settings.apiToken[offset + nibble] = Hex[(randomValue >> shift) & 0x0F];
+            }
+        }
+        settings.apiToken[32] = '\0';
+    });
     flush();
 }
 

@@ -51,6 +51,7 @@ public:
 private:
     struct PollRequest {
         uint32_t settingsRevision = 0;
+        uint32_t requestedMs = 0;
         char host[65] = "";
         uint16_t port = 7125;
         char apiKey[97] = "";
@@ -73,6 +74,7 @@ private:
         uint32_t filamentColorsRgb[4] = {};
         uint8_t filamentColorMask = 0;
         uint32_t sequence = 0;
+        uint32_t stateSequence = 0;
         char filename[65] = "";
         char material[25] = "";
         char message[96] = "";
@@ -115,6 +117,7 @@ private:
     uint32_t printerConfigRevision_ = 1;
     uint32_t queuedConfigRevision_ = 0;
     uint32_t lastAppliedResultSequence_ = 0;
+    uint32_t lastAppliedStateSequence_ = 0;
 
     WebSocketsClient webSocket_;
     PollRequest workerConfig_;
@@ -124,6 +127,7 @@ private:
     float workerChamberFilteredC_ = NAN;
     char workerChamberObject_[65] = "temperature_sensor cavity";
     char webSocketConnectHost_[65] = "";
+    char webSocketExtraHeaders_[112] = "";
     int webSocketProbeSocket_ = -1;
     volatile bool realtimeConnected_ = false;
     volatile bool realtimeSubscribed_ = false;
@@ -146,8 +150,10 @@ private:
     uint32_t webSocketLastMessageMs_ = 0;
     uint32_t workerChamberFilterMs_ = 0;
     uint32_t workerResultSequence_ = 0;
+    uint32_t workerStateSequence_ = 0;
 
     bool configured() const;
+    void releaseStartupResources();
     bool captureRequest(PollRequest& request) const;
     void refreshConfiguration();
     bool enqueueConfiguration();

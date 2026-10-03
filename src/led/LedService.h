@@ -68,7 +68,8 @@ private:
     void renderOther(uint8_t animation, const LedAnimationContext& context);
     void applyInsidePolicy(const AppSettings& settings);
     void applyOutputPolicies(const AppSettings& settings);
-    bool smoothAndEncode(const AppSettings& settings, bool immediate = false);
+    bool smoothAndEncode(const AppSettings& settings, bool immediate = false,
+                         uint8_t step = 12U);
     void encodeFrame();
     void transmitEncodedFrame(int64_t deadlineUs = 0);
 
@@ -97,9 +98,12 @@ private:
     RgbwColor* previewFrame_ = nullptr;
     uint8_t* txBuffer_ = nullptr;
     mutable portMUX_TYPE frameMux_ = portMUX_INITIALIZER_UNLOCKED;
+    mutable portMUX_TYPE previewMux_ = portMUX_INITIALIZER_UNLOCKED;
     portMUX_TYPE outputMux_ = portMUX_INITIALIZER_UNLOCKED;
     bool started_ = false;
     bool bootActive_ = false;
+    bool bootFrameInitialized_ = false;
+    bool encodedMirror_ = false;
     bool previewActive_ = false;
     bool previewLegacy_ = false;
     bool colorCalibrationActive_ = false;

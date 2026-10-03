@@ -109,5 +109,15 @@ struct SystemState {
 };
 
 SystemState& state();
+SystemState stateSnapshot();
+portMUX_TYPE& stateMutex();
+
+template <typename Mutator>
+void updateState(Mutator mutator) {
+    portMUX_TYPE& mutex = stateMutex();
+    portENTER_CRITICAL(&mutex);
+    mutator(state());
+    portEXIT_CRITICAL(&mutex);
+}
 
 }

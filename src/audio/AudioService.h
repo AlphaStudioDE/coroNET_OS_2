@@ -21,17 +21,17 @@ public:
                   SoundScenario scenario = SoundScenario::Start, bool bootAudio = false);
     bool playScenario(SoundScenario scenario);
     void stop();
-    void release();
+    bool release();
     bool useDmaProfile(AudioDmaProfile profile);
     bool mountStorage();
     bool refreshFileIndex();
     bool requestStorageRefresh();
-    uint8_t fileCount() const { return indexingFiles_ ? 0 : fileCount_; }
-    const char* filePath(uint8_t index) const;
-    uint8_t folderCount() const { return indexingFiles_ ? 0 : libraryFolderCount_; }
-    const char* folderName(uint8_t folder) const;
+    uint8_t fileCount() const;
+    bool filePath(uint8_t index, char output[65]) const;
+    uint8_t folderCount() const;
+    bool folderName(uint8_t folder, char output[33]) const;
     uint8_t folderFileCount(uint8_t folder) const;
-    const char* folderFilePath(uint8_t folder, uint8_t index) const;
+    bool folderFilePath(uint8_t folder, uint8_t index, char output[65]) const;
     uint8_t folderForPath(const char* path) const;
     bool pathAvailable(const char* path) const;
     bool resolveScenarioPath(SoundScenario scenario, char path[65]) const;
@@ -98,6 +98,13 @@ private:
     void snapshotRequest(uint32_t& sequence, RequestType& type, char path[65],
                          uint8_t& volumePercent, bool& repeat, SoundScenario& scenario,
                          bool& bootAudio, uint32_t& durationMs);
+    uint32_t requestSequenceSnapshot() const;
+    uint32_t completedRequestSequenceSnapshot() const;
+    void markRequestCompleted(uint32_t sequence);
+    bool requestIsCurrent(uint32_t sequence) const;
+    bool storageReadySnapshot() const;
+    void setStorageReady(bool ready);
+    void releaseBuffers();
     void processPrinterSoundEvents();
     void logMemory(const char* tag) const;
     void indexDirectory(const char* path, uint8_t depth, bool enqueueSubdirectories);
@@ -121,11 +128,13 @@ private:
     uint8_t folderQueueRead_ = 0;
     uint8_t libraryFolderCount_ = 0;
     volatile bool indexingFiles_ = false;
+    mutable portMUX_TYPE libraryMux_ = portMUX_INITIALIZER_UNLOCKED;
     File wavFile_;
     WavInfo wav_;
-    portMUX_TYPE requestMux_ = portMUX_INITIALIZER_UNLOCKED;
+    mutable portMUX_TYPE requestMux_ = portMUX_INITIALIZER_UNLOCKED;
     volatile uint32_t requestSequence_ = 0;
     volatile uint32_t completedRequestSequence_ = 0;
+    bool acceptingRequests_ = true;
     RequestType requestedType_ = RequestType::Stop;
     char requestedPath_[65] = "";
     uint8_t requestedVolume_ = 75;
@@ -152,7 +161,7 @@ private:
     uint32_t observedPrinterEventSequence_ = 0;
     bool pendingFinishSound_ = false;
     uint32_t pendingFinishSoundDueMs_ = 0;
-    uint32_t pendingFinishEventSequence_ = 0;
+    uint32_t lastPrintCompleteMs_ = 0;
 };
 
 AudioService& audioService();

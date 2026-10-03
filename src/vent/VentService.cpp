@@ -30,17 +30,20 @@ void VentService::begin() {
     servoReady_ = beginServo();
     fanReady_ = beginFan();
     diyHeaterReady_ = beginDiyHeater();
-    state().servoReady = servoReady_;
-    state().fanReady = fanReady_;
-    state().diyHeaterReady = diyHeaterReady_;
-    state().ventReady = servoReady_ && fanReady_;
-    strlcpy(state().ventStatusText,
-            state().ventReady ? "ready" : "hardware_init_failed",
-            sizeof(state().ventStatusText));
+    const bool ventReady = servoReady_ && fanReady_;
+    updateState([&](SystemState& system) {
+        system.servoReady = servoReady_;
+        system.fanReady = fanReady_;
+        system.diyHeaterReady = diyHeaterReady_;
+        system.ventReady = ventReady;
+        strlcpy(system.ventStatusText,
+                ventReady ? "ready" : "hardware_init_failed",
+                sizeof(system.ventStatusText));
+    });
     applyOutputs(0, 0);
     diyHeaterArmed_ = true;
     Serial.printf("[vent] ready=%u fan=%u servo=%u heater=%u GPIO fan=%u servo=%u heater=%u\n",
-                  state().ventReady ? 1U : 0U, fanReady_ ? 1U : 0U, servoReady_ ? 1U : 0U,
+                  ventReady ? 1U : 0U, fanReady_ ? 1U : 0U, servoReady_ ? 1U : 0U,
                   diyHeaterReady_ ? 1U : 0U,
                   static_cast<unsigned>(hw::FanPwmPin), static_cast<unsigned>(hw::ServoPin),
                   static_cast<unsigned>(hw::DiyChamberHeaterPin));
@@ -62,31 +65,35 @@ void VentService::applyNow() {
 
     appliedFanPercent_ = smoothStep(appliedFanPercent_, targetFan, 4);
     appliedFlapPercent_ = smoothStep(appliedFlapPercent_, targetFlap, 2);
-    applyOutputs(appliedFanPercent_, appliedFlapPercent_);
+    const uint8_t physicalFanPercent =
+        applyOutputs(appliedFanPercent_, appliedFlapPercent_);
 
-    SystemState& system = state();
-    system.fanPercent = appliedFanPercent_;
-    system.flapPercent = appliedFlapPercent_;
-    system.ventFailsafe = failsafe;
-    strlcpy(system.ventStatusText, status, sizeof(system.ventStatusText));
+    updateState([&](SystemState& system) {
+        system.fanPercent = physicalFanPercent;
+        system.flapPercent = servoReady_ ? appliedFlapPercent_ : 0U;
+        system.ventFailsafe = failsafe;
+        strlcpy(system.ventStatusText, status, sizeof(system.ventStatusText));
+    });
 }
 
 void VentService::logStatus() const {
     const AppSettings& settings = settingsService().settings();
+    const SystemState system = stateSnapshot();
     Serial.printf("[vent] ready=%u mode=%u target=%uC output fan=%u%% flap=%u%% heater=%u failsafe=%u status=%s servo=%uus reverse=%u\n",
-                  state().ventReady ? 1U : 0U,
+                  system.ventReady ? 1U : 0U,
                   static_cast<unsigned>(settings.ventMode),
                   static_cast<unsigned>(settings.ventTargetTempC),
-                  static_cast<unsigned>(state().fanPercent),
-                  static_cast<unsigned>(state().flapPercent),
-                  state().diyHeaterHigh ? 1U : 0U,
-                  state().ventFailsafe ? 1U : 0U,
-                  state().ventStatusText,
+                  static_cast<unsigned>(system.fanPercent),
+                  static_cast<unsigned>(system.flapPercent),
+                  system.diyHeaterHigh ? 1U : 0U,
+                  system.ventFailsafe ? 1U : 0U,
+                  system.ventStatusText,
                   static_cast<unsigned>(lastServoPulseUs_ == UINT16_MAX ? 0 : lastServoPulseUs_),
                   settings.servoReverse ? 1U : 0U);
 }
 
 bool VentService::beginServo() {
+    releaseServo();
     mcpwm_timer_config_t timerConfig = {};
     timerConfig.group_id = 0;
     timerConfig.clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT;
@@ -97,28 +104,42 @@ bool VentService::beginServo() {
 
     mcpwm_operator_config_t operatorConfig = {};
     operatorConfig.group_id = 0;
-    if (mcpwm_new_operator(&operatorConfig, &servoOperator_) != ESP_OK) return false;
-    if (mcpwm_operator_connect_timer(servoOperator_, servoTimer_) != ESP_OK) return false;
+    if (mcpwm_new_operator(&operatorConfig, &servoOperator_) != ESP_OK ||
+        mcpwm_operator_connect_timer(servoOperator_, servoTimer_) != ESP_OK) {
+        releaseServo();
+        return false;
+    }
 
     mcpwm_comparator_config_t comparatorConfig = {};
     comparatorConfig.flags.update_cmp_on_tez = true;
-    if (mcpwm_new_comparator(servoOperator_, &comparatorConfig, &servoComparator_) != ESP_OK) return false;
+    if (mcpwm_new_comparator(servoOperator_, &comparatorConfig, &servoComparator_) != ESP_OK) {
+        releaseServo();
+        return false;
+    }
 
     mcpwm_generator_config_t generatorConfig = {};
     generatorConfig.gen_gpio_num = hw::ServoPin;
-    if (mcpwm_new_generator(servoOperator_, &generatorConfig, &servoGenerator_) != ESP_OK) return false;
+    if (mcpwm_new_generator(servoOperator_, &generatorConfig, &servoGenerator_) != ESP_OK) {
+        releaseServo();
+        return false;
+    }
     if (mcpwm_generator_set_action_on_timer_event(
             servoGenerator_, MCPWM_GEN_TIMER_EVENT_ACTION(
-                MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)) != ESP_OK) return false;
-    if (mcpwm_generator_set_action_on_compare_event(
+                MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)) != ESP_OK ||
+        mcpwm_generator_set_action_on_compare_event(
             servoGenerator_, MCPWM_GEN_COMPARE_EVENT_ACTION(
-                MCPWM_TIMER_DIRECTION_UP, servoComparator_, MCPWM_GEN_ACTION_LOW)) != ESP_OK) return false;
-    if (mcpwm_comparator_set_compare_value(servoComparator_, 1500) != ESP_OK) return false;
-    if (mcpwm_timer_enable(servoTimer_) != ESP_OK) return false;
-    return mcpwm_timer_start_stop(servoTimer_, MCPWM_TIMER_START_NO_STOP) == ESP_OK;
+                MCPWM_TIMER_DIRECTION_UP, servoComparator_, MCPWM_GEN_ACTION_LOW)) != ESP_OK ||
+        mcpwm_comparator_set_compare_value(servoComparator_, 1500) != ESP_OK ||
+        mcpwm_timer_enable(servoTimer_) != ESP_OK ||
+        mcpwm_timer_start_stop(servoTimer_, MCPWM_TIMER_START_NO_STOP) != ESP_OK) {
+        releaseServo();
+        return false;
+    }
+    return true;
 }
 
 bool VentService::beginFan() {
+    releaseFan();
     mcpwm_timer_config_t timerConfig = {};
     timerConfig.group_id = 0;
     timerConfig.clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT;
@@ -129,39 +150,82 @@ bool VentService::beginFan() {
 
     mcpwm_operator_config_t operatorConfig = {};
     operatorConfig.group_id = 0;
-    if (mcpwm_new_operator(&operatorConfig, &fanOperator_) != ESP_OK) return false;
-    if (mcpwm_operator_connect_timer(fanOperator_, fanTimer_) != ESP_OK) return false;
+    if (mcpwm_new_operator(&operatorConfig, &fanOperator_) != ESP_OK ||
+        mcpwm_operator_connect_timer(fanOperator_, fanTimer_) != ESP_OK) {
+        releaseFan();
+        return false;
+    }
 
     mcpwm_comparator_config_t comparatorConfig = {};
     comparatorConfig.flags.update_cmp_on_tez = true;
-    if (mcpwm_new_comparator(fanOperator_, &comparatorConfig, &fanComparator_) != ESP_OK) return false;
+    if (mcpwm_new_comparator(fanOperator_, &comparatorConfig, &fanComparator_) != ESP_OK) {
+        releaseFan();
+        return false;
+    }
 
     mcpwm_generator_config_t generatorConfig = {};
     generatorConfig.gen_gpio_num = hw::FanPwmPin;
-    if (mcpwm_new_generator(fanOperator_, &generatorConfig, &fanGenerator_) != ESP_OK) return false;
+    if (mcpwm_new_generator(fanOperator_, &generatorConfig, &fanGenerator_) != ESP_OK) {
+        releaseFan();
+        return false;
+    }
     if (mcpwm_generator_set_action_on_timer_event(
             fanGenerator_, MCPWM_GEN_TIMER_EVENT_ACTION(
-                MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)) != ESP_OK) return false;
-    if (mcpwm_generator_set_action_on_compare_event(
+                MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_HIGH)) != ESP_OK ||
+        mcpwm_generator_set_action_on_compare_event(
             fanGenerator_, MCPWM_GEN_COMPARE_EVENT_ACTION(
-                MCPWM_TIMER_DIRECTION_UP, fanComparator_, MCPWM_GEN_ACTION_LOW)) != ESP_OK) return false;
-    if (mcpwm_comparator_set_compare_value(fanComparator_, 0) != ESP_OK) return false;
-    if (mcpwm_timer_enable(fanTimer_) != ESP_OK) return false;
-    return mcpwm_timer_start_stop(fanTimer_, MCPWM_TIMER_START_NO_STOP) == ESP_OK;
+                MCPWM_TIMER_DIRECTION_UP, fanComparator_, MCPWM_GEN_ACTION_LOW)) != ESP_OK ||
+        mcpwm_comparator_set_compare_value(fanComparator_, 0) != ESP_OK ||
+        mcpwm_timer_enable(fanTimer_) != ESP_OK ||
+        mcpwm_timer_start_stop(fanTimer_, MCPWM_TIMER_START_NO_STOP) != ESP_OK) {
+        releaseFan();
+        return false;
+    }
+    return true;
+}
+
+void VentService::releaseServo() {
+    if (servoTimer_) {
+        mcpwm_timer_start_stop(servoTimer_, MCPWM_TIMER_STOP_EMPTY);
+        mcpwm_timer_disable(servoTimer_);
+    }
+    if (servoGenerator_) mcpwm_del_generator(servoGenerator_);
+    if (servoComparator_) mcpwm_del_comparator(servoComparator_);
+    if (servoOperator_) mcpwm_del_operator(servoOperator_);
+    if (servoTimer_) mcpwm_del_timer(servoTimer_);
+    servoGenerator_ = nullptr;
+    servoComparator_ = nullptr;
+    servoOperator_ = nullptr;
+    servoTimer_ = nullptr;
+}
+
+void VentService::releaseFan() {
+    if (fanTimer_) {
+        mcpwm_timer_start_stop(fanTimer_, MCPWM_TIMER_STOP_EMPTY);
+        mcpwm_timer_disable(fanTimer_);
+    }
+    if (fanGenerator_) mcpwm_del_generator(fanGenerator_);
+    if (fanComparator_) mcpwm_del_comparator(fanComparator_);
+    if (fanOperator_) mcpwm_del_operator(fanOperator_);
+    if (fanTimer_) mcpwm_del_timer(fanTimer_);
+    fanGenerator_ = nullptr;
+    fanComparator_ = nullptr;
+    fanOperator_ = nullptr;
+    fanTimer_ = nullptr;
 }
 
 bool VentService::beginDiyHeater() {
     pinMode(hw::DiyChamberHeaterPin, OUTPUT);
     digitalWrite(hw::DiyChamberHeaterPin, LOW);
     diyHeaterHigh_ = false;
-    state().diyHeaterHigh = false;
+    updateState([](SystemState& system) { system.diyHeaterHigh = false; });
     return true;
 }
 
 void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targetFlap,
                                  bool& failsafe, const char*& status) {
     const AppSettings& settings = settingsService().settings();
-    const SystemState& system = state();
+    const SystemState system = stateSnapshot();
     if (system.maintenanceMode) {
         targetFan = 0;
         targetFlap = 0;
@@ -169,9 +233,12 @@ void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targ
         return;
     }
     const bool liveTelemetry = system.printerConnected && system.printerTelemetryValid;
-    const bool activePrint = liveTelemetry && printingLike(system.printerState);
-    if (liveTelemetry && activePrint) printingSeen_ = true;
-    if (liveTelemetry && !activePrint) printingSeen_ = false;
+    const bool telemetryFresh = liveTelemetry && system.lastPrinterUpdateMs != 0U &&
+                                now - system.lastPrinterUpdateMs <= SensorStaleMs;
+    const bool printerStateKnown = system.printerState != PrinterState::Unknown;
+    const bool activePrint = telemetryFresh && printingLike(system.printerState);
+    if (activePrint) printingSeen_ = true;
+    if (telemetryFresh && printerStateKnown && !activePrint) printingSeen_ = false;
 
     if (settings.ventMode == VentMode::Manual) {
         coolingActive_ = false;
@@ -183,21 +250,21 @@ void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targ
 
     if (settings.ventMode == VentMode::Automatic && !activePrint) {
         coolingActive_ = false;
-        if (!system.printerConnected && printingSeen_) {
+        if ((!telemetryFresh || !printerStateKnown) && printingSeen_) {
             failsafe = true;
             targetFan = settings.failsafeFanPercent;
             targetFlap = settings.failsafeFlapPercent;
-            status = "failsafe_print_telemetry_lost";
+            status = telemetryFresh ? "failsafe_printer_state_unknown"
+                                    : "failsafe_print_telemetry_lost";
         } else {
             targetFan = 0;
             targetFlap = 0;
-            status = liveTelemetry ? "automatic_waiting" : "automatic_printer_offline";
+            status = telemetryFresh ? "automatic_waiting" : "automatic_printer_offline";
         }
         return;
     }
 
-    const bool stale = !liveTelemetry || system.lastPrinterUpdateMs == 0 ||
-                       now - system.lastPrinterUpdateMs > SensorStaleMs;
+    const bool stale = !telemetryFresh;
     if (stale || isnan(system.chamberTempC)) {
         if (activePrint || printingSeen_ || settings.ventMode == VentMode::CavityTarget) {
             failsafe = true;
@@ -241,7 +308,7 @@ void VentService::computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targ
     status = "cooling";
 }
 
-void VentService::applyOutputs(uint8_t fanPercent, uint8_t flapPercent) {
+uint8_t VentService::applyOutputs(uint8_t fanPercent, uint8_t flapPercent) {
     fanPercent = clampPercent(fanPercent);
     flapPercent = clampPercent(flapPercent);
     const AppSettings& settings = settingsService().settings();
@@ -268,12 +335,15 @@ void VentService::applyOutputs(uint8_t fanPercent, uint8_t flapPercent) {
         }
     }
 
-    const bool heaterHigh = diyHeaterArmed_ && settings.diyHeaterOutputHigh && !state().maintenanceMode;
+    const bool maintenanceMode = stateSnapshot().maintenanceMode;
+    const bool heaterHigh = diyHeaterArmed_ && settings.diyHeaterOutputHigh && !maintenanceMode;
     if (diyHeaterReady_ && heaterHigh != diyHeaterHigh_) {
         digitalWrite(hw::DiyChamberHeaterPin, heaterHigh ? HIGH : LOW);
         diyHeaterHigh_ = heaterHigh;
     }
-    state().diyHeaterHigh = diyHeaterReady_ && diyHeaterHigh_;
+    const bool outputHigh = diyHeaterReady_ && diyHeaterHigh_;
+    updateState([outputHigh](SystemState& system) { system.diyHeaterHigh = outputHigh; });
+    return fanReady_ ? effectiveFan : 0U;
 }
 
 uint16_t VentService::servoPulseForPercent(uint8_t flapPercent) const {

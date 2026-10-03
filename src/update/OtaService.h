@@ -28,7 +28,7 @@ private:
     bool installFromSd();
     bool ensureSecureClock();
     bool fetchExpectedMd5(const char* url, char output[33]);
-    void enterMaintenance();
+    bool enterMaintenance();
     void leaveMaintenance();
     bool validateImageHeader(Stream& stream, size_t expectedSize);
     void setState(OtaState stateValue, const char* message, uint8_t progress = 0);

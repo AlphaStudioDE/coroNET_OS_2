@@ -55,6 +55,7 @@ private:
     uint32_t lastTimeSyncRequestMs_ = 0;
     char configuredTimeZone_[41] = "";
     uint32_t appliedThemeSignature_ = UINT32_MAX;
+    lv_obj_t* screenSaverWakeOverlay_ = nullptr;
     lv_obj_t* otaOverlay_ = nullptr;
     lv_obj_t* otaOverlayStatus_ = nullptr;
     lv_obj_t* otaOverlayProgress_ = nullptr;

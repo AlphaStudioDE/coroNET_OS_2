@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closes the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. The remaining path is organized around systematic physical fault finding, recovery testing, defect correction, and formal 1.0 stability qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closed the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. Release `0.6.0` completes the detailed coroNET OS 1 parity and reliability audit and moves the project into systematic physical fault finding, recovery testing, defect correction, and formal 1.0 stability qualification.
 
 ## Foundation
 
@@ -121,7 +121,7 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] keep the display backlight off until the first complete LVGL boot frame is ready
 - [x] complete the real-time LED, audio, startup, and color-correction refinement pass
 
-### 0.5.x - Experience Complete And Physical Validation
+### 0.5.x - Experience Complete
 
 - [x] complete visual and interaction polish on the coroNET touchscreen
 - [x] complete visual and interaction polish in the Android companion
@@ -129,6 +129,13 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] align the primary wording, hierarchy, feedback, empty states, and error presentation across all three interfaces
 - [x] harden touchscreen sliders and scrolling so vertical gestures cannot accidentally change settings
 - [x] make screen-saver wake gestures safe and preserve the active page position across visual rebuilds
+
+### 0.6.x - Reliability Audit And Physical Validation
+
+- [x] audit every product subsystem and intentional omission against the final coroNET OS 1 firmware
+- [x] restore OS 1-equivalent LED transition timing while retaining the fixed 50 FPS presentation path
+- [x] harden rapid audio changes, Moonraker state recovery, startup allocation failures, and OTA maintenance handoff
+- [x] verify the exact two-slot OTA partition layout and reject malformed release artifacts
 - [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
 - [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness
 - [ ] test simultaneous control from the touchscreen, Android companion, and browser panel

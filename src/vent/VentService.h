@@ -21,9 +21,11 @@ private:
     bool beginServo();
     bool beginFan();
     bool beginDiyHeater();
+    void releaseServo();
+    void releaseFan();
     void computeTargets(uint32_t now, uint8_t& targetFan, uint8_t& targetFlap,
                         bool& failsafe, const char*& status);
-    void applyOutputs(uint8_t fanPercent, uint8_t flapPercent);
+    uint8_t applyOutputs(uint8_t fanPercent, uint8_t flapPercent);
     uint16_t servoPulseForPercent(uint8_t flapPercent) const;
     static uint8_t smoothStep(uint8_t current, uint8_t target, uint8_t step);
 

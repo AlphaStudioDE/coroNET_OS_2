@@ -31,6 +31,8 @@ private:
     };
 
     bool started_ = false;
+    bool unavailableThisBoot_ = false;
+    bool startupGuardActive_ = false;
     bool connected_ = false;
     bool stateDirty_ = true;
     bool connectionEventPending_ = false;
@@ -50,6 +52,7 @@ private:
     uint32_t appliedSettingsRevision_ = 0;
     uint32_t wifiOfflineSinceMs_ = 0;
     uint32_t lastPairingPublishMs_ = 0;
+    uint32_t stackStartedMs_ = 0;
     QueueHandle_t commandQueue_ = nullptr;
     portMUX_TYPE connectionMux_ = portMUX_INITIALIZER_UNLOCKED;
     char deviceId_[13] = "";

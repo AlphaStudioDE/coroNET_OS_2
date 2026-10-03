@@ -133,10 +133,10 @@ void logTaskDiagnostics() {
 void executeSerialCommand() {
     serialCommand[serialCommandLength] = '\0';
     if (strcmp(serialCommand, "wizard reset") == 0) {
-        coronet::AppSettings& settings = coronet::settingsService().mutableSettings();
-        settings.setupDone = false;
-        coronet::state().setupDone = false;
-        coronet::settingsService().save();
+        coronet::settingsService().update([](coronet::AppSettings& settings) {
+            settings.setupDone = false;
+        });
+        coronet::updateState([](coronet::SystemState& system) { system.setupDone = false; });
         coronet::settingsService().flush();
         Serial.println("[console] setup wizard reopened; restarting");
         Serial.flush();
@@ -159,7 +159,8 @@ void executeSerialCommand() {
     } else if (strcmp(serialCommand, "audio status") == 0) {
         coronet::audioService().logStatus();
     } else if (strcmp(serialCommand, "sd status") == 0) {
-        Serial.printf("[console] SD %s\n", coronet::state().sdReady ? "ready" : "unavailable");
+        Serial.printf("[console] SD %s\n",
+                      coronet::stateSnapshot().sdReady ? "ready" : "unavailable");
     } else if (strcmp(serialCommand, "audio rescan") == 0) {
         Serial.printf("[console] audio SD rescan %s\n",
                       coronet::audioService().requestStorageRefresh() ? "queued" : "unavailable");
@@ -189,24 +190,31 @@ void executeSerialCommand() {
     } else if (strcmp(serialCommand, "ui sound") == 0) {
         displayService.requestPage(coronet::ui::Page::Sound);
     } else if (strcmp(serialCommand, "saver test") == 0) {
-        coronet::state().lastTouchMs = millis() - 6UL * 60000UL;
+        const uint32_t touchMs = millis() - 6UL * 60000UL;
+        coronet::updateState([touchMs](coronet::SystemState& system) {
+            system.lastTouchMs = touchMs;
+        });
     } else if (strcmp(serialCommand, "saver wake") == 0) {
-        coronet::state().lastTouchMs = millis();
+        const uint32_t touchMs = millis();
+        coronet::updateState([touchMs](coronet::SystemState& system) {
+            system.lastTouchMs = touchMs;
+        });
     } else if (strncmp(serialCommand, "theme ", 6) == 0) {
         unsigned skin = 0, color = 0, hue = 190;
         if (sscanf(serialCommand + 6, "%u %u %u", &skin, &color, &hue) >= 2 && skin < 4U && color < 3U && hue < 360U) {
-            coronet::AppSettings& settings = coronet::settingsService().mutableSettings();
-            settings.uiSkin = static_cast<coronet::UiSkin>(skin);
-            settings.uiColorMode = static_cast<coronet::UiColorMode>(color);
-            settings.accentHueDegrees = static_cast<uint16_t>(hue);
-            coronet::settingsService().save();
+            coronet::settingsService().update([skin, color, hue](coronet::AppSettings& settings) {
+                settings.uiSkin = static_cast<coronet::UiSkin>(skin);
+                settings.uiColorMode = static_cast<coronet::UiColorMode>(color);
+                settings.accentHueDegrees = static_cast<uint16_t>(hue);
+            });
             Serial.printf("[console] theme skin=%u color=%u hue=%u\n", skin, color, hue);
         }
     } else if (strncmp(serialCommand, "clock style ", 12) == 0) {
         const int style = atoi(serialCommand + 12);
         if (style >= 0 && style < static_cast<int>(coronet::ClockStyle::Count)) {
-            coronet::settingsService().mutableSettings().clockStyle = static_cast<coronet::ClockStyle>(style);
-            coronet::settingsService().save();
+            coronet::settingsService().update([style](coronet::AppSettings& settings) {
+                settings.clockStyle = static_cast<coronet::ClockStyle>(style);
+            });
         }
     } else if (strcmp(serialCommand, "ota check") == 0) {
         Serial.printf("[console] OTA check %s\n", coronet::otaService().requestCheck() ? "queued" : "busy");
@@ -251,8 +259,9 @@ void executeSerialCommand() {
     } else if (strncmp(serialCommand, "vent mode ", 10) == 0) {
         const int mode = atoi(serialCommand + 10);
         if (mode >= 0 && mode <= 2) {
-            coronet::settingsService().mutableSettings().ventMode = static_cast<coronet::VentMode>(mode);
-            coronet::settingsService().save();
+            coronet::settingsService().update([mode](coronet::AppSettings& settings) {
+                settings.ventMode = static_cast<coronet::VentMode>(mode);
+            });
             coronet::ventService().applyNow();
             Serial.printf("[console] vent mode=%d\n", mode);
         }
@@ -260,11 +269,11 @@ void executeSerialCommand() {
         unsigned fan = 0;
         unsigned flap = 0;
         if (sscanf(serialCommand + 12, "%u %u", &fan, &flap) == 2 && fan <= 100U && flap <= 100U) {
-            coronet::AppSettings& settings = coronet::settingsService().mutableSettings();
-            settings.ventMode = coronet::VentMode::Manual;
-            settings.manualFanPercent = static_cast<uint8_t>(fan);
-            settings.manualFlapPercent = static_cast<uint8_t>(flap);
-            coronet::settingsService().save();
+            coronet::settingsService().update([fan, flap](coronet::AppSettings& settings) {
+                settings.ventMode = coronet::VentMode::Manual;
+                settings.manualFanPercent = static_cast<uint8_t>(fan);
+                settings.manualFlapPercent = static_cast<uint8_t>(flap);
+            });
             coronet::ventService().applyNow();
             Serial.printf("[console] vent manual fan=%u flap=%u\n", fan, flap);
         } else {
@@ -273,18 +282,20 @@ void executeSerialCommand() {
     } else if (strcmp(serialCommand, "panda status") == 0) {
         coronet::pandaBreathService().logStatus();
     } else if (strncmp(serialCommand, "panda host ", 11) == 0) {
-        coronet::AppSettings& settings = coronet::settingsService().mutableSettings();
-        strlcpy(settings.pandaHost, serialCommand + 11, sizeof(settings.pandaHost));
-        settings.pandaEnabled = true;
-        coronet::settingsService().save();
+        char pandaHost[65] = "";
+        strlcpy(pandaHost, serialCommand + 11, sizeof(pandaHost));
+        coronet::settingsService().update([pandaHost](coronet::AppSettings& settings) {
+            strlcpy(settings.pandaHost, pandaHost, sizeof(settings.pandaHost));
+            settings.pandaEnabled = true;
+        });
         coronet::pandaBreathService().applyNow();
-        Serial.printf("[console] Panda host=%s enabled=1\n", settings.pandaHost);
+        Serial.printf("[console] Panda host=%s enabled=1\n", pandaHost);
     } else if (strncmp(serialCommand, "panda mode ", 11) == 0) {
         const int mode = atoi(serialCommand + 11);
         if (mode >= 0 && mode < static_cast<int>(coronet::PandaBreathMode::Count)) {
-            coronet::settingsService().mutableSettings().pandaMode =
-                static_cast<coronet::PandaBreathMode>(mode);
-            coronet::settingsService().save();
+            coronet::settingsService().update([mode](coronet::AppSettings& settings) {
+                settings.pandaMode = static_cast<coronet::PandaBreathMode>(mode);
+            });
             coronet::pandaBreathService().applyNow();
             Serial.printf("[console] Panda mode=%d\n", mode);
         }
@@ -321,7 +332,8 @@ void setup() {
 
     logBootDiagnostics();
 
-    coronet::state().bootMs = millis();
+    const uint32_t bootMs = millis();
+    coronet::updateState([bootMs](coronet::SystemState& system) { system.bootMs = bootMs; });
 
     Serial.println();
     Serial.println(coronet::config::FirmwareName);
@@ -389,7 +401,7 @@ void loop() {
     coronet::ventService().loop();
     coronet::pandaBreathService().loop();
     webControlService.loop();
-    coronet::memoryService().runtimeLoop(coronet::state().webReady);
+    coronet::memoryService().runtimeLoop(coronet::stateSnapshot().webReady);
     coronet::pairingService().loop();
     coronet::bleService().loop();
     coronet::otaService().loop();

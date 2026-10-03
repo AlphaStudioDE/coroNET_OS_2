@@ -430,7 +430,7 @@ void SettingsScreen::buildSystemCard(lv_obj_t* parent, int y) {
 void SettingsScreen::update() {
     if (!root_) return;
     if (pairingOverlay_) updatePairingWizard();
-    const SystemState& system = state();
+    const SystemState system = stateSnapshot();
     const uint32_t revision = settingsService().revision();
     if (cacheValid_ && revision == settingsRevisionSeen_ &&
         system.wifiConnected == wifiConnectedSeen_ &&
@@ -767,9 +767,9 @@ void SettingsScreen::closeTimeZonePicker() {
 void SettingsScreen::selectTimeZone(uint8_t slot) {
     const size_t index = static_cast<size_t>(timeZonePage_) * TimeZonePageSize + slot;
     if (index >= TimeZoneOptionCount) return;
-    AppSettings& settings = settingsService().mutableSettings();
-    strlcpy(settings.timeZone, TimeZoneOptions[index].spec, sizeof(settings.timeZone));
-    settingsService().save();
+    settingsService().update([index](AppSettings& settings) {
+        strlcpy(settings.timeZone, TimeZoneOptions[index].spec, sizeof(settings.timeZone));
+    });
     closeTimeZonePicker();
 }
 
@@ -825,65 +825,79 @@ void SettingsScreen::refreshTransportButtons() {
 }
 
 void SettingsScreen::handleAction(Action action, lv_event_t* event) {
-    AppSettings& settings = settingsService().mutableSettings();
     switch (action) {
         case Action::TransportAuto:
-            settings.companionTransport = CompanionTransport::Auto;
-            settings.bleEnabled = true;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.companionTransport = CompanionTransport::Auto;
+                settings.bleEnabled = true;
+            });
             update();
             break;
         case Action::TransportBle:
-            settings.companionTransport = CompanionTransport::Ble;
-            settings.bleEnabled = true;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.companionTransport = CompanionTransport::Ble;
+                settings.bleEnabled = true;
+            });
             update();
             break;
         case Action::TransportWifi:
-            settings.companionTransport = CompanionTransport::Wifi;
-            settings.bleEnabled = true;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.companionTransport = CompanionTransport::Wifi;
+                settings.bleEnabled = true;
+            });
             update();
             break;
         case Action::Brightness: {
             const uint8_t value = static_cast<uint8_t>(lv_slider_get_value(brightnessSlider_));
-            settings.displayBrightness = value;
+            const lv_event_code_t code = lv_event_get_code(event);
+            const bool persist = code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST;
+            settingsService().update([value](AppSettings& settings) {
+                settings.displayBrightness = value;
+            }, persist);
             lv_label_set_text_fmt(brightnessLabel_, "DISPLAY %u%%",
                                   static_cast<unsigned>(value));
-            const lv_event_code_t code = lv_event_get_code(event);
-            if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-                settingsService().save();
-            }
             break;
         }
         case Action::Reconfigure:
             if (setupCallback_) setupCallback_(callbackContext_);
             break;
         case Action::SkinNext:
-            settings.uiSkin = static_cast<UiSkin>((static_cast<uint8_t>(settings.uiSkin) + 1U) % 4U);
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.uiSkin = static_cast<UiSkin>(
+                    (static_cast<uint8_t>(settings.uiSkin) + 1U) % 4U);
+            });
             break;
         case Action::ColorModeNext:
-            settings.uiColorMode = static_cast<UiColorMode>((static_cast<uint8_t>(settings.uiColorMode) + 1U) % 3U);
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.uiColorMode = static_cast<UiColorMode>(
+                    (static_cast<uint8_t>(settings.uiColorMode) + 1U) % 3U);
+            });
             break;
         case Action::AccentHue: {
-            settings.accentHueDegrees = static_cast<uint16_t>(lv_slider_get_value(accentSlider_));
-            lv_label_set_text_fmt(accentLabel_, "%u deg", static_cast<unsigned>(settings.accentHueDegrees));
-            if (lv_event_get_code(event) == LV_EVENT_RELEASED) settingsService().save();
+            const uint16_t value = static_cast<uint16_t>(lv_slider_get_value(accentSlider_));
+            settingsService().update([value](AppSettings& settings) {
+                settings.accentHueDegrees = value;
+            }, lv_event_get_code(event) == LV_EVENT_RELEASED);
+            lv_label_set_text_fmt(accentLabel_, "%u deg", static_cast<unsigned>(value));
             break;
         }
         case Action::SaverModeNext:
-            settings.screenSaverMode = static_cast<ScreenSaverMode>((static_cast<uint8_t>(settings.screenSaverMode) + 1U) % 3U);
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.screenSaverMode = static_cast<ScreenSaverMode>(
+                    (static_cast<uint8_t>(settings.screenSaverMode) + 1U) % 3U);
+            });
             break;
         case Action::ClockStyleNext:
-            settings.clockStyle = static_cast<ClockStyle>((static_cast<uint8_t>(settings.clockStyle) + 1U) % static_cast<uint8_t>(ClockStyle::Count));
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.clockStyle = static_cast<ClockStyle>(
+                    (static_cast<uint8_t>(settings.clockStyle) + 1U) %
+                    static_cast<uint8_t>(ClockStyle::Count));
+            });
             break;
         case Action::ClockFormatNext:
-            settings.clock24Hour = !settings.clock24Hour;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.clock24Hour = !settings.clock24Hour;
+            });
             break;
         case Action::TimeZoneOpen:
             showTimeZonePicker();
@@ -900,30 +914,39 @@ void SettingsScreen::handleAction(Action action, lv_event_t* event) {
             closeTimeZonePicker();
             break;
         case Action::SaverDelay: {
-            settings.screenSaverDelayMinutes = static_cast<uint8_t>(lv_slider_get_value(saverDelaySlider_));
-            lv_label_set_text_fmt(saverDelayLabel_, "%u min", static_cast<unsigned>(settings.screenSaverDelayMinutes));
-            if (lv_event_get_code(event) == LV_EVENT_RELEASED) settingsService().save();
+            const uint8_t value = static_cast<uint8_t>(lv_slider_get_value(saverDelaySlider_));
+            settingsService().update([value](AppSettings& settings) {
+                settings.screenSaverDelayMinutes = value;
+            }, lv_event_get_code(event) == LV_EVENT_RELEASED);
+            lv_label_set_text_fmt(saverDelayLabel_, "%u min", static_cast<unsigned>(value));
             break;
         }
         case Action::ClockBrightness: {
-            settings.clockBrightness = static_cast<uint8_t>(lv_slider_get_value(clockBrightnessSlider_));
-            lv_label_set_text_fmt(clockBrightnessLabel_, "%u%%", static_cast<unsigned>(settings.clockBrightness));
-            if (lv_event_get_code(event) == LV_EVENT_RELEASED) settingsService().save();
+            const uint8_t value = static_cast<uint8_t>(lv_slider_get_value(clockBrightnessSlider_));
+            settingsService().update([value](AppSettings& settings) {
+                settings.clockBrightness = value;
+            }, lv_event_get_code(event) == LV_EVENT_RELEASED);
+            lv_label_set_text_fmt(clockBrightnessLabel_, "%u%%", static_cast<unsigned>(value));
             break;
         }
         case Action::QuietTargetNext:
-            settings.quietTarget = static_cast<QuietTarget>((static_cast<uint8_t>(settings.quietTarget) + 1U) % 4U);
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.quietTarget = static_cast<QuietTarget>(
+                    (static_cast<uint8_t>(settings.quietTarget) + 1U) % 4U);
+            });
             break;
         case Action::QuietDuration: {
-            settings.quietDurationMinutes = static_cast<uint16_t>(lv_slider_get_value(quietDurationSlider_));
-            lv_label_set_text_fmt(quietDurationLabel_, "%u min", static_cast<unsigned>(settings.quietDurationMinutes));
-            if (lv_event_get_code(event) == LV_EVENT_RELEASED) settingsService().save();
+            const uint16_t value = static_cast<uint16_t>(lv_slider_get_value(quietDurationSlider_));
+            settingsService().update([value](AppSettings& settings) {
+                settings.quietDurationMinutes = value;
+            }, lv_event_get_code(event) == LV_EVENT_RELEASED);
+            lv_label_set_text_fmt(quietDurationLabel_, "%u min", static_cast<unsigned>(value));
             break;
         }
         case Action::QuietErrorsBypass:
-            settings.quietErrorsBypass = !settings.quietErrorsBypass;
-            settingsService().save();
+            settingsService().update([](AppSettings& settings) {
+                settings.quietErrorsBypass = !settings.quietErrorsBypass;
+            });
             break;
         case Action::OtaCheck:
             otaService().requestCheck();

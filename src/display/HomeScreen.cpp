@@ -270,7 +270,7 @@ void HomeScreen::buildMetricCards() {
 
 void HomeScreen::update() {
     if (!root_) return;
-    const SystemState& system = state();
+    const SystemState system = stateSnapshot();
 
     ViewCache next;
     next.wifiConnected = system.wifiConnected;
