@@ -480,8 +480,6 @@ void loop() {
     if (runtimeNetworkServicesStarted) coronet::pandaBreathService().loop();
     serviceRuntimeNetworkCrashGuard();
     coronet::pairingService().loop();
-    if (runtimeNetworkServicesStarted || runtimeNetworkServicesDisabledThisBoot) {
-        coronet::bleService().loop();
-    }
+    coronet::bleService().loop();
     delay(10);
 }

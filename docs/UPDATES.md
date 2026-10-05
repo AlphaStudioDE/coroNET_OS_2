@@ -1,5 +1,27 @@
 # Development Updates
 
+## 0.7.0
+
+### Stability Test Candidate
+- Promotes the fully audited coroNET OS 2 feature set into the `0.7.x` stability-testing phase for the reference unit and external testers. This line is intentionally focused on endurance, recovery, and defect correction rather than new product features.
+- Carries forward the verified 0.6.9 Moonraker restart-loop fix: service-owned polling buffers, smaller hot-path state reads, restored `loopTask` and printer-worker stack margin, and an RTC-backed recovery boot instead of an endless early-runtime restart cycle.
+- Restores continuous BLE service scheduling from the start of the application loop. BLE keeps its own OTA-validation, maintenance, resource, web-startup, and crash guards, without an additional main-loop dependency on Printer and Panda startup.
+- Replaces the imprecise Quiet Mode duration slider across the touchscreen, Android companion, and browser panel with dedicated `HOURS : MINUTES` wheel pickers. They support exact one-minute selection up to 24 hours plus an explicit `UNLIMITED` mode, and changing the duration restarts the active Quiet Mode timer from that decision.
+- Retains core-first OTA validation, Wi-Fi/BLE coexistence handling, direct portal discovery, complete touchscreen/browser/Android controls, native-rate WAV audio, and both NEW and coroNET 1 LEGACY LED libraries at fixed-deadline 50 FPS.
+
+### Validation Focus
+- Long-duration simultaneous LED, audio, Moonraker, Wi-Fi, BLE, touchscreen, browser, and Android operation.
+- Repeated printer disconnect and recovery, OTA/reinstall, power-cycle, pairing, SD audio, and ventilation workflows.
+- Correction of any reproducible defect found by the reference unit or tester hardware before the `1.0.0` production qualification milestone.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.7.0_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; version 0.7.0 includes the matching Quiet Mode duration picker and coordinated settings support.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.9...v0.7.0
+
 ## 0.6.9
 
 ### Runtime Stack and Restart Recovery

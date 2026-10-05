@@ -13,6 +13,7 @@ public:
 
 private:
     QuietTarget observedTarget_ = QuietTarget::Off;
+    uint16_t observedDurationMinutes_ = 60;
     uint32_t activeSinceMs_ = 0;
 };
 

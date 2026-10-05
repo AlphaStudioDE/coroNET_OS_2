@@ -948,7 +948,7 @@ void BleService::handleCommand(const char* command, size_t length) {
             strlcpy(cfg.timeZone, timeZone, sizeof(cfg.timeZone));
         }
         if (doc["quietTarget"].is<int>()) cfg.quietTarget = static_cast<QuietTarget>(constrain(doc["quietTarget"].as<int>(), 0, 3));
-        if (doc["quietDurationMinutes"].is<int>()) cfg.quietDurationMinutes = constrain(doc["quietDurationMinutes"].as<int>(), 1, 1440);
+        if (doc["quietDurationMinutes"].is<int>()) cfg.quietDurationMinutes = constrain(doc["quietDurationMinutes"].as<int>(), 0, 1440);
         if (doc["quietErrorsBypass"].is<bool>()) cfg.quietErrorsBypass = doc["quietErrorsBypass"].as<bool>();
         if (doc["ledEnabled"].is<bool>()) cfg.ledEnabled = doc["ledEnabled"].as<bool>();
         if (doc["ledOtherMode"].is<bool>()) cfg.ledOtherMode = doc["ledOtherMode"].as<bool>();

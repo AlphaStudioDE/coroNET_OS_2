@@ -273,7 +273,7 @@ void SettingsService::load() {
     if (static_cast<uint8_t>(settings_.quietTarget) > static_cast<uint8_t>(QuietTarget::SoundAndLeds)) {
         settings_.quietTarget = QuietTarget::Off;
     }
-    settings_.quietDurationMinutes = clampValue<uint16_t>(settings_.quietDurationMinutes, 1, 1440);
+    if (settings_.quietDurationMinutes > 1440U) settings_.quietDurationMinutes = 1440U;
     if (needsMigrationSave) {
         settings_.schemaVersion = CurrentSchema;
         ensureApiToken();

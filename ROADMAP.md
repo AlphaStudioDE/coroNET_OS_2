@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closed the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. Release `0.6.0` completed the detailed coroNET OS 1 parity and reliability audit. Releases `0.6.1` through `0.6.9` continue the physical-validation correction line with a hardened OTA-to-runtime handoff, supervised and ordered BLE startup, restored Wi-Fi/BLE coexistence defaults, direct portal discovery, safe browser-state serialization, persistent boot-crash evidence, an ordered startup-memory handoff before the first HTTP request, core OTA validation before independent network clients, and protected stack headroom for Moonraker failure and recovery handling. The project is now in systematic physical fault finding, recovery testing, defect correction, and formal 1.0 stability qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closed the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. Release `0.6.0` completed the detailed coroNET OS 1 parity and reliability audit. Releases `0.6.1` through `0.6.9` completed the physical-validation correction line with a hardened OTA-to-runtime handoff, supervised BLE startup, restored Wi-Fi/BLE coexistence defaults, direct portal discovery, safe browser-state serialization, persistent boot-crash evidence, an ordered startup-memory handoff before the first HTTP request, core OTA validation before independent network clients, and protected stack headroom for Moonraker failure and recovery handling. Release `0.7.0` begins the dedicated stability-test phase for the reference unit and external testers, with development focused on endurance, recovery, reproducible defect correction, and formal 1.0 qualification.
 
 ## Foundation
 
@@ -136,13 +136,20 @@ The protocol, hardware details, and release schedule will be published only afte
 - [x] restore OS 1-equivalent LED transition timing while retaining the fixed 50 FPS presentation path
 - [x] harden rapid audio changes, Moonraker state recovery, startup allocation failures, and OTA maintenance handoff
 - [x] verify the exact two-slot OTA partition layout and reject malformed release artifacts
-- [ ] exercise every touchscreen, Android, and browser workflow on physical hardware
-- [ ] visually inspect every LED animation for intent, direction, transitions, color, and brightness
-- [ ] test simultaneous control from the touchscreen, Android companion, and browser panel
-- [ ] validate BLE/WiFi recovery, Moonraker reconnect, OTA, SD audio, ventilation, and pairing resets
+- [x] validate the corrected touchscreen, Android, browser, LED, audio, Moonraker, OTA, and recovery paths exercised during the 0.6.x hardware-debug cycle
 - [ ] validate Panda Breath discovery and direct control on physical hardware
 - [ ] complete accessibility, localization, and touch-calibration review
-- [ ] correct every functional issue found during physical testing
+- [x] correct the reproducible release-blocking issues found during the 0.6.x physical-validation cycle
+
+### 0.7.x - Stability Testing
+
+- [x] prepare a coordinated firmware, Android, OTA, recovery, and source baseline for tester use
+- [x] retain measured stack margin and recovery protection under live Moonraker telemetry
+- [x] remove redundant BLE scheduling dependencies while preserving BLE's own OTA and resource guards
+- [ ] complete long-duration mixed-load testing with LED, audio, Moonraker, Wi-Fi, BLE, display, touch, browser, and Android active
+- [ ] repeat printer disconnect, network loss, pairing, OTA, reinstall, SD recovery, and power-cycle scenarios
+- [ ] triage and correct every reproducible defect reported by the reference unit and external testers
+- [ ] complete Panda Breath hardware validation and remaining accessibility, localization, and touch-calibration review
 
 ### 1.0.0 - Production Qualification Milestone
 

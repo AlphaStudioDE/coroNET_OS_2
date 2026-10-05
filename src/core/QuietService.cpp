@@ -14,7 +14,9 @@ QuietService& quietService() {
 }
 
 void QuietService::begin() {
-    observedTarget_ = settingsService().settings().quietTarget;
+    const AppSettings& settings = settingsService().settings();
+    observedTarget_ = settings.quietTarget;
+    observedDurationMinutes_ = settings.quietDurationMinutes;
     activeSinceMs_ = millis();
     const bool active = observedTarget_ != QuietTarget::Off;
     updateState([active](SystemState& system) { system.quietActive = active; });
@@ -22,16 +24,23 @@ void QuietService::begin() {
 
 void QuietService::loop() {
     const AppSettings settings = settingsService().snapshot();
-    if (settings.quietTarget != observedTarget_) {
+    if (settings.quietTarget != observedTarget_ ||
+        settings.quietDurationMinutes != observedDurationMinutes_) {
         observedTarget_ = settings.quietTarget;
+        observedDurationMinutes_ = settings.quietDurationMinutes;
         activeSinceMs_ = millis();
         const bool active = observedTarget_ != QuietTarget::Off;
         updateState([active](SystemState& system) { system.quietActive = active; });
-        Serial.printf("[quiet] %s, duration=%u min\n",
-                      active ? "active" : "off",
-                      static_cast<unsigned>(settings.quietDurationMinutes));
+        if (settings.quietDurationMinutes == 0) {
+            Serial.printf("[quiet] %s, duration=unlimited\n", active ? "active" : "off");
+        } else {
+            Serial.printf("[quiet] %s, duration=%u min\n",
+                          active ? "active" : "off",
+                          static_cast<unsigned>(settings.quietDurationMinutes));
+        }
     }
     if (!stateSnapshot().quietActive) return;
+    if (settings.quietDurationMinutes == 0) return;
     const uint32_t durationMs = static_cast<uint32_t>(settings.quietDurationMinutes) * 60000UL;
     if (millis() - activeSinceMs_ < durationMs) return;
     settingsService().update([](AppSettings& current) {

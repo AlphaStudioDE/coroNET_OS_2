@@ -1,5 +1,6 @@
 package de.alphastudio.coronet2.ui
 
+import android.widget.NumberPicker
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,11 +21,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import de.alphastudio.coronet2.model.ConnectionKind
 import de.alphastudio.coronet2.model.DeviceSettings
 import de.alphastudio.coronet2.model.DeviceSnapshot
@@ -78,6 +81,9 @@ internal fun SettingsPage(
     setTransport: (Int) -> Unit,
 ) {
     var showZones by remember { mutableStateOf(false) }
+    var showQuietDuration by remember { mutableStateOf(false) }
+    var quietHours by remember { mutableStateOf(1) }
+    var quietMinutes by remember { mutableStateOf(0) }
     var pendingOta by remember { mutableStateOf<String?>(null) }
     var deviceName by remember(snapshot.device?.id, snapshot.device?.name) {
         mutableStateOf(snapshot.device?.name.orEmpty())
@@ -114,7 +120,13 @@ internal fun SettingsPage(
                 CompactChoices(listOf("OFF", "SOUND", "LEDS", "BOTH"), settings.quietTarget.coerceIn(0, 3)) {
                     send(jsonSetting("quietTarget", it))
                 }
-                ValueSlider("Duration", settings.quietDurationMinutes.coerceIn(5, 240), 5..240, " min") { send(jsonSetting("quietDurationMinutes", it)) }
+                ChoiceButton("Duration", quietDurationLabel(settings.quietDurationMinutes)) {
+                    val current = settings.quietDurationMinutes.coerceIn(0, 1440)
+                    val finite = if (current == 0) 60 else current
+                    quietHours = finite / 60
+                    quietMinutes = finite % 60
+                    showQuietDuration = true
+                }
                 SettingSwitch(
                     "Errors bypass quiet mode",
                     settings.quietErrorsBypass,
@@ -187,6 +199,27 @@ internal fun SettingsPage(
     )
 
     if (showZones) TimeZoneDialog(settings.timeZone, send) { showZones = false }
+    if (showQuietDuration) {
+        QuietDurationDialog(
+            hours = quietHours,
+            minutes = quietMinutes,
+            onHoursChanged = {
+                quietHours = it
+                if (it == 24) quietMinutes = 0
+            },
+            onMinutesChanged = { if (quietHours < 24) quietMinutes = it },
+            onCancel = { showQuietDuration = false },
+            onUnlimited = {
+                showQuietDuration = false
+                send(jsonSetting("quietDurationMinutes", 0))
+            },
+            onConfirm = {
+                val total = (quietHours * 60 + quietMinutes).coerceIn(1, 1440)
+                showQuietDuration = false
+                send(jsonSetting("quietDurationMinutes", total))
+            },
+        )
+    }
     pendingOta?.let { action ->
         AlertDialog(
             onDismissRequest = { pendingOta = null },
@@ -196,6 +229,82 @@ internal fun SettingsPage(
                 Button(onClick = { pendingOta = null; sendOta(action) }) { Text("CONTINUE") }
             },
             dismissButton = { TextButton(onClick = { pendingOta = null }) { Text("CANCEL") } },
+        )
+    }
+}
+
+private fun quietDurationLabel(minutes: Int): String {
+    if (minutes <= 0) return "UNLIMITED"
+    val bounded = minutes.coerceAtMost(1440)
+    return "%02d : %02d".format(bounded / 60, bounded % 60)
+}
+
+@Composable
+private fun QuietDurationDialog(
+    hours: Int,
+    minutes: Int,
+    onHoursChanged: (Int) -> Unit,
+    onMinutesChanged: (Int) -> Unit,
+    onCancel: () -> Unit,
+    onUnlimited: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Quiet mode duration") },
+        text = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DurationWheel("HOURS", hours, 0..24, true, onHoursChanged, Modifier.weight(1f))
+                Text(":", fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+                DurationWheel("MINUTES", minutes, 0..59, hours < 24, onMinutesChanged, Modifier.weight(1f))
+            }
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onCancel) { Text("CANCEL") }
+                TextButton(onClick = onUnlimited) { Text("UNLIMITED") }
+                Button(onClick = onConfirm) { Text("CONFIRM") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun DurationWheel(
+    label: String,
+    value: Int,
+    range: IntRange,
+    enabled: Boolean,
+    onValueChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        AndroidView(
+            modifier = Modifier.fillMaxWidth().height(150.dp),
+            factory = { context ->
+                NumberPicker(context).apply {
+                    minValue = range.first
+                    maxValue = range.last
+                    wrapSelectorWheel = true
+                    descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
+                    setFormatter { "%02d".format(it) }
+                    setOnValueChangedListener { _, _, next -> onValueChanged(next) }
+                }
+            },
+            update = { picker ->
+                picker.isEnabled = enabled
+                val bounded = value.coerceIn(range.first, range.last)
+                if (picker.value != bounded) picker.value = bounded
+            },
         )
     }
 }

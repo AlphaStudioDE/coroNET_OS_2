@@ -23,6 +23,12 @@ constexpr uint8_t TimeZonePageCount =
     static_cast<uint8_t>((TimeZoneOptionCount + TimeZonePageSize - 1) / TimeZonePageSize);
 constexpr int kCardSliderRight = 422;
 constexpr int kSliderClickPadding = 13;
+constexpr const char* QuietHourOptions =
+    "00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24";
+constexpr const char* QuietMinuteOptions =
+    "00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19"
+    "\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39"
+    "\n40\n41\n42\n43\n44\n45\n46\n47\n48\n49\n50\n51\n52\n53\n54\n55\n56\n57\n58\n59";
 
 void styleText(lv_obj_t* object, uint32_t color, const lv_font_t* font) {
     lv_obj_set_style_text_color(object, lv_color_hex(color), LV_PART_MAIN);
@@ -126,6 +132,34 @@ void styleSlider(lv_obj_t* slider) {
     lv_obj_set_style_bg_color(slider, lv_color_hex(ui::ColorText), LV_PART_KNOB);
     lv_obj_set_style_pad_all(slider, 4, LV_PART_KNOB);
     lv_obj_set_ext_click_area(slider, kSliderClickPadding);
+}
+
+void styleTimeRoller(lv_obj_t* roller) {
+    lv_obj_set_style_bg_color(roller, lv_color_hex(ui::ColorSurface), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(roller, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(roller, lv_color_hex(ui::ColorBorder), LV_PART_MAIN);
+    lv_obj_set_style_radius(roller, ui::CornerRadius, LV_PART_MAIN);
+    lv_obj_set_style_text_color(roller, lv_color_hex(ui::ColorMuted), LV_PART_MAIN);
+    lv_obj_set_style_text_font(roller, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_line_space(roller, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(roller, lv_color_hex(ui::ColorCyanDark), LV_PART_SELECTED);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_SELECTED);
+    lv_obj_set_style_text_color(roller, lv_color_hex(ui::ColorText), LV_PART_SELECTED);
+    lv_obj_set_style_text_font(roller, &lv_font_montserrat_22, LV_PART_SELECTED);
+    lv_obj_set_style_border_width(roller, 1, LV_PART_SELECTED);
+    lv_obj_set_style_border_color(roller, lv_color_hex(ui::ColorCyan), LV_PART_SELECTED);
+}
+
+void setQuietDurationText(lv_obj_t* label, uint16_t totalMinutes) {
+    if (!label) return;
+    if (totalMinutes == 0) {
+        lv_label_set_text(label, "UNLIMITED");
+        return;
+    }
+    lv_label_set_text_fmt(label, "%02u : %02u",
+                          static_cast<unsigned>(totalMinutes / 60U),
+                          static_cast<unsigned>(totalMinutes % 60U));
 }
 
 }
@@ -372,14 +406,10 @@ void SettingsScreen::buildQuietCard(lv_obj_t* parent, int y) {
     lv_obj_t* button = makeActionButton(card, 250, 30, 180, &quietTargetButtonLabel_);
     actionBindings_[12] = {this, Action::QuietTargetNext};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[12]);
-    quietDurationLabel_ = makeLabel(card, "60 min", ui::ColorText, &lv_font_montserrat_10, 168, 86, 72);
-    lv_obj_set_style_text_align(quietDurationLabel_, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    quietDurationSlider_ = lv_slider_create(card);
-    lv_obj_set_size(quietDurationSlider_, kCardSliderRight - 250, 16);
-    lv_obj_set_pos(quietDurationSlider_, 250, 78);
-    lv_slider_set_range(quietDurationSlider_, 5, 240);
-    styleSlider(quietDurationSlider_);
-    bindSlider(quietDurationSlider_, 13, Action::QuietDuration);
+    button = makeActionButton(card, 250, 78, 180, &quietDurationLabel_);
+    lv_obj_set_style_border_color(button, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    actionBindings_[13] = {this, Action::QuietDurationOpen};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[13]);
     button = makeActionButton(card, 250, 126, 180, &quietErrorsButtonLabel_);
     actionBindings_[14] = {this, Action::QuietErrorsBypass};
     lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[14]);
@@ -507,9 +537,7 @@ void SettingsScreen::update() {
     if (!lv_obj_has_state(clockBrightnessSlider_, LV_STATE_PRESSED))
         lv_slider_set_value(clockBrightnessSlider_, settings.clockBrightness, LV_ANIM_OFF);
     lv_label_set_text(quietTargetButtonLabel_, quietTargetName(settings.quietTarget));
-    lv_label_set_text_fmt(quietDurationLabel_, "%u min", static_cast<unsigned>(settings.quietDurationMinutes));
-    if (!lv_obj_has_state(quietDurationSlider_, LV_STATE_PRESSED))
-        lv_slider_set_value(quietDurationSlider_, settings.quietDurationMinutes, LV_ANIM_OFF);
+    setQuietDurationText(quietDurationLabel_, settings.quietDurationMinutes);
     lv_label_set_text(quietErrorsButtonLabel_, settings.quietErrorsBypass ? "ALWAYS ALERT" : "MUTED");
 
     lv_label_set_text(otaStatusLabel_, system.otaStatusText);
@@ -843,6 +871,117 @@ void SettingsScreen::selectTimeZone(uint8_t slot) {
     closeTimeZonePicker();
 }
 
+void SettingsScreen::showQuietDurationPicker() {
+    if (quietDurationOverlay_) return;
+
+    quietDurationOverlay_ = lv_obj_create(root_);
+    lv_obj_set_size(quietDurationOverlay_, 480, 320);
+    lv_obj_set_pos(quietDurationOverlay_, 0, 0);
+    lv_obj_clear_flag(quietDurationOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(quietDurationOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(quietDurationOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(quietDurationOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(quietDurationOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(quietDurationOverlay_, 0, LV_PART_MAIN);
+
+    makeLabel(quietDurationOverlay_, "QUIET MODE DURATION", ui::ColorCyan,
+              &lv_font_montserrat_12, 18, 13);
+    lv_obj_t* hoursLabel = makeLabel(quietDurationOverlay_, "HOURS", ui::ColorMuted,
+                                     &lv_font_montserrat_10, 110, 39, 96);
+    lv_obj_set_style_text_align(hoursLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_t* minutesLabel = makeLabel(quietDurationOverlay_, "MINUTES", ui::ColorMuted,
+                                       &lv_font_montserrat_10, 274, 39, 96);
+    lv_obj_set_style_text_align(minutesLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    quietHoursRoller_ = lv_roller_create(quietDurationOverlay_);
+    lv_obj_set_size(quietHoursRoller_, 104, 164);
+    lv_obj_set_pos(quietHoursRoller_, 106, 56);
+    lv_roller_set_options(quietHoursRoller_, QuietHourOptions, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(quietHoursRoller_, 5);
+    styleTimeRoller(quietHoursRoller_);
+    lv_obj_add_event_cb(quietHoursRoller_, quietDurationEvent, LV_EVENT_VALUE_CHANGED, this);
+
+    quietMinutesRoller_ = lv_roller_create(quietDurationOverlay_);
+    lv_obj_set_size(quietMinutesRoller_, 104, 164);
+    lv_obj_set_pos(quietMinutesRoller_, 270, 56);
+    lv_roller_set_options(quietMinutesRoller_, QuietMinuteOptions, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(quietMinutesRoller_, 5);
+    styleTimeRoller(quietMinutesRoller_);
+    lv_obj_add_event_cb(quietMinutesRoller_, quietDurationEvent, LV_EVENT_VALUE_CHANGED, this);
+
+    lv_obj_t* separator = makeLabel(quietDurationOverlay_, ":", ui::ColorText,
+                                    &lv_font_montserrat_32, 210, 113, 60);
+    lv_obj_set_style_text_align(separator, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    quietDurationSelectionLabel_ = makeLabel(quietDurationOverlay_, "01 : 00",
+                                              ui::ColorText, &lv_font_montserrat_14,
+                                              140, 228, 200);
+    lv_obj_set_style_text_align(quietDurationSelectionLabel_, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    uint16_t selectedMinutes = settingsService().settings().quietDurationMinutes;
+    if (selectedMinutes == 0) selectedMinutes = 60;
+    if (selectedMinutes > 1440) selectedMinutes = 1440;
+    lv_roller_set_selected(quietHoursRoller_, selectedMinutes / 60U, LV_ANIM_OFF);
+    lv_roller_set_selected(quietMinutesRoller_, selectedMinutes % 60U, LV_ANIM_OFF);
+
+    lv_obj_t* label = nullptr;
+    lv_obj_t* button = makeActionButton(quietDurationOverlay_, 12, 256, 110, &label);
+    lv_obj_set_height(button, 48);
+    lv_label_set_text(label, "CANCEL");
+    actionBindings_[30] = {this, Action::QuietDurationCancel};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[30]);
+
+    button = makeActionButton(quietDurationOverlay_, 130, 256, 148, &label);
+    lv_obj_set_height(button, 48);
+    lv_obj_set_style_text_color(label, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_label_set_text(label, "UNLIMITED");
+    actionBindings_[31] = {this, Action::QuietDurationUnlimited};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[31]);
+
+    button = makeActionButton(quietDurationOverlay_, 286, 256, 182, &label);
+    lv_obj_set_height(button, 48);
+    lv_obj_set_style_border_color(button, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_label_set_text(label, "CONFIRM");
+    actionBindings_[32] = {this, Action::QuietDurationConfirm};
+    lv_obj_add_event_cb(button, actionEvent, LV_EVENT_CLICKED, &actionBindings_[32]);
+
+    refreshQuietDurationPicker();
+}
+
+void SettingsScreen::refreshQuietDurationPicker() {
+    if (!quietDurationOverlay_ || !quietHoursRoller_ || !quietMinutesRoller_) return;
+    const uint16_t hours = lv_roller_get_selected(quietHoursRoller_);
+    if (hours >= 24U && lv_roller_get_selected(quietMinutesRoller_) != 0) {
+        lv_roller_set_selected(quietMinutesRoller_, 0, LV_ANIM_OFF);
+    }
+    const uint16_t minutes = hours >= 24U ? 0U : lv_roller_get_selected(quietMinutesRoller_);
+    const uint16_t totalMinutes = static_cast<uint16_t>(hours * 60U + minutes);
+    setQuietDurationText(quietDurationSelectionLabel_, totalMinutes);
+}
+
+void SettingsScreen::closeQuietDurationPicker() {
+    if (!quietDurationOverlay_) return;
+    lv_obj_t* overlay = quietDurationOverlay_;
+    quietDurationOverlay_ = nullptr;
+    quietHoursRoller_ = nullptr;
+    quietMinutesRoller_ = nullptr;
+    quietDurationSelectionLabel_ = nullptr;
+    lv_obj_del_async(overlay);
+    cacheValid_ = false;
+}
+
+void SettingsScreen::confirmQuietDuration() {
+    if (!quietHoursRoller_ || !quietMinutesRoller_) return;
+    const uint16_t hours = lv_roller_get_selected(quietHoursRoller_);
+    const uint16_t minutes = hours >= 24U ? 0U : lv_roller_get_selected(quietMinutesRoller_);
+    uint16_t totalMinutes = static_cast<uint16_t>(hours * 60U + minutes);
+    if (totalMinutes == 0) totalMinutes = 1;
+    settingsService().update([totalMinutes](AppSettings& settings) {
+        settings.quietDurationMinutes = totalMinutes;
+    });
+    closeQuietDurationPicker();
+}
+
 void SettingsScreen::bindSlider(lv_obj_t* slider, uint8_t bindingIndex, Action action) {
     ActionBinding& binding = actionBindings_[bindingIndex];
     binding = {};
@@ -871,9 +1010,6 @@ void SettingsScreen::previewSlider(Action action, lv_obj_t* slider) {
             break;
         case Action::ClockBrightness:
             lv_label_set_text_fmt(clockBrightnessLabel_, "%d%%", value);
-            break;
-        case Action::QuietDuration:
-            lv_label_set_text_fmt(quietDurationLabel_, "%d min", value);
             break;
         default:
             break;
@@ -1005,14 +1141,21 @@ void SettingsScreen::handleAction(Action action, lv_event_t* event) {
                     (static_cast<uint8_t>(settings.quietTarget) + 1U) % 4U);
             });
             break;
-        case Action::QuietDuration: {
-            const uint16_t value = static_cast<uint16_t>(lv_slider_get_value(quietDurationSlider_));
-            settingsService().update([value](AppSettings& settings) {
-                settings.quietDurationMinutes = value;
-            }, lv_event_get_code(event) == LV_EVENT_RELEASED);
-            lv_label_set_text_fmt(quietDurationLabel_, "%u min", static_cast<unsigned>(value));
+        case Action::QuietDurationOpen:
+            showQuietDurationPicker();
             break;
-        }
+        case Action::QuietDurationCancel:
+            closeQuietDurationPicker();
+            break;
+        case Action::QuietDurationUnlimited:
+            settingsService().update([](AppSettings& settings) {
+                settings.quietDurationMinutes = 0;
+            });
+            closeQuietDurationPicker();
+            break;
+        case Action::QuietDurationConfirm:
+            confirmQuietDuration();
+            break;
         case Action::QuietErrorsBypass:
             settingsService().update([](AppSettings& settings) {
                 settings.quietErrorsBypass = !settings.quietErrorsBypass;
@@ -1096,6 +1239,11 @@ void SettingsScreen::timeZoneEvent(lv_event_t* event) {
     TimeZoneBinding* binding = static_cast<TimeZoneBinding*>(lv_event_get_user_data(event));
     if (!binding || !binding->owner) return;
     binding->owner->selectTimeZone(binding->slot);
+}
+
+void SettingsScreen::quietDurationEvent(lv_event_t* event) {
+    SettingsScreen* screen = static_cast<SettingsScreen*>(lv_event_get_user_data(event));
+    if (screen) screen->refreshQuietDurationPicker();
 }
 
 }

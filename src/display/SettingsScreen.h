@@ -45,7 +45,10 @@ private:
         SaverDelay,
         ClockBrightness,
         QuietTargetNext,
-        QuietDuration,
+        QuietDurationOpen,
+        QuietDurationCancel,
+        QuietDurationUnlimited,
+        QuietDurationConfirm,
         QuietErrorsBypass,
         OtaCheck,
         OtaInstall,
@@ -90,12 +93,17 @@ private:
     void refreshTimeZonePicker();
     void closeTimeZonePicker();
     void selectTimeZone(uint8_t slot);
+    void showQuietDurationPicker();
+    void refreshQuietDurationPicker();
+    void closeQuietDurationPicker();
+    void confirmQuietDuration();
     void bindSlider(lv_obj_t* slider, uint8_t bindingIndex, Action action);
     void previewSlider(Action action, lv_obj_t* slider);
     void handleAction(Action action, lv_event_t* event);
     static void actionEvent(lv_event_t* event);
     static void scrollEvent(lv_event_t* event);
     static void timeZoneEvent(lv_event_t* event);
+    static void quietDurationEvent(lv_event_t* event);
 
     lv_obj_t* root_ = nullptr;
     lv_obj_t* content_ = nullptr;
@@ -131,8 +139,11 @@ private:
     lv_obj_t* clockBrightnessSlider_ = nullptr;
     lv_obj_t* quietTargetButtonLabel_ = nullptr;
     lv_obj_t* quietDurationLabel_ = nullptr;
-    lv_obj_t* quietDurationSlider_ = nullptr;
     lv_obj_t* quietErrorsButtonLabel_ = nullptr;
+    lv_obj_t* quietDurationOverlay_ = nullptr;
+    lv_obj_t* quietHoursRoller_ = nullptr;
+    lv_obj_t* quietMinutesRoller_ = nullptr;
+    lv_obj_t* quietDurationSelectionLabel_ = nullptr;
     lv_obj_t* timeZoneOverlay_ = nullptr;
     lv_obj_t* timeZonePageLabel_ = nullptr;
     lv_obj_t* timeZoneButtons_[6] = {};
@@ -147,7 +158,7 @@ private:
     lv_obj_t* otaButtonLabels_[4] = {};
     lv_obj_t* otaInstallButton_ = nullptr;
     lv_obj_t* factoryResetButtonLabel_ = nullptr;
-    ActionBinding actionBindings_[30] = {};
+    ActionBinding actionBindings_[33] = {};
     ui::Navigation navigation_;
     SetupCallback setupCallback_ = nullptr;
     void* callbackContext_ = nullptr;
