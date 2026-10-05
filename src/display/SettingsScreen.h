@@ -52,6 +52,8 @@ private:
         OtaReinstall,
         OtaSdRecovery,
         FactoryReset,
+        PortalOpen,
+        PortalClose,
         PairingStart,
         PairingDeviceConfirm,
         PairingCancel,
@@ -82,6 +84,8 @@ private:
     void showPairingWizard();
     void updatePairingWizard();
     void closePairingWizard();
+    void showPortalPopup();
+    void closePortalPopup();
     void showTimeZonePicker();
     void refreshTimeZonePicker();
     void closeTimeZonePicker();
@@ -99,6 +103,7 @@ private:
     lv_obj_t* transportButtons_[3] = {};
     lv_obj_t* connectionDetailLabel_ = nullptr;
     lv_obj_t* pairingButtonLabel_ = nullptr;
+    lv_obj_t* portalOverlay_ = nullptr;
     lv_obj_t* pairingOverlay_ = nullptr;
     lv_obj_t* pairingCodeLabel_ = nullptr;
     lv_obj_t* pairingStatusLabel_ = nullptr;
@@ -142,7 +147,7 @@ private:
     lv_obj_t* otaButtonLabels_[4] = {};
     lv_obj_t* otaInstallButton_ = nullptr;
     lv_obj_t* factoryResetButtonLabel_ = nullptr;
-    ActionBinding actionBindings_[28] = {};
+    ActionBinding actionBindings_[30] = {};
     ui::Navigation navigation_;
     SetupCallback setupCallback_ = nullptr;
     void* callbackContext_ = nullptr;

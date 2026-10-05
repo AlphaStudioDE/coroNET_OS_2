@@ -29,7 +29,6 @@ WifiService& wifiService() {
 void WifiService::begin() {
     logHeapDiagnostics("wifi-before-mode");
     WiFi.mode(WIFI_STA);
-    configureRealtimeRadio();
     logHeapDiagnostics("wifi-after-mode");
     applySettings();
     logHeapDiagnostics("wifi-after-begin");
@@ -168,7 +167,6 @@ void WifiService::requestConnectionTest(const char* ssid, const char* password) 
     connectionRevision_++;
 
     WiFi.mode(WIFI_STA);
-    configureRealtimeRadio();
     reconnectInProgress_ = false;
     WiFi.disconnect(false, false);
     Serial.printf("[wifi] test scheduled ssid=%s\n", testSsid_);
@@ -279,7 +277,6 @@ void WifiService::pollConnectionTest() {
         if (millis() - connectionPrepareStartedMs_ < RadioSettleMs) return;
         connectionStartPending_ = false;
         connectionStartedMs_ = millis();
-        configureRealtimeRadio();
         WiFi.begin(testSsid_, testPassword_);
         Serial.printf("[wifi] testing ssid=%s\n", testSsid_);
         return;
@@ -379,7 +376,6 @@ void WifiService::startSavedConnection() {
     const uint32_t now = millis();
     Serial.printf("[wifi] connecting ssid=%s\n", activeSsid_);
     WiFi.mode(WIFI_STA);
-    configureRealtimeRadio();
     WiFi.disconnect(false, false);
     WiFi.begin(activeSsid_, activePassword_);
     reconnectInProgress_ = true;

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <lvgl.h>
+#include <WiFi.h>
 
 #include "../config/AppConfig.h"
 #include "../companion/PairingService.h"
@@ -223,11 +224,19 @@ void SettingsScreen::buildConnectionCard(lv_obj_t* parent, int y) {
     connectionDetailLabel_ = makeLabel(card, "", ui::ColorMuted,
                                        &lv_font_montserrat_10, 14, 86, 416);
     makeLabel(card, "PHONE LINK", ui::ColorMuted, &lv_font_montserrat_10, 14, 128);
-    lv_obj_t* pairingButton = makeActionButton(card, 250, 112, 180,
+    lv_obj_t* pairingButton = makeActionButton(card, 122, 112, 146,
                                                &pairingButtonLabel_);
     lv_obj_set_style_border_color(pairingButton, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
     actionBindings_[20] = {this, Action::PairingStart};
     lv_obj_add_event_cb(pairingButton, actionEvent, LV_EVENT_CLICKED, &actionBindings_[20]);
+
+    lv_obj_t* portalLabel = nullptr;
+    lv_obj_t* portalButton = makeActionButton(card, 278, 112, 152, &portalLabel);
+    lv_obj_set_style_border_color(portalButton, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_obj_set_style_text_color(portalLabel, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_label_set_text(portalLabel, "PORTAL");
+    actionBindings_[28] = {this, Action::PortalOpen};
+    lv_obj_add_event_cb(portalButton, actionEvent, LV_EVENT_CLICKED, &actionBindings_[28]);
 }
 
 void SettingsScreen::buildDeviceCard(lv_obj_t* parent, int y) {
@@ -670,6 +679,67 @@ void SettingsScreen::closePairingWizard() {
     cacheValid_ = false;
 }
 
+void SettingsScreen::showPortalPopup() {
+    if (portalOverlay_) return;
+
+    portalOverlay_ = lv_obj_create(root_);
+    lv_obj_set_size(portalOverlay_, 480, 320);
+    lv_obj_set_pos(portalOverlay_, 0, 0);
+    lv_obj_clear_flag(portalOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(portalOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(portalOverlay_, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(portalOverlay_, lv_color_hex(ui::ColorBackground), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(portalOverlay_, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(portalOverlay_, 0, LV_PART_MAIN);
+
+    makeLabel(portalOverlay_, "WEB PORTAL", ui::ColorCyan,
+              &lv_font_montserrat_12, 24, 18);
+    makeLabel(portalOverlay_, "Open either address on this Wi-Fi network.", ui::ColorText,
+              &lv_font_montserrat_14, 24, 45, 432);
+
+    lv_obj_t* addressPanel = lv_obj_create(portalOverlay_);
+    lv_obj_set_size(addressPanel, 432, 142);
+    lv_obj_set_pos(addressPanel, 24, 78);
+    stylePanel(addressPanel);
+
+    char ipAddress[48] = "Wi-Fi not connected";
+    if (WiFi.status() == WL_CONNECTED) {
+        const String ip = WiFi.localIP().toString();
+        snprintf(ipAddress, sizeof(ipAddress), "http://%s/", ip.c_str());
+    }
+    char localAddress[64] = "";
+    snprintf(localAddress, sizeof(localAddress), "http://%s.local/",
+             deviceIdentity().hostname());
+
+    makeLabel(addressPanel, "IP ADDRESS", ui::ColorMuted,
+              &lv_font_montserrat_10, 16, 15);
+    makeLabel(addressPanel, ipAddress,
+              WiFi.status() == WL_CONNECTED ? ui::ColorText : ui::ColorMuted,
+              &lv_font_montserrat_18, 16, 35, 400);
+    makeLabel(addressPanel, "LOCAL ADDRESS", ui::ColorMuted,
+              &lv_font_montserrat_10, 16, 78);
+    makeLabel(addressPanel, localAddress, ui::ColorText,
+              &lv_font_montserrat_18, 16, 98, 400);
+
+    lv_obj_t* closeLabel = nullptr;
+    lv_obj_t* closeButton = makeActionButton(portalOverlay_, 24, 246, 432, &closeLabel);
+    lv_obj_set_height(closeButton, 48);
+    lv_obj_set_style_border_color(closeButton, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_obj_set_style_text_color(closeLabel, lv_color_hex(ui::ColorCyan), LV_PART_MAIN);
+    lv_obj_set_style_text_font(closeLabel, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_label_set_text(closeLabel, "CLOSE");
+    actionBindings_[29] = {this, Action::PortalClose};
+    lv_obj_add_event_cb(closeButton, actionEvent, LV_EVENT_CLICKED, &actionBindings_[29]);
+}
+
+void SettingsScreen::closePortalPopup() {
+    if (!portalOverlay_) return;
+    lv_obj_t* overlay = portalOverlay_;
+    portalOverlay_ = nullptr;
+    lv_obj_del_async(overlay);
+    cacheValid_ = false;
+}
+
 void SettingsScreen::showTimeZonePicker() {
     if (timeZoneOverlay_) return;
     const int selected = timeZoneOptionIndex(settingsService().settings().timeZone);
@@ -967,6 +1037,12 @@ void SettingsScreen::handleAction(Action action, lv_event_t* event) {
                 factoryConfirmUntilMs_ = millis() + 5000U;
                 lv_label_set_text(factoryResetButtonLabel_, "CONFIRM RESET");
             }
+            break;
+        case Action::PortalOpen:
+            showPortalPopup();
+            break;
+        case Action::PortalClose:
+            closePortalPopup();
             break;
         case Action::PairingStart:
             showPairingWizard();

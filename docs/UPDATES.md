@@ -1,5 +1,28 @@
 # Development Updates
 
+## 0.6.1
+
+### OTA Startup Recovery
+- Fixed the field-observed update failure where a verified 0.6.0 image joined Wi-Fi but did not start the local portal, then rolled back to 0.5.0.
+- Moved NimBLE initialization out of the blocking firmware setup path and into a supervised worker, allowing the display, web portal, and OTA rollback monitor to reach their running state first.
+- Added a bounded BLE startup timeout and retained the RTC crash guard so a stalled radio initialization produces a controlled rollback or BLE-safe recovery instead of an inaccessible device.
+- Extended OTA image validation to wait for a definite BLE startup result in addition to display, touch, and LED readiness.
+- Prevented OTA TLS work from starting while the supervised Bluetooth host initialization is still in progress.
+- Delayed Wi-Fi power-save tuning until a connection exists, avoiding unnecessary Wi-Fi/BLE coexistence changes while both radios are still starting.
+
+### Runtime And Interface
+- Increased the dedicated LED renderer stack after the 0.6.0 stack audit showed insufficient margin for the new synchronized state snapshots at 50 FPS.
+- Added a **PORTAL** action beside **PAIR PHONE** in **Settings > Companion connection**.
+- Added a focused portal dialog showing both the current `http://IP/` address and the stable `http://coronet-xxxx.local/` address, including a clear offline state.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.1_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk` from the assets below; application behavior is unchanged, but the package version is coordinated with this release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.0...v0.6.1
+
 ## 0.6.0
 
 ### coroNET OS 1 Reliability Audit

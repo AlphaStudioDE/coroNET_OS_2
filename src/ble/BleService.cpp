@@ -32,6 +32,8 @@ BleService gBleService;
 
 constexpr uint32_t kBleCrashGuardMagic = 0x434E4232UL;
 constexpr uint32_t kBleStableAfterMs = 120000UL;
+constexpr uint32_t kBleStartupTimeoutMs = 15000UL;
+constexpr uint32_t kBleStartupTaskStackBytes = 6144UL;
 // NimBLE OS2 keeps eligible host buffers in PSRAM. Its measured startup cost
 // is about 41 KB, so 96 KB leaves useful headroom without rejecting the normal
 // post-web startup baseline (which is lower than the monolithic OS1 baseline).
@@ -40,6 +42,7 @@ constexpr uint32_t kBleMinInternalLargest = 48UL * 1024UL;
 constexpr uint32_t kBleMinDmaLargest = 24UL * 1024UL;
 RTC_DATA_ATTR uint32_t gBleCrashGuardMagic = 0;
 RTC_DATA_ATTR uint8_t gBleCrashGuardArmed = 0;
+RTC_DATA_ATTR uint8_t gBleStartupFailure = 0;
 
 bool resetReasonSuggestsCrash() {
     const esp_reset_reason_t reason = esp_reset_reason();
@@ -49,17 +52,20 @@ bool resetReasonSuggestsCrash() {
 
 bool previousBleStartupCrashed() {
     return gBleCrashGuardMagic == kBleCrashGuardMagic &&
-           gBleCrashGuardArmed != 0 && resetReasonSuggestsCrash();
+           gBleCrashGuardArmed != 0 &&
+           (gBleStartupFailure != 0 || resetReasonSuggestsCrash());
 }
 
 void armBleCrashGuard() {
     gBleCrashGuardMagic = kBleCrashGuardMagic;
     gBleCrashGuardArmed = 1;
+    gBleStartupFailure = 0;
 }
 
 void disarmBleCrashGuard() {
     gBleCrashGuardMagic = kBleCrashGuardMagic;
     gBleCrashGuardArmed = 0;
+    gBleStartupFailure = 0;
 }
 
 bool bleResourcesAvailable() {
@@ -206,11 +212,31 @@ void BleService::begin() {
     }
     strlcpy(deviceId_, deviceIdentity().id(), sizeof(deviceId_));
     appliedSettingsRevision_ = settingsService().revision();
-    applySettings();
+    // NimBLE can take long enough to starve setup while Wi-Fi is negotiating.
+    // Start it from its own task after setup has completed so web and OTA
+    // rollback supervision are already alive.
+    portENTER_CRITICAL(&connectionMux_);
+    startupSettled_ = unavailableThisBoot_;
+    portEXIT_CRITICAL(&connectionMux_);
 }
 
 void BleService::loop() {
     applySettings();
+
+    bool startupTimedOut = false;
+    const uint32_t now = millis();
+    portENTER_CRITICAL(&connectionMux_);
+    startupTimedOut = startupInProgress_ &&
+                      now - startupStartedMs_ >= kBleStartupTimeoutMs;
+    if (startupTimedOut) gBleStartupFailure = 1;
+    portEXIT_CRITICAL(&connectionMux_);
+    if (startupTimedOut) {
+        Serial.println("[ble] startup timed out; restarting for rollback/recovery");
+        Serial.flush();
+        delay(50);
+        ESP.restart();
+    }
+
     if (!started_) return;
 
     if (startupGuardActive_ && millis() - stackStartedMs_ >= kBleStableAfterMs) {
@@ -386,6 +412,46 @@ void BleService::startStack() {
     }
 }
 
+void BleService::scheduleStackStart() {
+    portENTER_CRITICAL(&connectionMux_);
+    if (started_ || startupInProgress_ || unavailableThisBoot_) {
+        portEXIT_CRITICAL(&connectionMux_);
+        return;
+    }
+    startupInProgress_ = true;
+    startupSettled_ = false;
+    startupStartedMs_ = millis();
+    portEXIT_CRITICAL(&connectionMux_);
+
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        startupTaskEntry, "coronet-ble-init", kBleStartupTaskStackBytes,
+        this, 4, &startupTask_, 0);
+    if (created == pdPASS) return;
+
+    portENTER_CRITICAL(&connectionMux_);
+    startupTask_ = nullptr;
+    startupInProgress_ = false;
+    startupSettled_ = true;
+    unavailableThisBoot_ = true;
+    portEXIT_CRITICAL(&connectionMux_);
+    updateState([](SystemState& system) { system.bleReady = false; });
+    Serial.println("[ble] startup task allocation failed; BLE disabled for this boot");
+}
+
+void BleService::startupTaskEntry(void* context) {
+    BleService* service = static_cast<BleService*>(context);
+    service->startStack();
+
+    portENTER_CRITICAL(&service->connectionMux_);
+    service->startupTask_ = nullptr;
+    service->startupInProgress_ = false;
+    service->startupSettled_ = true;
+    portEXIT_CRITICAL(&service->connectionMux_);
+    Serial.printf("[ble] startup task stack headroom=%uB\n",
+                  static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+    vTaskDelete(nullptr);
+}
+
 void BleService::stopStack() {
     if (!started_ && !stateSnapshot().bleReady) return;
 
@@ -431,8 +497,17 @@ void BleService::applySettings() {
                        fallbackActive_);
     if (radioAllowed && !shouldStart && isConnected()) shouldStart = true;
 
-    if (shouldStart && !started_ && !unavailableThisBoot_) startStack();
-    else if (!shouldStart && started_) stopStack();
+    bool startupInProgress = false;
+    portENTER_CRITICAL(&connectionMux_);
+    startupInProgress = startupInProgress_;
+    if (!shouldStart && !startupInProgress_) startupSettled_ = true;
+    portEXIT_CRITICAL(&connectionMux_);
+
+    if (shouldStart && !started_ && !unavailableThisBoot_ && !startupInProgress) {
+        scheduleStackStart();
+    } else if (!shouldStart && started_ && !startupInProgress) {
+        stopStack();
+    }
 
     const uint32_t revision = settingsService().revision();
     if (started_ && revision != appliedSettingsRevision_) {
@@ -479,6 +554,13 @@ void BleService::onDisconnected() {
 bool BleService::active() {
     portENTER_CRITICAL(&connectionMux_);
     const bool value = started_;
+    portEXIT_CRITICAL(&connectionMux_);
+    return value;
+}
+
+bool BleService::startupSettled() {
+    portENTER_CRITICAL(&connectionMux_);
+    const bool value = startupSettled_;
     portEXIT_CRITICAL(&connectionMux_);
     return value;
 }

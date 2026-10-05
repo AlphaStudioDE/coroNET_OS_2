@@ -1,6 +1,6 @@
 # coroNET OS 2 Roadmap
 
-This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closed the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. Release `0.6.0` completes the detailed coroNET OS 1 parity and reliability audit and moves the project into systematic physical fault finding, recovery testing, defect correction, and formal 1.0 stability qualification.
+This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closed the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. Release `0.6.0` completed the detailed coroNET OS 1 parity and reliability audit. Release `0.6.1` begins the physical-validation correction line with a hardened OTA-to-runtime handoff, supervised BLE startup, and direct portal discovery. The project is now in systematic physical fault finding, recovery testing, defect correction, and formal 1.0 stability qualification.
 
 ## Foundation
 

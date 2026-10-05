@@ -44,7 +44,7 @@ public:
 private:
     static constexpr uint32_t FrameIntervalMs = 20;
     static constexpr uint32_t SpiClockHz = 3200000;
-    static constexpr uint32_t TaskStackBytes = 3584;
+    static constexpr uint32_t TaskStackBytes = 5120;
     // LED deadlines outrank LVGL (priority 16); system WiFi/BT tasks remain higher.
     static constexpr UBaseType_t TaskPriority = 18;
     static constexpr UBaseType_t BootTaskPriority = 22;

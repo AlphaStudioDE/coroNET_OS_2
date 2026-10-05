@@ -11,6 +11,7 @@
 #include <time.h>
 
 #include "../audio/AudioService.h"
+#include "../ble/BleService.h"
 #include "../config/AppConfig.h"
 #include "../core/SystemState.h"
 #include "../led/LedService.h"
@@ -48,12 +49,14 @@ public:
         const uint32_t started = millis();
         while (millis() - started < 1500U) {
             const SystemState state = stateSnapshot();
-            if (!state.bleReady && printerService().realtimeResourcesReleased() &&
+            if (bleService().startupSettled() && !state.bleReady &&
+                printerService().realtimeResourcesReleased() &&
                 pandaBreathService().realtimeResourcesReleased()) break;
             vTaskDelay(pdMS_TO_TICKS(20));
         }
         const bool bleReleased = !stateSnapshot().bleReady;
-        prepared_ = bleReleased && printerService().realtimeResourcesReleased() &&
+        prepared_ = bleService().startupSettled() && bleReleased &&
+                    printerService().realtimeResourcesReleased() &&
                     pandaBreathService().realtimeResourcesReleased();
         const uint32_t freeAfter = heap_caps_get_free_size(
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -208,7 +211,8 @@ void OtaService::loop() {
     if (now - stableSinceMs_ < kValidationDelayMs ||
         now - lastValidationAttemptMs_ < kValidationRetryMs) return;
     const SystemState state = stateSnapshot();
-    if (!state.displayReady || !state.touchReady || !state.ledReady) return;
+    if (!state.displayReady || !state.touchReady || !state.ledReady ||
+        !bleService().startupSettled()) return;
 
     lastValidationAttemptMs_ = now;
     const esp_err_t result = esp_ota_mark_app_valid_cancel_rollback();

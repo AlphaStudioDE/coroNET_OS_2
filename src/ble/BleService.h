@@ -5,6 +5,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/task.h>
 
 class NimBLECharacteristic;
 
@@ -20,6 +21,7 @@ public:
     void onDisconnected();
     void onMtuChanged(uint16_t mtu);
     bool active();
+    bool startupSettled();
 
 private:
     static constexpr size_t CommandMaxLength = 384;
@@ -33,6 +35,8 @@ private:
     bool started_ = false;
     bool unavailableThisBoot_ = false;
     bool startupGuardActive_ = false;
+    bool startupInProgress_ = false;
+    bool startupSettled_ = false;
     bool connected_ = false;
     bool stateDirty_ = true;
     bool connectionEventPending_ = false;
@@ -53,12 +57,15 @@ private:
     uint32_t wifiOfflineSinceMs_ = 0;
     uint32_t lastPairingPublishMs_ = 0;
     uint32_t stackStartedMs_ = 0;
+    uint32_t startupStartedMs_ = 0;
     QueueHandle_t commandQueue_ = nullptr;
+    TaskHandle_t startupTask_ = nullptr;
     portMUX_TYPE connectionMux_ = portMUX_INITIALIZER_UNLOCKED;
     char deviceId_[13] = "";
     char advertisedName_[25] = "";
 
     void startStack();
+    void scheduleStackStart();
     void stopStack();
     void applySettings();
     void updateAdvertisingName();
@@ -75,6 +82,7 @@ private:
                     uint8_t messageType,
                     const uint8_t* payload,
                     size_t length);
+    static void startupTaskEntry(void* context);
 };
 
 BleService& bleService();
