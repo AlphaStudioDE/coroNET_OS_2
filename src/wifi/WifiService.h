@@ -85,7 +85,6 @@ private:
     uint32_t mdnsIp_ = 0;
 
     void applySettings();
-    void configureRealtimeRadio();
     void startSavedConnection();
     void maintainConnection();
     void startPreparedScan();

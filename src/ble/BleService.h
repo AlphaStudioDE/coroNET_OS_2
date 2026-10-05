@@ -58,6 +58,7 @@ private:
     uint32_t lastPairingPublishMs_ = 0;
     uint32_t stackStartedMs_ = 0;
     uint32_t startupStartedMs_ = 0;
+    uint32_t webReadySinceMs_ = 0;
     QueueHandle_t commandQueue_ = nullptr;
     TaskHandle_t startupTask_ = nullptr;
     portMUX_TYPE connectionMux_ = portMUX_INITIALIZER_UNLOCKED;

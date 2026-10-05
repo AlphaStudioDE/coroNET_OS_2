@@ -295,7 +295,6 @@ void WifiService::pollConnectionTest() {
     connectionStatus_ = completedStatus;
     connectionRevision_++;
     if (completedStatus == WifiConnectStatus::Connected) {
-        configureRealtimeRadio();
         char ip[16] = "";
         connectionIp(ip, sizeof(ip));
         Serial.printf("[wifi] test connected ssid=%s ip=%s\n", testSsid_, ip);
@@ -356,17 +355,6 @@ void WifiService::applySettings() {
     startSavedConnection();
 }
 
-void WifiService::configureRealtimeRadio() {
-    // Modem sleep caused missed beacons and multi-second Core 0 stalls on the
-    // original hardware. Apply both Arduino and IDF settings because the Wi-Fi
-    // stack may restore power saving while reconnecting.
-    WiFi.setSleep(false);
-    const esp_err_t result = esp_wifi_set_ps(WIFI_PS_NONE);
-    if (result != ESP_OK && result != ESP_ERR_WIFI_NOT_INIT) {
-        Serial.printf("[wifi] failed to disable power save: %d\n", static_cast<int>(result));
-    }
-}
-
 void WifiService::startSavedConnection() {
     if (!activeSsid_[0] || connectionTestActive_ || scanStartPending_ ||
         scanStatus_ == WifiScanStatus::Scanning) {
@@ -392,7 +380,6 @@ void WifiService::maintainConnection() {
 
     const wl_status_t status = WiFi.status();
     if (status == WL_CONNECTED) {
-        if (reconnectInProgress_ || !stateSnapshot().wifiConnected) configureRealtimeRadio();
         reconnectInProgress_ = false;
         return;
     }

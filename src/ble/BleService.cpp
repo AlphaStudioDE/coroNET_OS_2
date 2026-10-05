@@ -34,6 +34,7 @@ constexpr uint32_t kBleCrashGuardMagic = 0x434E4232UL;
 constexpr uint32_t kBleStableAfterMs = 120000UL;
 constexpr uint32_t kBleStartupTimeoutMs = 15000UL;
 constexpr uint32_t kBleStartupTaskStackBytes = 6144UL;
+constexpr uint32_t kBleStartupWebGraceMs = 5000UL;
 // NimBLE OS2 keeps eligible host buffers in PSRAM. Its measured startup cost
 // is about 41 KB, so 96 KB leaves useful headroom without rejecting the normal
 // post-web startup baseline (which is lower than the monolithic OS1 baseline).
@@ -482,7 +483,8 @@ void BleService::applySettings() {
     const uint32_t now = millis();
     const bool wifiConnected = stateSnapshot().wifiConnected;
 
-    if (cfg.companionTransport == CompanionTransport::Wifi && !wifiConnected) {
+    if (cfg.bleEnabled && cfg.companionTransport == CompanionTransport::Auto &&
+        !wifiConnected) {
         if (wifiOfflineSinceMs_ == 0) wifiOfflineSinceMs_ = now ? now : 1;
         fallbackActive_ = now - wifiOfflineSinceMs_ >= config::BleWifiFallbackDelayMs;
     } else {
@@ -493,9 +495,22 @@ void BleService::applySettings() {
     const SystemState system = stateSnapshot();
     const bool radioAllowed = !system.maintenanceMode && !system.otaTlsWindowActive;
     bool shouldStart = radioAllowed && (!cfg.apiPaired ||
-                       (cfg.bleEnabled && cfg.companionTransport != CompanionTransport::Wifi) ||
+                       (cfg.bleEnabled &&
+                        cfg.companionTransport == CompanionTransport::Ble) ||
                        fallbackActive_);
     if (radioAllowed && !shouldStart && isConnected()) shouldStart = true;
+
+    // When Wi-Fi is already online, let the local portal and TCP/IP task settle
+    // before NimBLE changes the shared radio state. Devices without a working
+    // Wi-Fi link still receive BLE immediately for setup and recovery.
+    if (system.wifiConnected && system.webReady) {
+        if (webReadySinceMs_ == 0) webReadySinceMs_ = now ? now : 1U;
+    } else {
+        webReadySinceMs_ = 0;
+    }
+    const bool webGraceComplete = !system.wifiConnected ||
+        (system.webReady && webReadySinceMs_ != 0 &&
+         now - webReadySinceMs_ >= kBleStartupWebGraceMs);
 
     bool startupInProgress = false;
     portENTER_CRITICAL(&connectionMux_);
@@ -503,7 +518,8 @@ void BleService::applySettings() {
     if (!shouldStart && !startupInProgress_) startupSettled_ = true;
     portEXIT_CRITICAL(&connectionMux_);
 
-    if (shouldStart && !started_ && !unavailableThisBoot_ && !startupInProgress) {
+    if (shouldStart && webGraceComplete && !started_ && !unavailableThisBoot_ &&
+        !startupInProgress) {
         scheduleStackStart();
     } else if (!shouldStart && started_ && !startupInProgress) {
         stopStack();

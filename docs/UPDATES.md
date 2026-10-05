@@ -1,5 +1,26 @@
 # Development Updates
 
+## 0.6.2
+
+### Radio Startup Recovery
+- Supersedes 0.6.1 after physical OTA validation showed that the updated image still rolled back while the Bluetooth host and connected Wi-Fi radio initialized together.
+- Restored the framework's proven Wi-Fi power-management and coexistence defaults from 0.5.0 instead of forcing `WIFI_PS_NONE` during runtime.
+- Corrected **AUTO** transport to keep Bluetooth off while the preferred Wi-Fi link is healthy, then enable it only after the configured Wi-Fi outage delay; explicit **BLE** mode remains always available.
+- On already-connected systems, waits for the local portal to become responsive and gives the TCP/IP stack a five-second settling window before starting NimBLE.
+- Preserves immediate BLE startup when Wi-Fi is unavailable, so first setup, factory-reset recovery, and Wi-Fi fallback remain accessible.
+- Retains the supervised BLE timeout and requires a definite radio-startup result before an OTA image can be marked valid.
+
+### Interface
+- Includes the **PORTAL** action beside **PAIR PHONE** in **Settings > Companion connection**, showing both IP and `.local` addresses.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.2_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.1...v0.6.2
+
 ## 0.6.1
 
 ### OTA Startup Recovery

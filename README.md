@@ -97,7 +97,7 @@ Featured installations built and photographed by **@wlodeka on Discord** and **B
 
 ## Current Development Status
 
-The current public firmware and Android companion release is **coroNET OS 2 0.6.1**. It carries the complete behavioural audit against the final coroNET OS 1 firmware from 0.6.0 and adds the first physical-validation corrections: supervised non-blocking BLE startup, stricter OTA boot validation, additional LED task headroom, and direct web-portal discovery on the touchscreen. It combines the stable feature-complete OS 2 platform with selectable NEW and preserved coroNET 1 LEGACY animation renderers, a fixed-deadline 50 FPS presentation path, measured physical color calibration, protected real-time scheduling, the proven native-rate stereo WAV playback model from coroNET 1, ordered Moonraker recovery, and hardened startup and failure handling across the touchscreen, Android companion, and browser panel. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
+The current public firmware and Android companion release is **coroNET OS 2 0.6.2**. It carries the complete behavioural audit against the final coroNET OS 1 firmware from 0.6.0 and the physical-validation corrections from 0.6.1, then restores the proven Wi-Fi/BLE coexistence profile and makes AUTO a real Wi-Fi-first transport with BLE activated only as a fallback. It also includes stricter OTA boot validation, additional LED task headroom, and direct web-portal discovery on the touchscreen. The release combines the stable feature-complete OS 2 platform with selectable NEW and preserved coroNET 1 LEGACY animation renderers, a fixed-deadline 50 FPS presentation path, measured physical color calibration, protected real-time scheduling, the proven native-rate stereo WAV playback model from coroNET 1, ordered Moonraker recovery, and hardened startup and failure handling across the touchscreen, Android companion, and browser panel. The repository remains open throughout development so that the architecture, documentation, hardware assumptions, and project history stay visible.
 
 | Area | Status |
 | --- | --- |
@@ -120,11 +120,11 @@ The current public firmware and Android companion release is **coroNET OS 2 0.6.
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.6.1 release, Flash Tool package, checksums, and Android APK published together |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.6.2 release, Flash Tool package, checksums, and Android APK published together |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development now focuses on systematic physical fault finding, recovery validation, and long-duration stability qualification.
 
-The path to `1.0.0` is deliberately staged. Release `0.5.0` closed the planned visual and interaction refinement pass. Release `0.6.0` incorporated the full coroNET OS 1 parity and reliability audit, including field-reported LED, audio, Moonraker-state, touch, resource-lifetime, and recovery corrections. Release `0.6.1` is the first physical-validation correction and hardens the OTA-to-runtime handoff. Subsequent `0.6.x` builds are reserved for defects found during complete physical workflow, recovery, and endurance testing. Version `1.0.0` will mark completion of extended stability qualification.
+The path to `1.0.0` is deliberately staged. Release `0.5.0` closed the planned visual and interaction refinement pass. Release `0.6.0` incorporated the full coroNET OS 1 parity and reliability audit, including field-reported LED, audio, Moonraker-state, touch, resource-lifetime, and recovery corrections. Releases `0.6.1` and `0.6.2` harden the OTA-to-runtime handoff and radio startup from physical validation. Subsequent `0.6.x` builds are reserved for defects found during complete physical workflow, recovery, and endurance testing. Version `1.0.0` will mark completion of extended stability qualification.
 
 ## Hardware
 
