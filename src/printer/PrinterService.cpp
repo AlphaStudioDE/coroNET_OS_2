@@ -352,6 +352,10 @@ bool PrinterService::discoveredPrinter(uint8_t index, DiscoveredPrinter& output)
 PrinterTestResult PrinterService::testConnection() {
     PrinterTestResult result;
     lastTestMs_ = millis();
+    if (!started_ || !httpMutex_) {
+        strlcpy(result.message, "printer_service_starting", sizeof(result.message));
+        return result;
+    }
     refreshConfiguration();
 
     PollRequest request;

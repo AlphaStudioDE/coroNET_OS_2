@@ -33,6 +33,11 @@ coronet::SystemHealth systemHealth;
 coronet::WebControlService webControlService;
 char serialCommand[96] = "";
 size_t serialCommandLength = 0;
+bool runtimeNetworkServicesStarted = false;
+uint32_t runtimeNetworkReadySinceMs = 0;
+
+constexpr uint32_t RuntimeNetworkStartupGraceMs = 2000U;
+constexpr uint32_t RuntimeNetworkStartupFallbackMs = 10000U;
 
 enum class BootStage : uint32_t {
     Entry = 1,
@@ -129,6 +134,38 @@ void logTaskDiagnostics() {
                       static_cast<unsigned>(tasks[i].usStackHighWaterMark));
     }
     heap_caps_free(tasks);
+}
+
+void startRuntimeNetworkServicesWhenReady() {
+    if (runtimeNetworkServicesStarted) return;
+
+    const coronet::SystemState system = coronet::stateSnapshot();
+    if (coronet::otaService().pendingValidation()) {
+        runtimeNetworkReadySinceMs = 0;
+        return;
+    }
+
+    const uint32_t now = millis();
+    if (runtimeNetworkReadySinceMs == 0) {
+        runtimeNetworkReadySinceMs = now ? now : 1U;
+        return;
+    }
+    const uint32_t graceMs = system.webReady
+        ? RuntimeNetworkStartupGraceMs
+        : RuntimeNetworkStartupFallbackMs;
+    if (now - runtimeNetworkReadySinceMs < graceMs) return;
+
+    // Keep independent Moonraker/Panda clients out of the OTA rollback window
+    // and let the web server release startup DMA before their first sockets.
+    coronet::printerService().begin();
+    setBootStage(BootStage::Printer);
+    systemHealth.checkpoint("printer");
+    coronet::pandaBreathService().begin();
+    setBootStage(BootStage::Panda);
+    systemHealth.checkpoint("panda");
+    runtimeNetworkServicesStarted = true;
+    setBootStage(BootStage::Running);
+    Serial.println("[boot] runtime network services started");
 }
 
 void executeSerialCommand() {
@@ -364,23 +401,17 @@ void setup() {
     coronet::wifiService().begin();
     setBootStage(BootStage::Wifi);
     systemHealth.checkpoint("wifi");
-    coronet::printerService().begin();
-    setBootStage(BootStage::Printer);
-    systemHealth.checkpoint("printer");
-    coronet::ventService().begin();
-    setBootStage(BootStage::Vent);
-    systemHealth.checkpoint("vent");
-    coronet::pandaBreathService().begin();
-    setBootStage(BootStage::Panda);
-    systemHealth.checkpoint("panda");
-    webControlService.begin();
-    setBootStage(BootStage::Web);
-    systemHealth.checkpoint("web");
-    // Detect a pending OTA image before BLE is allowed to schedule its stack.
-    // The new image can then validate its core runtime before shared-radio work.
+    // Read the bootloader state before any independent network worker starts.
+    // A pending image is validated by the core UI/runtime first.
     coronet::otaService().begin();
     setBootStage(BootStage::Ota);
     systemHealth.checkpoint("ota");
+    coronet::ventService().begin();
+    setBootStage(BootStage::Vent);
+    systemHealth.checkpoint("vent");
+    webControlService.begin();
+    setBootStage(BootStage::Web);
+    systemHealth.checkpoint("web");
     coronet::bleService().begin();
     setBootStage(BootStage::Ble);
     systemHealth.checkpoint("ble");
@@ -394,6 +425,9 @@ void loop() {
     displayService.loop();
     coronet::ledService().loop();
     coronet::audioService().loop();
+    // OTA validation must continue during the full boot performance. Otherwise
+    // the rollback window is extended while independent tasks keep running.
+    coronet::otaService().loop();
     if (coronet::bootExperience().protectsFirstImpression()) {
         delay(2);
         return;
@@ -402,13 +436,13 @@ void loop() {
     systemHealth.loop();
     coronet::quietService().loop();
     coronet::wifiService().loop();
-    coronet::printerService().loop();
-    coronet::ventService().loop();
-    coronet::pandaBreathService().loop();
     webControlService.loop();
     coronet::memoryService().runtimeLoop(coronet::stateSnapshot().webReady);
+    startRuntimeNetworkServicesWhenReady();
+    if (runtimeNetworkServicesStarted) coronet::printerService().loop();
+    coronet::ventService().loop();
+    if (runtimeNetworkServicesStarted) coronet::pandaBreathService().loop();
     coronet::pairingService().loop();
     coronet::bleService().loop();
-    coronet::otaService().loop();
     delay(10);
 }

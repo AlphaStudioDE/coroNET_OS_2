@@ -1,5 +1,24 @@
 # Development Updates
 
+## 0.6.8
+
+### Core-First OTA Startup
+- Fixes the remaining immediate rollback found while physically installing 0.6.7. Although BLE was already deferred, the independent Moonraker worker still started in `setup()` before `OtaService` inspected the running partition.
+- Starts pending-image validation before Printer and Panda network clients. Validation continues during the full boot animation instead of waiting for the normal application loop.
+- Starts Moonraker and Panda only after validation is complete, the local portal is ready, and startup DMA has been released. A bounded fallback preserves BLE-only and offline operation when no web portal can start.
+- Retains the 0.6.7 removal of periodic firmware-driven Wi-Fi stack restarts, so active telemetry no longer races `WiFi.disconnect()` / `WiFi.begin()`.
+
+### Settings Interface
+- Keeps **PORTAL** beside **PAIR PHONE** in **Settings > Companion connection**, showing both the current IP URL and stable `.local` URL.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.8_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.7...v0.6.8
+
 ## 0.6.7
 
 ### Wi-Fi and Printer Stability
