@@ -15,6 +15,7 @@ public:
     bool requestCheck();
     bool requestInstall(bool allowSameVersion = false);
     bool requestSdRecovery();
+    bool pendingValidation() const { return appPendingValidation_; }
     void factoryReset();
     void logStatus() const;
 

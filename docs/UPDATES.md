@@ -1,5 +1,24 @@
 # Development Updates
 
+## 0.6.6
+
+### OTA Validation Before BLE Startup
+- Fixes the remaining rollback path reproduced on an unpaired device using AUTO companion transport. Such a device was eligible to start BLE while the new OTA image was still pending bootloader validation.
+- Completes the 30-second core-runtime validation window before BLE stack startup. The validated core includes the display, touch, LED engine, Wi-Fi, local portal, and update supervision.
+- If BLE itself still fails after validation, the existing RTC crash guard now restarts the same new firmware with BLE disabled instead of allowing the bootloader to roll back the entire update.
+- Keeps the 0.6.5 first-request memory handoff and the 0.6.4 no-USB crash summary.
+
+### Settings Interface
+- Keeps **PORTAL** beside **PAIR PHONE** in **Settings > Companion connection**, with both current IP and `.local` addresses in the popup.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.6_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.5...v0.6.6
+
 ## 0.6.5
 
 ### First HTTP Request Startup Guard

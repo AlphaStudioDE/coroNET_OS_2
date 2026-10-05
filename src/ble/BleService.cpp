@@ -19,6 +19,7 @@
 #include "../led/LedService.h"
 #include "../printer/PrinterService.h"
 #include "../settings/SettingsService.h"
+#include "../update/OtaService.h"
 
 namespace coronet {
 
@@ -217,7 +218,9 @@ void BleService::begin() {
     // Start it from its own task after setup has completed so web and OTA
     // rollback supervision are already alive.
     portENTER_CRITICAL(&connectionMux_);
-    startupSettled_ = unavailableThisBoot_;
+    // No BLE startup is in flight yet. In particular, this lets a pending OTA
+    // image complete its protected validation window before radio bring-up.
+    startupSettled_ = true;
     portEXIT_CRITICAL(&connectionMux_);
 }
 
@@ -493,7 +496,8 @@ void BleService::applySettings() {
     }
 
     const SystemState system = stateSnapshot();
-    const bool radioAllowed = !system.maintenanceMode && !system.otaTlsWindowActive;
+    const bool radioAllowed = !system.maintenanceMode && !system.otaTlsWindowActive &&
+                              !otaService().pendingValidation();
     bool shouldStart = radioAllowed && (!cfg.apiPaired ||
                        (cfg.bleEnabled &&
                         cfg.companionTransport == CompanionTransport::Ble) ||

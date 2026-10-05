@@ -376,11 +376,14 @@ void setup() {
     webControlService.begin();
     setBootStage(BootStage::Web);
     systemHealth.checkpoint("web");
+    // Detect a pending OTA image before BLE is allowed to schedule its stack.
+    // The new image can then validate its core runtime before shared-radio work.
+    coronet::otaService().begin();
+    setBootStage(BootStage::Ota);
+    systemHealth.checkpoint("ota");
     coronet::bleService().begin();
     setBootStage(BootStage::Ble);
     systemHealth.checkpoint("ble");
-    coronet::otaService().begin();
-    setBootStage(BootStage::Ota);
     coronet::bootExperience().systemReady();
     setBootStage(BootStage::Running);
 }
