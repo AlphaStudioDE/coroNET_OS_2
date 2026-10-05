@@ -233,8 +233,11 @@ void WebControlService::begin() {
 }
 
 void WebControlService::loop() {
+    const bool wasRunning = serverRunning_;
     updateRuntimeState();
-    if (serverRunning_) {
+    // Give MemoryService one complete main-loop pass to release the startup DMA
+    // reservation before a queued client can allocate its first JSON response.
+    if (serverRunning_ && wasRunning) {
         server_.handleClient();
     }
 }

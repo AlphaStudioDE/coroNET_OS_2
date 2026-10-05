@@ -1,5 +1,23 @@
 # Development Updates
 
+## 0.6.5
+
+### First HTTP Request Startup Guard
+- Fixes a startup ordering race found during the no-USB OTA investigation. A queued browser request could be handled in the same main-loop pass that opened the HTTP server, before `MemoryService` had released the 64 KB startup DMA reservation.
+- Defers HTTP client handling for one complete main-loop pass after the server starts. This lets the existing `webReady` handoff release the reservation before ArduinoJson builds the first response.
+- Keeps the 0.6.4 persistent coredump summary in the lightweight web-session response, allowing the previous panic to be identified and symbolized without USB even when automatic rollback is still active.
+
+### Settings Interface
+- Keeps **PORTAL** beside **PAIR PHONE** in **Settings > Companion connection**, with both current IP and `.local` addresses in the popup.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.5_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.4...v0.6.5
+
 ## 0.6.4
 
 ### OTA Recovery Diagnostics
