@@ -1,5 +1,26 @@
 # Development Updates
 
+## 0.6.3
+
+### OTA Rollback Root Cause
+- Fixes the physically reproduced failure where a newly installed 0.6.x image briefly joined Wi-Fi, served the local portal, then panicked and rolled back to 0.5.0 before its 30-second validation window completed.
+- Corrected the lifetime of synchronized `SystemState` snapshots used by the browser API. ArduinoJson retained pointers to fixed-size text fields after the helper-owned snapshot had left scope, allowing `/api/state` or `/api` serialization to read overwritten stack memory.
+- Keeps one coherent state snapshot alive through the complete JSON serialization step for the state, API-description, and printer-test responses.
+- The visible corrupted OTA status text was therefore a symptom of the web response lifetime defect, not an invalid release tag, failed download, bad checksum, or incompatible partition layout.
+
+### Interface And Diagnostics
+- Includes the **PORTAL** action beside **PAIR PHONE** in **Settings > Companion connection**, showing both the current IP and stable `.local` address.
+- Keeps the 0.6.2 Wi-Fi-first AUTO transport and framework radio-coexistence defaults.
+- Retains the exact linked `firmware.elf` in private CI artifacts for future panic-address diagnosis without publishing internal build artifacts as release downloads.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.3_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.2...v0.6.3
+
 ## 0.6.2
 
 ### Radio Startup Recovery

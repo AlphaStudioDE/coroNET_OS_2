@@ -124,8 +124,7 @@ void normalizePrinterHost(const char* input, char* out, size_t outSize, uint16_t
     out[n] = '\0';
 }
 
-void addCommonState(JsonDocument& doc) {
-    const SystemState s = stateSnapshot();
+void addCommonState(JsonDocument& doc, const SystemState& s) {
     const AppSettings& cfg = settingsService().settings();
 
     char name[25];
@@ -167,8 +166,7 @@ void addCommonState(JsonDocument& doc) {
     ota["status"] = s.otaStatusText;
 }
 
-void addPrinterState(JsonDocument& doc) {
-    const SystemState s = stateSnapshot();
+void addPrinterState(JsonDocument& doc, const SystemState& s) {
     JsonObject printer = doc["printer"].to<JsonObject>();
     printer["configured"] = s.printerConfigured;
     printer["connected"] = s.printerConnected;
@@ -406,7 +404,10 @@ void WebControlService::handleRoot() {
 
 void WebControlService::handleApiDescription() {
     JsonDocument doc;
-    addCommonState(doc);
+    // ArduinoJson stores pointers for const char* values. Keep the snapshot alive
+    // until serialization finishes so its fixed-size strings remain valid.
+    const SystemState system = stateSnapshot();
+    addCommonState(doc, system);
     doc["api"] = "/api/state";
     doc["settings"] = "/api/settings";
     doc["ledPreview"] = "/api/led/preview";
@@ -445,8 +446,10 @@ void WebControlService::handleWebSession() {
 
 void WebControlService::handleState() {
     JsonDocument doc;
-    addCommonState(doc);
-    addPrinterState(doc);
+    // Use one coherent snapshot and retain it through serializeJson().
+    const SystemState system = stateSnapshot();
+    addCommonState(doc, system);
+    addPrinterState(doc, system);
     doc["settingsRevision"] = settingsService().revision();
     doc["wifiIp"] = WiFi.localIP().toString();
     doc["wifiRssi"] = WiFi.RSSI();
@@ -780,11 +783,12 @@ void WebControlService::handleUpdateSettings() {
 
 void WebControlService::handlePrinterTest() {
     const PrinterTestResult result = printerService().testConnection();
+    const SystemState system = stateSnapshot();
     JsonDocument doc;
     doc["ok"] = result.ok;
     doc["httpCode"] = result.httpCode;
     doc["message"] = result.message;
-    addPrinterState(doc);
+    addPrinterState(doc, system);
 
     String payload;
     serializeJson(doc, payload);

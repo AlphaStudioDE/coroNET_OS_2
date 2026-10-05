@@ -40,7 +40,7 @@ jobs:
               exit 1
             fi
           else
-            version="0.6.2-dev"
+            version="0.6.3-dev"
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -149,6 +149,7 @@ jobs:
             dist/SHA256SUMS.txt
             dist/*_Flash_Tool.zip
             dist/coroNET_Companion.apk
+            .pio/build/coronet_os2/firmware.elf
 
       - name: Publish tagged GitHub release
         if: github.ref_type == 'tag'
