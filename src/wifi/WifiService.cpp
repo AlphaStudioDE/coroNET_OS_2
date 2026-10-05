@@ -15,7 +15,6 @@ namespace coronet {
 namespace {
 WifiService gWifiService;
 constexpr uint32_t ConnectionTimeoutMs = 15000;
-constexpr uint32_t ReconnectIntervalMs = 10000;
 constexpr uint32_t ScanTimeoutMs = 15000;
 constexpr uint32_t RadioSettleMs = 60;
 constexpr uint32_t MdnsStartupDelayMs = 300;
@@ -54,7 +53,6 @@ void WifiService::loop() {
             applySettings();
         }
     }
-    maintainConnection();
     const bool connected = WiFi.status() == WL_CONNECTED;
     updateState([connected](SystemState& system) { system.wifiConnected = connected; });
     maintainMdns();
@@ -167,7 +165,6 @@ void WifiService::requestConnectionTest(const char* ssid, const char* password) 
     connectionRevision_++;
 
     WiFi.mode(WIFI_STA);
-    reconnectInProgress_ = false;
     WiFi.disconnect(false, false);
     Serial.printf("[wifi] test scheduled ssid=%s\n", testSsid_);
 }
@@ -346,60 +343,15 @@ void WifiService::applySettings() {
     strlcpy(activePassword_, cfg.wifiPassword, sizeof(activePassword_));
 
     if (!activeSsid_[0]) {
-        reconnectInProgress_ = false;
         WiFi.disconnect(false, false);
         updateState([](SystemState& system) { system.wifiConnected = false; });
         return;
     }
 
-    startSavedConnection();
-}
-
-void WifiService::startSavedConnection() {
-    if (!activeSsid_[0] || connectionTestActive_ || scanStartPending_ ||
-        scanStatus_ == WifiScanStatus::Scanning) {
-        return;
-    }
-
-    const uint32_t now = millis();
     Serial.printf("[wifi] connecting ssid=%s\n", activeSsid_);
-    WiFi.mode(WIFI_STA);
     WiFi.disconnect(false, false);
     WiFi.begin(activeSsid_, activePassword_);
-    reconnectInProgress_ = true;
-    reconnectStartedMs_ = now;
-    lastReconnectAttemptMs_ = now;
     updateState([](SystemState& system) { system.wifiConnected = false; });
-}
-
-void WifiService::maintainConnection() {
-    if (!started_ || connectionTestActive_ || connectionStartPending_ ||
-        scanStartPending_ || scanStatus_ == WifiScanStatus::Scanning) {
-        return;
-    }
-
-    const wl_status_t status = WiFi.status();
-    if (status == WL_CONNECTED) {
-        reconnectInProgress_ = false;
-        return;
-    }
-    updateState([](SystemState& system) { system.wifiConnected = false; });
-    if (!activeSsid_[0]) {
-        reconnectInProgress_ = false;
-        return;
-    }
-
-    const uint32_t now = millis();
-    if (reconnectInProgress_) {
-        const bool terminalFailure = status == WL_NO_SSID_AVAIL || status == WL_CONNECT_FAILED;
-        if (!terminalFailure && now - reconnectStartedMs_ < ConnectionTimeoutMs) return;
-        reconnectInProgress_ = false;
-        Serial.printf("[wifi] reconnect failed status=%d; retry in %lums\n",
-                      static_cast<int>(status),
-                      static_cast<unsigned long>(ReconnectIntervalMs));
-    }
-
-    if (now - lastReconnectAttemptMs_ >= ReconnectIntervalMs) startSavedConnection();
 }
 
 }

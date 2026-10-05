@@ -1,5 +1,23 @@
 # Development Updates
 
+## 0.6.7
+
+### Wi-Fi and Printer Stability
+- Fixes the boot-time panic and OTA rollback reproduced on the physical unit after 0.6.x installation. Persistent coredump evidence located the failure in the `coronet-printer` task while ESP-IDF was tearing down and recreating internal Wi-Fi synchronization objects.
+- Removes the periodic firmware-driven `WiFi.disconnect()` / `WiFi.begin()` cycle and restores the connection lifecycle proven in stable 0.5.0. The ESP32 Wi-Fi driver remains responsible for normal link recovery without racing active Moonraker traffic.
+- Keeps the newer synchronized state publication, mDNS recovery, OTA validation ordering, BLE supervision, and no-USB crash diagnostics.
+
+### Settings Interface
+- Keeps **PORTAL** beside **PAIR PHONE** in **Settings > Companion connection**. The popup presents both the current `http://<IP>/` address and the stable `http://coronet-xxxx.local/` hostname.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.7_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.6...v0.6.7
+
 ## 0.6.6
 
 ### OTA Validation Before BLE Startup
