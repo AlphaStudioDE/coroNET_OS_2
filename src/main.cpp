@@ -8,6 +8,7 @@
 #include "companion/PairingService.h"
 #include "config/AppConfig.h"
 #include "config/HardwareConfig.h"
+#include "core/BootDiagnostics.h"
 #include "core/MemoryService.h"
 #include "core/QuietService.h"
 #include "core/SystemState.h"
@@ -341,6 +342,7 @@ void setup() {
     Serial.println(coronet::config::FirmwareVersion);
 
     coronet::memoryService().begin();
+    coronet::bootDiagnostics().begin();
     setBootStage(BootStage::Memory);
     systemHealth.checkpoint("memory");
     coronet::settingsService().begin();

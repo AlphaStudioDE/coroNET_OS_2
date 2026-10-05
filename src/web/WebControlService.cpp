@@ -6,6 +6,7 @@
 
 #include "../config/AppConfig.h"
 #include "../audio/AudioService.h"
+#include "../core/BootDiagnostics.h"
 #include "../core/DeviceIdentity.h"
 #include "../core/SystemHealth.h"
 #include "../core/SystemState.h"
@@ -200,6 +201,29 @@ void addPrinterState(JsonDocument& doc, const SystemState& s) {
     printer["lastUpdateMs"] = s.lastPrinterUpdateMs;
 }
 
+void addBootDiagnostics(JsonDocument& doc) {
+    const BootCrashSnapshot& snapshot = bootDiagnostics().snapshot();
+    JsonObject crash = doc["previousCrash"].to<JsonObject>();
+    crash["resetReason"] = snapshot.resetReason;
+    crash["imagePresent"] = snapshot.imagePresent;
+    crash["imageValid"] = snapshot.imageValid;
+    crash["imageError"] = snapshot.imageError;
+    crash["summaryValid"] = snapshot.summaryValid;
+    crash["summaryError"] = snapshot.summaryError;
+    crash["imageAddress"] = snapshot.imageAddress;
+    crash["imageSize"] = snapshot.imageSize;
+    crash["task"] = snapshot.task;
+    crash["pc"] = snapshot.exceptionPc;
+    crash["cause"] = snapshot.exceptionCause;
+    crash["address"] = snapshot.exceptionAddress;
+    crash["backtraceCorrupted"] = snapshot.backtraceCorrupted;
+    crash["elfSha256"] = snapshot.appElfSha256;
+    JsonArray backtrace = crash["backtrace"].to<JsonArray>();
+    for (uint8_t i = 0; i < snapshot.backtraceDepth; ++i) {
+        backtrace.add(snapshot.backtrace[i]);
+    }
+}
+
 }
 
 void WebControlService::begin() {
@@ -223,6 +247,7 @@ void WebControlService::registerRoutes() {
     server_.on("/", HTTP_GET, [this]() { handleRoot(); });
     server_.on("/api", HTTP_GET, [this]() { if (authorizeRequest()) handleApiDescription(); });
     server_.on("/api/web/session", HTTP_GET, [this]() { handleWebSession(); });
+    server_.on("/api/diagnostics", HTTP_GET, [this]() { if (authorizeRequest()) handleDiagnostics(); });
     server_.on("/api/state", HTTP_GET, [this]() { if (authorizeRequest()) handleState(); });
     server_.on("/api/settings", HTTP_GET, [this]() { if (authorizeRequest()) handleSettings(); });
     server_.on("/api/settings", HTTP_POST, [this]() { if (authorizeRequest()) handleUpdateSettings(); });
@@ -242,6 +267,7 @@ void WebControlService::registerRoutes() {
     server_.on("/api/ota/reinstall", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaInstall(true); });
     server_.on("/api/ota/sd", HTTP_POST, [this]() { if (authorizeRequest()) handleOtaSdRecovery(); });
     server_.on("/api/state", HTTP_OPTIONS, [this]() { sendNoContent(); });
+    server_.on("/api/diagnostics", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/settings", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/catalog", HTTP_OPTIONS, [this]() { sendNoContent(); });
     server_.on("/api/led/frame", HTTP_OPTIONS, [this]() { sendNoContent(); });
@@ -382,7 +408,8 @@ void WebControlService::sendJson(int code, const String& payload) {
 void WebControlService::sendNoContent() {
     sendCommonHeaders();
     server_.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    server_.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-coroNET-Token");
+    server_.sendHeader("Access-Control-Allow-Headers",
+                       "Content-Type, Authorization, X-coroNET-Token, X-coroNET-Web-Session");
     server_.send(204);
 }
 
@@ -409,6 +436,7 @@ void WebControlService::handleApiDescription() {
     const SystemState system = stateSnapshot();
     addCommonState(doc, system);
     doc["api"] = "/api/state";
+    doc["diagnostics"] = "/api/diagnostics";
     doc["settings"] = "/api/settings";
     doc["ledPreview"] = "/api/led/preview";
     doc["ledCatalog"] = "/api/led/catalog";
@@ -439,6 +467,18 @@ void WebControlService::handleWebSession() {
     doc["ok"] = true;
     doc["token"] = webSessionToken_;
     doc["expires"] = "reboot";
+    doc["firmware"] = config::FirmwareVersion;
+    addBootDiagnostics(doc);
+    String payload;
+    serializeJson(doc, payload);
+    sendJson(200, payload);
+}
+
+void WebControlService::handleDiagnostics() {
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["firmware"] = config::FirmwareVersion;
+    addBootDiagnostics(doc);
     String payload;
     serializeJson(doc, payload);
     sendJson(200, payload);

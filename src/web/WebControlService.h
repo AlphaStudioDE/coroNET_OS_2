@@ -34,6 +34,7 @@ private:
     void handleRoot();
     void handleApiDescription();
     void handleWebSession();
+    void handleDiagnostics();
     void handleState();
     void handleSettings();
     void handleUpdateSettings();

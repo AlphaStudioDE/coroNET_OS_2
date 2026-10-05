@@ -1,5 +1,25 @@
 # Development Updates
 
+## 0.6.4
+
+### OTA Recovery Diagnostics
+- Adds a boot-time crash snapshot reader for the existing ESP32 flash coredump partition. The firmware records the previous reset reason, crashing task, exception PC and address, bounded backtrace, integrity result, and exact application ELF fingerprint without erasing the evidence.
+- Exposes the cached snapshot through the lightweight local `/api/web/session` response and the authenticated `/api/diagnostics` endpoint, so an OTA candidate can report why its predecessor failed before the full control-panel state is requested.
+- Retains the exact linked `firmware.elf` in CI artifacts so captured addresses can be symbolized against the matching build.
+- This instrumentation is intentionally read-only and does not change the 30-second OTA validation contract or hide automatic rollback.
+
+### Settings Interface
+- Places **PORTAL** beside **PAIR PHONE** in **Settings > Companion connection**.
+- The portal dialog shows both the current local IP address and the stable `coronet-xxxx.local` address in one touch-friendly view.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.4_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.3...v0.6.4
+
 ## 0.6.3
 
 ### OTA Rollback Root Cause
