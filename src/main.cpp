@@ -24,7 +24,7 @@
 #include "vent/VentService.h"
 #include "update/OtaService.h"
 
-SET_LOOP_TASK_STACK_SIZE(6144);
+SET_LOOP_TASK_STACK_SIZE(12288);
 
 namespace {
 
@@ -34,10 +34,16 @@ coronet::WebControlService webControlService;
 char serialCommand[96] = "";
 size_t serialCommandLength = 0;
 bool runtimeNetworkServicesStarted = false;
+bool runtimeNetworkServicesDisabledThisBoot = false;
 uint32_t runtimeNetworkReadySinceMs = 0;
+uint32_t runtimeNetworkStableSinceMs = 0;
 
 constexpr uint32_t RuntimeNetworkStartupGraceMs = 2000U;
 constexpr uint32_t RuntimeNetworkStartupFallbackMs = 10000U;
+constexpr uint32_t RuntimeNetworkStableMs = 120000U;
+constexpr uint32_t RuntimeNetworkGuardMagic = 0x434E4E32UL;
+RTC_DATA_ATTR uint32_t runtimeNetworkGuardMagic = 0;
+RTC_DATA_ATTR uint8_t runtimeNetworkGuardArmed = 0;
 
 enum class BootStage : uint32_t {
     Entry = 1,
@@ -115,6 +121,25 @@ void logBootDiagnostics() {
     setBootStage(BootStage::Entry);
 }
 
+bool resetReasonSuggestsRuntimeCrash() {
+    const esp_reset_reason_t reason = esp_reset_reason();
+    return reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT ||
+           reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT;
+}
+
+void configureRuntimeNetworkCrashGuard() {
+    const bool guardedCrash = runtimeNetworkGuardMagic == RuntimeNetworkGuardMagic &&
+                              runtimeNetworkGuardArmed != 0 &&
+                              resetReasonSuggestsRuntimeCrash();
+    runtimeNetworkGuardMagic = RuntimeNetworkGuardMagic;
+    runtimeNetworkGuardArmed = 0;
+    runtimeNetworkServicesDisabledThisBoot = guardedCrash;
+    if (guardedCrash) {
+        Serial.println("[boot] previous runtime network startup crashed; "
+                       "printer and Panda disabled for recovery boot");
+    }
+}
+
 void logTaskDiagnostics() {
     const UBaseType_t capacity = uxTaskGetNumberOfTasks() + 8U;
     TaskStatus_t* tasks = static_cast<TaskStatus_t*>(heap_caps_calloc(
@@ -137,7 +162,7 @@ void logTaskDiagnostics() {
 }
 
 void startRuntimeNetworkServicesWhenReady() {
-    if (runtimeNetworkServicesStarted) return;
+    if (runtimeNetworkServicesStarted || runtimeNetworkServicesDisabledThisBoot) return;
 
     const coronet::SystemState system = coronet::stateSnapshot();
     if (coronet::otaService().pendingValidation()) {
@@ -157,6 +182,9 @@ void startRuntimeNetworkServicesWhenReady() {
 
     // Keep independent Moonraker/Panda clients out of the OTA rollback window
     // and let the web server release startup DMA before their first sockets.
+    runtimeNetworkGuardMagic = RuntimeNetworkGuardMagic;
+    runtimeNetworkGuardArmed = 1;
+    runtimeNetworkStableSinceMs = now;
     coronet::printerService().begin();
     setBootStage(BootStage::Printer);
     systemHealth.checkpoint("printer");
@@ -166,6 +194,13 @@ void startRuntimeNetworkServicesWhenReady() {
     runtimeNetworkServicesStarted = true;
     setBootStage(BootStage::Running);
     Serial.println("[boot] runtime network services started");
+}
+
+void serviceRuntimeNetworkCrashGuard() {
+    if (!runtimeNetworkServicesStarted || runtimeNetworkGuardArmed == 0 ||
+        millis() - runtimeNetworkStableSinceMs < RuntimeNetworkStableMs) return;
+    runtimeNetworkGuardArmed = 0;
+    Serial.println("[boot] runtime network startup guard cleared");
 }
 
 void executeSerialCommand() {
@@ -369,6 +404,7 @@ void setup() {
     delay(150);
 
     logBootDiagnostics();
+    configureRuntimeNetworkCrashGuard();
 
     const uint32_t bootMs = millis();
     coronet::updateState([bootMs](coronet::SystemState& system) { system.bootMs = bootMs; });
@@ -442,7 +478,10 @@ void loop() {
     if (runtimeNetworkServicesStarted) coronet::printerService().loop();
     coronet::ventService().loop();
     if (runtimeNetworkServicesStarted) coronet::pandaBreathService().loop();
+    serviceRuntimeNetworkCrashGuard();
     coronet::pairingService().loop();
-    coronet::bleService().loop();
+    if (runtimeNetworkServicesStarted || runtimeNetworkServicesDisabledThisBoot) {
+        coronet::bleService().loop();
+    }
     delay(10);
 }

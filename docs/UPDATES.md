@@ -1,5 +1,25 @@
 # Development Updates
 
+## 0.6.9
+
+### Runtime Stack and Restart Recovery
+- Fixes the repeated restart loop found after 0.6.8 successfully installed and passed OTA validation. USB crash decoding identified a stack-canary failure in `loopTask` while Moonraker failure handling formatted the third connection retry.
+- Moves large pending Moonraker results from short-lived loop-stack arrays into service-owned storage and avoids complete `SystemState` copies in printer hot paths.
+- Restores measured headroom by increasing the explicitly configured Arduino loop stack and the Moonraker worker stack. Physical validation with live WebSocket telemetry measured approximately 6.8 kB free in `loopTask` and 2.9 kB in the printer worker.
+- Adds an RTC-backed runtime-network startup guard. If Printer or Panda startup ever causes an early panic or watchdog reset, the following recovery boot keeps the display, touch, LED engine, audio, Wi-Fi, BLE, OTA, and local web portal available instead of repeating an endless reboot cycle.
+
+### Hardware Validation
+- Verified for more than 200 seconds on the reference ESP32-S3 with the real Moonraker endpoint connected, WebSocket subscribed, telemetry updating, BLE advertising, and the 120-second runtime guard cleared without a restart.
+- Keeps **PORTAL** beside **PAIR PHONE** in **Settings > Companion connection**, showing the IP and `.local` addresses for recovery and normal use.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.6.9_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; application behavior is unchanged and the package version follows the firmware release.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.6.8...v0.6.9
+
 ## 0.6.8
 
 ### Core-First OTA Startup

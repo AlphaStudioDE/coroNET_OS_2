@@ -24,7 +24,7 @@ constexpr uint32_t kPollRealtimeAuditMs = 30000;
 constexpr uint32_t kPollStateRecoveryMs = 5000;
 constexpr uint32_t kHttpTimeoutMs = 700;
 constexpr uint8_t kFailuresBeforeOffline = 3;
-constexpr uint32_t kWorkerStackBytes = 6144;
+constexpr uint32_t kWorkerStackBytes = 8192;
 constexpr UBaseType_t kWorkerPriority = 2;
 constexpr BaseType_t kWorkerCore = 0;
 constexpr uint16_t kDiscoveryPort = 7125;
@@ -146,6 +146,20 @@ bool isNewerSequence(uint32_t candidate, uint32_t reference) {
     return reference == 0 || static_cast<int32_t>(candidate - reference) > 0;
 }
 
+struct NetworkWindowState {
+    bool maintenanceMode = false;
+    bool otaTlsWindowActive = false;
+};
+
+NetworkWindowState networkWindowState() {
+    NetworkWindowState window;
+    updateState([&window](SystemState& system) {
+        window.maintenanceMode = system.maintenanceMode;
+        window.otaTlsWindowActive = system.otaTlsWindowActive;
+    });
+    return window;
+}
+
 String mdnsTxtValueByKey(const mdns_result_t* result, const char* key) {
     if (!result || !key || !key[0]) return String();
     for (size_t index = 0; index < result->txt_count; ++index) {
@@ -230,12 +244,19 @@ void PrinterService::releaseStartupResources() {
 
 void PrinterService::logStatus() const {
     const UBaseType_t stackHeadroom = workerTask_ ? uxTaskGetStackHighWaterMark(workerTask_) : 0;
-    const SystemState system = stateSnapshot();
+    bool printerConfigured = false;
+    bool printerConnected = false;
+    bool printerTelemetryValid = false;
+    updateState([&](SystemState& system) {
+        printerConfigured = system.printerConfigured;
+        printerConnected = system.printerConnected;
+        printerTelemetryValid = system.printerTelemetryValid;
+    });
     Serial.printf("[printer] ready=%u configured=%u connected=%u telemetry=%u ws=%u/%u released=%u stackHeadroom=%uB failures=%u\n",
                   started_ ? 1U : 0U,
-                  system.printerConfigured ? 1U : 0U,
-                  system.printerConnected ? 1U : 0U,
-                  system.printerTelemetryValid ? 1U : 0U,
+                  printerConfigured ? 1U : 0U,
+                  printerConnected ? 1U : 0U,
+                  printerTelemetryValid ? 1U : 0U,
                   realtimeConnected_ ? 1U : 0U,
                   realtimeSubscribed_ ? 1U : 0U,
                   realtimeResourcesReleased_ ? 1U : 0U,
@@ -248,19 +269,24 @@ void PrinterService::loop() {
     refreshConfiguration();
     if (queuedConfigRevision_ != printerConfigRevision_) enqueueConfiguration();
     consumeResults();
-    SystemState system = stateSnapshot();
-    if (system.maintenanceMode || system.otaTlsWindowActive) return;
 
     const bool setupDone = settingsService().settings().setupDone;
     const bool printerConfigured = configured();
-    updateState([setupDone, printerConfigured](SystemState& current) {
+    bool maintenanceMode = false;
+    bool otaTlsWindowActive = false;
+    bool printerConnected = false;
+    PrinterState printerState = PrinterState::Unknown;
+    updateState([&](SystemState& current) {
         current.setupDone = setupDone;
         current.printerConfigured = printerConfigured;
+        maintenanceMode = current.maintenanceMode;
+        otaTlsWindowActive = current.otaTlsWindowActive;
+        printerConnected = current.printerConnected;
+        printerState = current.printerState;
     });
-    system.setupDone = setupDone;
-    system.printerConfigured = printerConfigured;
+    if (maintenanceMode || otaTlsWindowActive) return;
 
-    if (!system.printerConfigured) {
+    if (!printerConfigured) {
         consecutiveFailures_ = 0;
         setOffline("not_configured");
         return;
@@ -276,21 +302,21 @@ void PrinterService::loop() {
     if (pollInFlight_) return;
 
     const uint32_t now = millis();
-    const bool stateNeedsRecovery = system.printerState == PrinterState::Error ||
-                                    system.printerState == PrinterState::Unknown;
+    const bool stateNeedsRecovery = printerState == PrinterState::Error ||
+                                    printerState == PrinterState::Unknown;
     const uint32_t interval = realtimeSubscribed_ && realtimeFullTelemetry_
                                   ? (stateNeedsRecovery ? kPollStateRecoveryMs
                                                         : kPollRealtimeAuditMs)
-                                  : (system.printerConnected
-                                         ? ((system.printerState == PrinterState::Printing ||
-                                             system.printerState == PrinterState::Paused)
+                                  : (printerConnected
+                                         ? ((printerState == PrinterState::Printing ||
+                                             printerState == PrinterState::Paused)
                                                 ? kPollActiveMs
                                                 : kPollIdleMs)
                                          : kPollOfflineMs);
     if (now - lastPollMs_ < interval) return;
     lastPollMs_ = now;
 
-    if (enqueuePoll() && !system.printerConnected && consecutiveFailures_ == 0) {
+    if (enqueuePoll() && !printerConnected && consecutiveFailures_ == 0) {
         updateState([](SystemState& current) {
             strlcpy(current.printerStatusText, "connecting",
                     sizeof(current.printerStatusText));
@@ -299,8 +325,8 @@ void PrinterService::loop() {
 }
 
 bool PrinterService::requestDiscovery() {
-    const SystemState system = stateSnapshot();
-    if (!started_ || system.maintenanceMode || system.otaTlsWindowActive ||
+    const NetworkWindowState window = networkWindowState();
+    if (!started_ || window.maintenanceMode || window.otaTlsWindowActive ||
         WiFi.status() != WL_CONNECTED || !discoveredPrinters_) {
         updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi is not connected");
         return false;
@@ -359,8 +385,8 @@ PrinterTestResult PrinterService::testConnection() {
     refreshConfiguration();
 
     PollRequest request;
-    const SystemState system = stateSnapshot();
-    if (system.maintenanceMode || system.otaTlsWindowActive) {
+    const NetworkWindowState window = networkWindowState();
+    if (window.maintenanceMode || window.otaTlsWindowActive) {
         strlcpy(result.message, "maintenance_mode", sizeof(result.message));
         return result;
     }
@@ -384,13 +410,13 @@ PrinterTestResult PrinterService::testConnection() {
 
     if (result.ok) {
         setConnectionState(true);
-        if (!stateSnapshot().printerTelemetryValid) {
-            updateState([](SystemState& system) {
+        updateState([](SystemState& system) {
+            if (!system.printerTelemetryValid) {
                 system.printerState = PrinterState::Unknown;
                 strlcpy(system.printerStatusText, "online_waiting_for_telemetry",
                         sizeof(system.printerStatusText));
-            });
-        }
+            }
+        });
         consecutiveFailures_ = 0;
         lastPollMs_ = 0;
     }
@@ -495,9 +521,9 @@ bool PrinterService::addDiscoveredPrinter(const char* host, uint16_t port, const
 }
 
 bool PrinterService::probeMoonraker(const char* host, uint16_t port) {
-    const SystemState system = stateSnapshot();
-    if (!host || !host[0] || WiFi.status() != WL_CONNECTED || system.maintenanceMode ||
-        system.otaTlsWindowActive) return false;
+    const NetworkWindowState window = networkWindowState();
+    if (!host || !host[0] || WiFi.status() != WL_CONNECTED || window.maintenanceMode ||
+        window.otaTlsWindowActive) return false;
 
     WiFiClient portProbe;
     if (!portProbe.connect(host, port, kDiscoveryTcpTimeoutMs)) return false;
@@ -657,9 +683,9 @@ void PrinterService::performDiscovery() {
     char host[16] = "";
     updateDiscovery(PrinterDiscoveryStatus::Scanning, 15, "Running quick local scan...");
     for (uint16_t index = 0; index < targetCount; ++index) {
-        const SystemState system = stateSnapshot();
-        if (WiFi.status() != WL_CONNECTED || system.maintenanceMode ||
-            system.otaTlsWindowActive) {
+        const NetworkWindowState window = networkWindowState();
+        if (WiFi.status() != WL_CONNECTED || window.maintenanceMode ||
+            window.otaTlsWindowActive) {
             updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
             return;
         }
@@ -689,9 +715,9 @@ void PrinterService::performDiscovery() {
     for (int address = 1; address <= 254; ++address) addTarget(address);
     updateDiscovery(PrinterDiscoveryStatus::Scanning, 46, "Quick scan empty. Running full scan...");
     for (uint16_t index = quickTargetCount; index < targetCount; ++index) {
-        const SystemState system = stateSnapshot();
-        if (WiFi.status() != WL_CONNECTED || system.maintenanceMode ||
-            system.otaTlsWindowActive) {
+        const NetworkWindowState window = networkWindowState();
+        if (WiFi.status() != WL_CONNECTED || window.maintenanceMode ||
+            window.otaTlsWindowActive) {
             updateDiscovery(PrinterDiscoveryStatus::Failed, 0, "Wi-Fi connection was lost");
             return;
         }
@@ -716,20 +742,20 @@ void PrinterService::performDiscovery() {
 }
 
 void PrinterService::consumeResults() {
-    PollResult pending[2];
     uint8_t count = 0;
-    if (xQueueReceive(resultQueue_, &pending[count], 0) == pdTRUE) {
+    if (xQueueReceive(resultQueue_, &pendingResults_[count], 0) == pdTRUE) {
         pollInFlight_ = false;
         count++;
     }
-    if (xQueueReceive(realtimeResultQueue_, &pending[count], 0) == pdTRUE) count++;
-    if (count == 2 && isNewerSequence(pending[0].sequence, pending[1].sequence)) {
-        const PollResult swap = pending[0];
-        pending[0] = pending[1];
-        pending[1] = swap;
+    if (xQueueReceive(realtimeResultQueue_, &pendingResults_[count], 0) == pdTRUE) count++;
+    uint8_t order[2] = {0, 1};
+    if (count == 2 &&
+        isNewerSequence(pendingResults_[0].sequence, pendingResults_[1].sequence)) {
+        order[0] = 1;
+        order[1] = 0;
     }
-    for (uint8_t index = 0; index < count; ++index) {
-        const PollResult& result = pending[index];
+    for (uint8_t position = 0; position < count; ++position) {
+        const PollResult& result = pendingResults_[order[position]];
         if (result.settingsRevision != printerConfigRevision_ ||
             !isNewerSequence(result.sequence, lastAppliedResultSequence_)) {
             if (result.settingsRevision != printerConfigRevision_) lastPollMs_ = 0;
@@ -745,42 +771,37 @@ void PrinterService::applyResult(const PollResult& result) {
         if (consecutiveFailures_ < UINT8_MAX) consecutiveFailures_++;
         if (consecutiveFailures_ >= kFailuresBeforeOffline) {
             setOffline(result.message[0] ? result.message : "poll_failed", result.httpCode);
-        } else if (!stateSnapshot().printerConnected) {
+        } else {
             const uint8_t failures = consecutiveFailures_;
             updateState([failures](SystemState& system) {
-                snprintf(system.printerStatusText,
-                         sizeof(system.printerStatusText),
-                         "connecting_retry_%u",
-                         static_cast<unsigned>(failures));
+                if (!system.printerConnected) {
+                    snprintf(system.printerStatusText,
+                             sizeof(system.printerStatusText),
+                             "connecting_retry_%u",
+                             static_cast<unsigned>(failures));
+                }
             });
         }
         return;
     }
 
     consecutiveFailures_ = 0;
-    const SystemState before = stateSnapshot();
-    const bool hadContinuousTelemetry = before.printerConnected && before.printerTelemetryValid;
-    const PrinterState previousState = before.printerState;
     const bool hasFreshState = result.stateSequence != 0U &&
         isNewerSequence(result.stateSequence, lastAppliedStateSequence_);
-    const PrinterState nextState = hasFreshState
-        ? static_cast<PrinterState>(result.printerState)
-        : previousState;
-
     const uint32_t now = millis();
-    if (hasFreshState) {
-        lastAppliedStateSequence_ = result.stateSequence;
-        if (previousState != nextState) {
-            Serial.printf("[printer] state %s -> %s (%s)\n",
-                          printerStateName(previousState), printerStateName(nextState),
-                          result.message[0] ? result.message : "telemetry");
-        }
-    }
-    const bool publishEvent = hasFreshState && hadContinuousTelemetry &&
-                              previousState != PrinterState::Unknown &&
-                              nextState != PrinterState::Unknown && previousState != nextState;
-    updateState([&result, now, hasFreshState, nextState, previousState,
-                 publishEvent](SystemState& system) {
+    PrinterState previousState = PrinterState::Unknown;
+    PrinterState nextState = PrinterState::Unknown;
+    bool publishEvent = false;
+    updateState([&](SystemState& system) {
+        previousState = system.printerState;
+        nextState = hasFreshState
+            ? static_cast<PrinterState>(result.printerState)
+            : previousState;
+        const bool hadContinuousTelemetry =
+            system.printerConnected && system.printerTelemetryValid;
+        publishEvent = hasFreshState && hadContinuousTelemetry &&
+                       previousState != PrinterState::Unknown &&
+                       nextState != PrinterState::Unknown && previousState != nextState;
         system.printProgress = result.printProgress;
         system.activeTool = result.activeTool;
         system.activeToolTempC = result.activeToolTempC;
@@ -813,6 +834,14 @@ void PrinterService::applyResult(const PollResult& result) {
         }
         system.printerTelemetryRevision++;
     });
+    if (hasFreshState) {
+        lastAppliedStateSequence_ = result.stateSequence;
+        if (previousState != nextState) {
+            Serial.printf("[printer] state %s -> %s (%s)\n",
+                          printerStateName(previousState), printerStateName(nextState),
+                          result.message[0] ? result.message : "telemetry");
+        }
+    }
 }
 
 bool PrinterService::requestInfo(const PollRequest& request, PrinterTestResult* result) {
@@ -1443,11 +1472,11 @@ void PrinterService::handleRealtimeEvent(WStype_t type, uint8_t* payload, size_t
 }
 
 void PrinterService::serviceRealtime() {
-    const SystemState system = stateSnapshot();
-    if (!workerConfigValid_ || WiFi.status() != WL_CONNECTED || system.maintenanceMode ||
-        system.otaTlsWindowActive) {
-        releaseRealtime(system.otaTlsWindowActive ? "OTA TLS window" :
-                        system.maintenanceMode ? "maintenance" :
+    const NetworkWindowState window = networkWindowState();
+    if (!workerConfigValid_ || WiFi.status() != WL_CONNECTED || window.maintenanceMode ||
+        window.otaTlsWindowActive) {
+        releaseRealtime(window.otaTlsWindowActive ? "OTA TLS window" :
+                        window.maintenanceMode ? "maintenance" :
                         WiFi.status() != WL_CONNECTED ? "Wi-Fi offline" : "not configured");
         return;
     }
@@ -1546,8 +1575,8 @@ void PrinterService::workerTaskEntry(void* context) {
 void PrinterService::workerLoop() {
     WorkerRequest request;
     for (;;) {
-        SystemState system = stateSnapshot();
-        const bool suspended = system.maintenanceMode || system.otaTlsWindowActive;
+        NetworkWindowState window = networkWindowState();
+        const bool suspended = window.maintenanceMode || window.otaTlsWindowActive;
         if (suspended) releaseRealtime("system network window");
 
         if (xQueueReceive(requestQueue_, &request, pdMS_TO_TICKS(kRealtimeWorkerTickMs)) != pdTRUE) {
@@ -1560,8 +1589,8 @@ void PrinterService::workerLoop() {
             serviceRealtime();
             continue;
         }
-        system = stateSnapshot();
-        if (system.maintenanceMode || system.otaTlsWindowActive) {
+        window = networkWindowState();
+        if (window.maintenanceMode || window.otaTlsWindowActive) {
             if (request.type == WorkerJobType::Discover) {
                 updateDiscovery(PrinterDiscoveryStatus::Failed, 0,
                                 "Printer discovery paused for system update");

@@ -120,6 +120,7 @@ private:
     uint32_t lastAppliedStateSequence_ = 0;
 
     WebSocketsClient webSocket_;
+    PollResult pendingResults_[2];
     PollRequest workerConfig_;
     PollResult workerSnapshot_;
     char workerToolMaterials_[4][25] = {};
