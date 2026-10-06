@@ -1,5 +1,22 @@
 # Development Updates
 
+## 0.7.1
+
+### LED Selection and Color Remix
+- Restores the coroNET OS 1 behavior in which selecting the `OTHER` category activates its decorative mode, while selecting `IDLE`, `PRINT`, `PAUSE`, `ERROR`, or `FINISH` returns control to printer-state animations.
+- Prevents a selected decorative animation such as Volcano from silently switching to the current printer-state animation when its ten-second preview expires.
+- Keeps the category shown by the touchscreen, Android companion, and browser panel synchronized with `Other mode`, including after reopening the LED view or changing the mode from another control surface.
+- Restarts the selected animation preview whenever Color Remix is reset, enabled, or adjusted, so the control always changes the animation currently shown on the physical LEDs.
+- Preserves semantic telemetry colors and the shared physical LED color calibration in both NEW and LEGACY renderer libraries.
+
+### Installation
+- Existing installations: open **Settings > Firmware update**, select **CHECK**, then **INSTALL**.
+- New installations and recovery: download `coroNET_OS_2_0.7.1_Flash_Tool.zip` from the assets below and follow the included instructions.
+- Android: download `coroNET_Companion.apk`; version 0.7.1 contains the matching category and remix synchronization.
+- Verify downloaded assets with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5` before installation.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.7.0...v0.7.1
+
 ## 0.7.0
 
 ### Stability Test Candidate

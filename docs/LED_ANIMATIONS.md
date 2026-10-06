@@ -20,10 +20,10 @@ The following behavior is shared by the entire catalog:
 - **Animation Library** switches between the rebuilt coroNET OS 2 renderers (`NEW`) and the preserved coroNET 1 renderers (`LEGACY`). Both libraries expose the same 336 names and share the corresponding selected position within each of the six status categories.
 - **Inside White** keeps the Inside section white, independent of the selected animation.
 - **Inside Ambient** derives a spatially matched aura from nearby outer LEDs.
-- **Color Remix** rotates decorative hues while preserving semantic data colors such as filament and temperature colors.
+- **Color Remix** rotates decorative hues while preserving semantic data colors such as filament and temperature colors. Changing the remix automatically renews the selected animation preview, so the physical output and the edited category stay aligned.
 - **Color Calibration** lets each device correct hue, saturation, and brightness at eight color anchors. Corrections are interpolated around the color wheel and applied only to physical LEDs, so the LCD remains a stable visual reference.
 - **Brightness and DIMM** are applied after rendering, independently for each section.
-- **Preview** starts automatically when the renderer, status category, or animation changes and uses representative printer data so telemetry-aware animations remain visible before a print starts.
+- **Preview** starts automatically when the renderer, status category, animation, or remix changes and uses representative printer data so telemetry-aware animations remain visible before a print starts. Selecting `OTHER` activates its persistent decorative mode; selecting a printer-status category returns control to printer state after the preview.
 - Smooth frame blending prevents abrupt transitions between status animations and previews.
 - Continuous movers use fractional LED positions and share their light between adjacent pixels. Deliberately digital scenes such as Tetris and explicit alert flashes retain hard steps where those steps carry meaning.
 

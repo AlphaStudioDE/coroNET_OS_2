@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,14 @@ internal fun LedPage(
         .coerceIn(0, (animations.size - 1).coerceAtLeast(0))
     val animationName = animationDisplayName(animations.getOrElse(animationIndex) { "None" })
 
+    LaunchedEffect(settings.ledOtherMode) {
+        if (settings.ledOtherMode) {
+            category = 5
+        } else if (category == 5) {
+            category = categoryForState(snapshot.printer.state, false)
+        }
+    }
+
     AdaptivePage(
         primary = {
             SectionPanel("Animation") {
@@ -74,6 +83,7 @@ internal fun LedPage(
                 }
                 CompactChoices(ledCategoryNames, category) { nextCategory ->
                     category = nextCategory
+                    send(jsonSetting("ledOtherMode", nextCategory == 5))
                     preview(
                         nextCategory,
                         selectedAnimations.getOrElse(nextCategory) { 0 },
@@ -126,11 +136,17 @@ internal fun LedPage(
                     checked = remix == 0,
                     note = "Meaningful telemetry colors remain protected.",
                 ) { useDefault ->
-                    if (useDefault) send(intArraySetting("ledColorRemixDegrees", settings.ledColorRemixDegrees, 6, category, 0, 0))
-                    else if (remix == 0) send(intArraySetting("ledColorRemixDegrees", settings.ledColorRemixDegrees, 6, category, 30, 0))
+                    if (useDefault) {
+                        send(intArraySetting("ledColorRemixDegrees", settings.ledColorRemixDegrees, 6, category, 0, 0))
+                        preview(category, animationIndex, settings.ledLegacyAnimations)
+                    } else if (remix == 0) {
+                        send(intArraySetting("ledColorRemixDegrees", settings.ledColorRemixDegrees, 6, category, 30, 0))
+                        preview(category, animationIndex, settings.ledLegacyAnimations)
+                    }
                 }
                 ValueSlider("Hue shift", remix, -180..180, " deg") {
                     send(intArraySetting("ledColorRemixDegrees", settings.ledColorRemixDegrees, 6, category, it, 0))
+                    preview(category, animationIndex, settings.ledLegacyAnimations)
                 }
             }
         },

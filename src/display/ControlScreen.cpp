@@ -108,6 +108,14 @@ void ControlScreen::begin(ui::Page page, ui::Navigation::Callback navigationCall
     calibrationOpen_ = false;
     soundBrowserOpen_ = false;
     page_ = page;
+    if (page == ui::Page::Led) {
+        const AppSettings settings = settingsService().snapshot();
+        if (settings.ledOtherMode) {
+            selectedCategory_ = static_cast<uint8_t>(LedCategory::Other);
+        } else if (selectedCategory_ == static_cast<uint8_t>(LedCategory::Other)) {
+            selectedCategory_ = static_cast<uint8_t>(LedCategory::Idle);
+        }
+    }
     bindingCount_ = 0;
     settingsRevisionSeen_ = 0;
     viewSignatureSeen_ = UINT32_MAX;
@@ -882,19 +890,29 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
         case Action::CategoryPrev:
             selectedCategory_ = (selectedCategory_ + 5U) % 6U;
             {
-                const AppSettings settings = settingsService().snapshot();
-            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
-                                        settings.ledAnimation[selectedCategory_],
-                                        10000U, settings.ledLegacyAnimations);
+                uint8_t animation = 0;
+                bool legacy = false;
+                settingsService().update([this, &animation, &legacy](AppSettings& settings) {
+                    settings.ledOtherMode = selectedCategory_ == static_cast<uint8_t>(LedCategory::Other);
+                    animation = settings.ledAnimation[selectedCategory_];
+                    legacy = settings.ledLegacyAnimations;
+                });
+                ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                            animation, 10000U, legacy);
             }
             break;
         case Action::CategoryNext:
             selectedCategory_ = (selectedCategory_ + 1U) % 6U;
             {
-                const AppSettings settings = settingsService().snapshot();
-            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
-                                        settings.ledAnimation[selectedCategory_],
-                                        10000U, settings.ledLegacyAnimations);
+                uint8_t animation = 0;
+                bool legacy = false;
+                settingsService().update([this, &animation, &legacy](AppSettings& settings) {
+                    settings.ledOtherMode = selectedCategory_ == static_cast<uint8_t>(LedCategory::Other);
+                    animation = settings.ledAnimation[selectedCategory_];
+                    legacy = settings.ledLegacyAnimations;
+                });
+                ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                            animation, 10000U, legacy);
             }
             break;
         case Action::AnimationPrev: {
@@ -960,16 +978,29 @@ void ControlScreen::handleAction(Action action, lv_event_t* event) {
             }, commit);
             break;
         }
-        case Action::RemixDefault:
-            settingsService().update([this](AppSettings& settings) {
+        case Action::RemixDefault: {
+            uint8_t animation = 0;
+            bool legacy = false;
+            settingsService().update([this, &animation, &legacy](AppSettings& settings) {
                 settings.ledColorRemixDegrees[selectedCategory_] = 0;
+                animation = settings.ledAnimation[selectedCategory_];
+                legacy = settings.ledLegacyAnimations;
             });
+            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                        animation, 10000U, legacy);
             break;
+        }
         case Action::Remix: {
             const int16_t value = lv_slider_get_value(remixSlider_);
-            settingsService().update([this, value](AppSettings& settings) {
+            uint8_t animation = 0;
+            bool legacy = false;
+            settingsService().update([this, value, &animation, &legacy](AppSettings& settings) {
                 settings.ledColorRemixDegrees[selectedCategory_] = value;
+                animation = settings.ledAnimation[selectedCategory_];
+                legacy = settings.ledLegacyAnimations;
             }, commit);
+            ledService().requestPreview(static_cast<LedCategory>(selectedCategory_),
+                                        animation, 10000U, legacy);
             break;
         }
         case Action::CalibrationOpen: openLedCalibration(); break;
