@@ -88,6 +88,20 @@ coroNET OS 2 is planned to become its native visual and control companion. The i
 
 The protocol, hardware details, and release schedule will be published only after the relevant safety mechanisms have been validated. Until then, AirGuard 300 remains a deliberate glimpse of the wider open-source ecosystem planned around coroNET.
 
+## Chitu Systems Snapmaker U1 Enclosure Integration
+
+coroNET 2 is being prepared for a documented integration with the [Chitu Systems Snapmaker U1 Top Cover & Enclosure](https://www.chitusystems.com/collections/chitu-systems-new-arrivals/products/snapmaker-u1-top-cover-enclosure?variant=48364859654380). The side opening provides a natural location for the coroNET-controlled fan and servo iris/flap, while the rear pass-through can carry a chamber-heater cable without cutting the cover.
+
+- [x] document the functional boundary between the passive enclosure and coroNET's active control layer
+- [x] map the existing PWM fan, servo iris/flap, temperature-target, fail-safe, Panda Breath, and DIY-heater workflows to the enclosure use case
+- [x] preserve and attribute the manufacturer's product images with a direct store link
+- [ ] validate coroNET frame, status lighting, touchscreen placement, and cable clearance with the Chitu enclosure installed
+- [ ] measure the side opening and publish non-destructive fan, iris, and duct adapters
+- [ ] validate airflow direction, fan range, servo limits, heater-cable routing, strain relief, and emergency fail-safe behavior on physical hardware
+- [ ] characterize chamber behavior with the enclosure open, passively closed, heated, and actively ventilated for representative filament groups
+- [ ] document suitable external exhaust and filtration arrangements without making unverified filtration or emission-removal claims
+- [ ] publish installation photographs, measured drawings, printable adapter files, and final assembly instructions
+
 ## Release Path
 
 ### 0.3.3 - Software Audit Baseline

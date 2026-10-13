@@ -56,3 +56,11 @@ largest blocks independently for internal RAM, DMA-capable RAM, and PSRAM.
 ## Panda Breath Network Setup
 
 Panda Breath does not require an additional GPIO connection. Use `DISCOVER` on the VENT page to resolve `PandaBreath.local` through mDNS. If the device uses a custom hostname or mDNS is unavailable, enter its hostname or IPv4 address in the Android companion app. A failed discovery does not erase a previously saved address.
+
+## Chitu Systems U1 Top Cover And Enclosure
+
+The [Chitu Systems Snapmaker U1 Top Cover & Enclosure](https://www.chitusystems.com/collections/chitu-systems-new-arrivals/products/snapmaker-u1-top-cover-enclosure?variant=48364859654380) is the first third-party enclosure with a dedicated coroNET 2 integration path. Its side ventilation opening is positioned for a coroNET-controlled fan and servo iris/flap. A separate rear pass-through provides a non-destructive route for a chamber-heater cable.
+
+The enclosure is passive and has no electrical or software protocol for coroNET to control. Integration happens at the airflow and cable-routing layer: coroNET reads chamber conditions from printer telemetry and controls separately powered ventilation or heating hardware fitted around the enclosure's prepared openings. The included thermo-hygrometer remains an independent local reference.
+
+Mechanical adapters, mounting, safe temperature limits, fan sizing, cable strain relief, and filtration performance remain subject to physical validation. See [CHITU_U1_ENCLOSURE.md](CHITU_U1_ENCLOSURE.md) before planning a build.

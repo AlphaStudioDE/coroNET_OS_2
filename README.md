@@ -17,7 +17,7 @@ OS 2 is a ground-up successor to [coroNET OS 1](https://github.com/AlphaStudioDE
 
 ## Start Here
 
-[Getting started](GETTING_STARTED.md) | [LED animation catalog](docs/LED_ANIMATIONS.md) | [Status sounds](docs/STATUS_SOUNDS.md) | [Community showcase](docs/COMMUNITY_SHOWCASE.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Android app](android/README.md) | [Development updates](docs/UPDATES.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
+[Getting started](GETTING_STARTED.md) | [LED animation catalog](docs/LED_ANIMATIONS.md) | [Status sounds](docs/STATUS_SOUNDS.md) | [Chitu Systems U1 enclosure integration](docs/CHITU_U1_ENCLOSURE.md) | [Community showcase](docs/COMMUNITY_SHOWCASE.md) | [Bill of materials](BOM.md) | [Assembly and wiring](ASSEMBLY.md) | [Flashing](FLASHING.md) | [Android app](android/README.md) | [Development updates](docs/UPDATES.md) | [Roadmap](ROADMAP.md) | [Architecture](docs/ARCHITECTURE.md) | [OS 1 feature scope](docs/OS1_FEATURE_SCOPE.md) | [Contributing](CONTRIBUTING.md)
 
 **Latest downloads:** [firmware and Flash Tool](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest) | [Android companion APK](https://github.com/AlphaStudioDE/coroNET_OS_2/releases/latest/download/coroNET_Companion.apk)
 
@@ -57,6 +57,27 @@ Another open-source project is taking shape alongside coroNET. **AirGuard 300** 
 Future coroNET OS 2 releases are planned to recognize and work directly with AirGuard 300, bringing its guarded heating system, telemetry, and safety state into the same touchscreen and companion experience. Universal Klipper compatibility and open construction are part of the plan. The rest stays behind the workshop door for now.
 
 > Two open projects. One connected ecosystem. More about AirGuard 300 will be revealed as its hardware and safety architecture reach public validation milestones.
+
+## Chitu Systems U1 Enclosure Integration
+
+coroNET 2 is being prepared to work with the [**Chitu Systems Snapmaker U1 Top Cover & Enclosure**](https://www.chitusystems.com/collections/chitu-systems-new-arrivals/products/snapmaker-u1-top-cover-enclosure?variant=48364859654380). Its side opening is a natural location for the coroNET-controlled fan and servo iris/flap, while the rear cable pass-through can route a chamber-heater cable without cutting the cover. The enclosure supplies passive heat retention and the physical air path; coroNET supplies printer-telemetry-based chamber monitoring, automatic ventilation, and coordinated heater workflows.
+
+<table>
+  <tr>
+    <td width="50%"><a href="https://www.chitusystems.com/collections/chitu-systems-new-arrivals/products/snapmaker-u1-top-cover-enclosure?variant=48364859654380"><img src="docs/media/chitu-u1-enclosure/official-installed-view.jpg" alt="Chitu Systems Snapmaker U1 Top Cover and Enclosure installed on the printer"></a></td>
+    <td width="50%"><a href="https://www.chitusystems.com/collections/chitu-systems-new-arrivals/products/snapmaker-u1-top-cover-enclosure?variant=48364859654380"><img src="docs/media/chitu-u1-enclosure/official-ventilation-port.jpg" alt="Side ventilation port prepared for an exhaust fan and filter path"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Ready-made Snapmaker U1 enclosure</strong></td>
+    <td align="center"><strong>Side port for the coroNET fan and iris</strong></td>
+  </tr>
+</table>
+
+<p align="center"><sub>Official product images published directly by Chitu Systems. All image rights remain with the manufacturer. Click either image to open the official store.</sub></p>
+
+The planned integration can retain heat for suitable engineering materials, release excess heat when required, or direct air to an external exhaust or appropriate filtration system. Mechanical adapters and operating limits will be published after validation on physical hardware.
+
+See the **[Chitu Systems U1 Enclosure Integration Guide](docs/CHITU_U1_ENCLOSURE.md)** for the gallery, planned architecture, current status, and safety boundaries.
 
 ## Creator's Reference Build
 
@@ -189,6 +210,8 @@ Created and maintained by **Damian Borkowski**.
 Special thanks to **@wlodeka** on Discord for hardware testing, feedback, and the optional magnetic enclosure developed for coroNET OS 1.
 
 Special thanks to **Bobby Morgan** for building and testing an extensively customized coroNET installation and for contributing the photographs featured in the [Community Showcase](docs/COMMUNITY_SHOWCASE.md).
+
+The project is developing a documented Snapmaker U1 enclosure integration in contact with [**Chitu Systems**](https://www.chitusystems.com/), whose practical, maker-focused hardware provides a strong foundation for coroNET's active ventilation and chamber-control workflows.
 
 coroNET is an independent community project and is not affiliated with or endorsed by Snapmaker. Snapmaker and other product names may be trademarks of their respective owners.
 

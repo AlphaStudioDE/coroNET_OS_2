@@ -1,5 +1,14 @@
 # Development Updates
 
+## Unreleased
+
+### Chitu Systems U1 Enclosure Integration
+- Added a dedicated integration path for the Chitu Systems Snapmaker U1 Top Cover & Enclosure.
+- Identified the side opening as the mounting and airflow location for a coroNET-controlled fan and servo iris/flap, and the rear pass-through as the route for a chamber-heater cable.
+- Added official manufacturer product images, complete source attribution, and a direct link to the Chitu Systems store.
+- Documented the physical-validation plan for fit, adapters, airflow, cable routing, fail-safe behavior, temperature characterization, and filtration arrangements.
+- Kept mechanical compatibility and filtration performance explicitly unverified until the product and final airflow hardware are tested together.
+
 ## 0.7.1
 
 ### LED Selection and Color Remix
