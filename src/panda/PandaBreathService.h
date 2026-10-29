@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <WebSocketsClient.h>
+#include <atomic>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "../core/ProductTypes.h"
 #include "../core/SystemState.h"
@@ -14,11 +17,14 @@ public:
     void loop();
     void applyNow();
     void requestDiscovery();
-    void disconnect();
-    bool realtimeResourcesReleased() const { return !socketConfigured_; }
+    bool realtimeResourcesReleased() const { return resourcesReleased_.load(); }
     void logStatus() const;
 
 private:
+    static void workerEntry(void* context);
+    void workerLoop();
+    void service();
+    void disconnect();
     struct DryProfile {
         uint8_t temperatureC;
         uint8_t hours;
@@ -47,9 +53,13 @@ private:
     static void normalizeHost(const char* input, char output[65]);
 
     WebSocketsClient socket_;
+    TaskHandle_t workerTask_ = nullptr;
+    uint32_t lastWorkerStartAttemptMs_ = 0;
+    std::atomic<bool> resourcesReleased_{true};
+    std::atomic<bool> applyRequested_{false};
     bool initialized_ = false;
     bool connected_ = false;
-    volatile bool socketConfigured_ = false;
+    bool socketConfigured_ = false;
     bool desiredOn_ = false;
     bool desiredDrying_ = false;
     uint8_t desiredTargetC_ = 0;
@@ -69,7 +79,8 @@ private:
     float temperingStartTempC_ = NAN;
     bool automaticSawPrint_ = false;
     bool oneShotComplete_ = false;
-    bool discoveryRequested_ = false;
+    bool temperingInitialized_ = false;
+    std::atomic<bool> discoveryRequested_{false};
     uint32_t discoveryStatusUntilMs_ = 0;
 };
 

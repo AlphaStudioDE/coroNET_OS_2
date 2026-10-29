@@ -45,6 +45,7 @@ typedef struct lvgl_port_ctx_s {
     SemaphoreHandle_t   lvgl_mux;
     esp_timer_handle_t  tick_timer;
     bool                running;
+    bool                refresh_pending;
     int                 task_max_sleep_ms;
 } lvgl_port_ctx_t;
 
@@ -61,6 +62,7 @@ typedef struct {
     lv_disp_rot_t             sw_rotate;        /* Panel software rotation mask */
 
     lvgl_port_wait_cb         draw_wait_cb;     /* Callback function for drawing */
+    bool                     transport_fault;
 } lvgl_port_display_ctx_t;
 
 #ifdef ESP_LVGL_PORT_TOUCH_COMPONENT
@@ -200,7 +202,7 @@ lv_disp_t *lvgl_port_add_disp(const lvgl_port_display_cfg_t *disp_cfg)
                    (int)esp_psram_is_initialized());
 
     /* Display context */
-    lvgl_port_display_ctx_t *disp_ctx = malloc(sizeof(lvgl_port_display_ctx_t));
+    lvgl_port_display_ctx_t *disp_ctx = calloc(1, sizeof(lvgl_port_display_ctx_t));
     ESP_GOTO_ON_FALSE(disp_ctx, ESP_ERR_NO_MEM, err, TAG, "Not enough memory for display context allocation!");
     disp_ctx->io_handle = disp_cfg->io_handle;
     disp_ctx->panel_handle = disp_cfg->panel_handle;
@@ -265,7 +267,7 @@ lv_disp_t *lvgl_port_add_disp(const lvgl_port_display_cfg_t *disp_cfg)
         ESP_GOTO_ON_FALSE(buf3, ESP_ERR_NO_MEM, err, TAG, "Not enough memory for buffer(transport) allocation!");
         disp_ctx->trans_buf_2 = buf3;
 
-        trans_done_sem = xSemaphoreCreateCounting(1, 0);
+        trans_done_sem = xSemaphoreCreateCounting(1, 1);
         ESP_GOTO_ON_FALSE(trans_done_sem, ESP_ERR_NO_MEM, err, TAG, "Failed to create transport counting Semaphore");
         disp_ctx->trans_done_sem = trans_done_sem;
     }
@@ -424,6 +426,10 @@ static void lvgl_port_task(void *arg)
     while (lvgl_port_ctx.running) {
         if (lvgl_port_lock(0)) {
             task_delay_ms = lv_timer_handler();
+            if (lvgl_port_ctx.refresh_pending) {
+                lvgl_port_ctx.refresh_pending = false;
+                lv_obj_invalidate(lv_scr_act());
+            }
             lvgl_port_unlock();
         }
         if ((task_delay_ms > lvgl_port_ctx.task_max_sleep_ms) || (1 == task_delay_ms)) {
@@ -488,6 +494,16 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
 
     if (disp_ctx->trans_size) {
         assert(disp_ctx->trans_buf_1 != NULL);
+
+        // A timed-out transfer still owns its DMA buffer until its callback arrives.
+        if (xSemaphoreTake(disp_ctx->trans_done_sem, pdMS_TO_TICKS(100)) != pdTRUE) {
+            if (!disp_ctx->transport_fault) ESP_LOGE(TAG, "LCD transfer completion timed out");
+            disp_ctx->transport_fault = true;
+            lvgl_port_ctx.refresh_pending = true;
+            lv_disp_flush_ready(drv);
+            return;
+        }
+        disp_ctx->transport_fault = false;
 
         int x_draw_start = 0;
         int x_draw_end = 0;
@@ -594,11 +610,23 @@ static void lvgl_port_flush_callback(lv_disp_drv_t *drv, const lv_area_t *area, 
                 if (disp_ctx->draw_wait_cb) {
                     disp_ctx->draw_wait_cb(disp_ctx->panel_handle->user_data);
                 }
-                xSemaphoreGive(disp_ctx->trans_done_sem);
             }
 
-            xSemaphoreTake(disp_ctx->trans_done_sem, portMAX_DELAY);
-            esp_lcd_panel_draw_bitmap(disp_ctx->panel_handle, x_draw_start, y_draw_start, x_draw_end + 1, y_draw_end + 1, to);
+            if (i > 0 && xSemaphoreTake(disp_ctx->trans_done_sem, pdMS_TO_TICKS(100)) != pdTRUE) {
+                ESP_LOGE(TAG, "LCD transfer completion timed out");
+                disp_ctx->transport_fault = true;
+                lvgl_port_ctx.refresh_pending = true;
+                break;
+            }
+            const esp_err_t result = esp_lcd_panel_draw_bitmap(
+                disp_ctx->panel_handle, x_draw_start, y_draw_start, x_draw_end + 1, y_draw_end + 1, to);
+            if (result != ESP_OK) {
+                // The panel driver propagates submission errors; no DMA was queued.
+                xSemaphoreGive(disp_ctx->trans_done_sem);
+                ESP_LOGE(TAG, "LCD transfer submission failed: %s", esp_err_to_name(result));
+                lvgl_port_ctx.refresh_pending = true;
+                break;
+            }
 
             if (LV_DISP_ROT_90 == rotate) {
                 x_start_tmp += max_width;

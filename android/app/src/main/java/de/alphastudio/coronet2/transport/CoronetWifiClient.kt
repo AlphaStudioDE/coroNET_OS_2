@@ -207,10 +207,10 @@ fun parseSettings(json: JSONObject, previous: DeviceSettings = DeviceSettings())
         json.has("sr") -> json.optLong("sr", previous.revision)
         else -> previous.revision
     },
-    setupDone = json.optBoolean("setupDone", previous.setupDone),
-    bleEnabled = json.optBoolean("bleEnabled", previous.bleEnabled),
-    apiPaired = json.optBoolean("apiPaired", previous.apiPaired),
-    companionTransport = json.optInt("transportValue", json.optInt("transport", previous.companionTransport)),
+    setupDone = json.optBooleanCompat("setupDone", previous.setupDone),
+    bleEnabled = json.optBooleanCompat("bleEnabled", previous.bleEnabled),
+    apiPaired = json.optBooleanCompat("apiPaired", previous.apiPaired),
+    companionTransport = json.optInt("companionTransport", json.optInt("transportValue", json.optInt("transport", previous.companionTransport))),
     wifiSsid = json.optString("wifiSsid", previous.wifiSsid),
     printerHost = json.optString("printerHost", previous.printerHost),
     printerPort = json.optInt("printerPort", previous.printerPort),
@@ -296,4 +296,20 @@ private fun JSONObject.optBooleanList(key: String, fallback: List<Boolean>): Lis
 private fun JSONObject.optStringList(key: String, fallback: List<String>): List<String> {
     val array = optJSONArray(key) ?: return fallback
     return List(array.length()) { array.optString(it, fallback.getOrElse(it) { "" }) }
+}
+
+/**
+ * Reads a boolean that firmware may send as a JSON boolean or as integer 0/1.
+ * [JSONObject.optBoolean] retains the previous/default value for numeric values,
+ * so we explicitly check the integer form first.
+ */
+private fun JSONObject.optBooleanCompat(key: String, fallback: Boolean): Boolean {
+    if (!has(key) || isNull(key)) return fallback
+    val raw = opt(key)
+    if (raw is Boolean) return raw
+    if (raw is Number && raw.toDouble() == 0.0) return false
+    if (raw is Number && raw.toDouble() == 1.0) return true
+    if (raw is String && raw.equals("true", ignoreCase = true)) return true
+    if (raw is String && raw.equals("false", ignoreCase = true)) return false
+    return fallback
 }

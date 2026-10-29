@@ -42,6 +42,8 @@ constexpr uint32_t kRealtimeRequestTimeoutMs = 3000;
 constexpr uint32_t kRealtimeStaleMs = 15000;
 constexpr uint32_t kChamberFilterTimeConstantMs = 6000;
 constexpr uint32_t kChamberFilterResetGapMs = 30000;
+// Allow two full HTTP audit intervals without expiring an unchanged WS value.
+constexpr uint32_t kChamberMeasurementStaleMs = 65000;
 
 PrinterService gPrinterService;
 
@@ -269,6 +271,14 @@ void PrinterService::loop() {
     refreshConfiguration();
     if (queuedConfigRevision_ != printerConfigRevision_) enqueueConfiguration();
     consumeResults();
+
+    const uint32_t measurementNow = millis();
+    updateState([measurementNow](SystemState& current) {
+        if (isfinite(current.chamberTempC) &&
+            measurementNow - current.lastChamberUpdateMs > kChamberMeasurementStaleMs) {
+            current.chamberTempC = NAN;
+        }
+    });
 
     const bool setupDone = settingsService().settings().setupDone;
     const bool printerConfigured = configured();
@@ -809,6 +819,7 @@ void PrinterService::applyResult(const PollResult& result) {
                sizeof(system.toolTemperaturesC));
         system.bedTempC = result.bedTempC;
         system.chamberTempC = result.chamberTempC;
+        system.lastChamberUpdateMs = result.chamberSampleMs;
         system.printDurationSec = result.printDurationSec;
         system.printEtaSec = result.printEtaSec;
         system.filamentColorRgb = result.filamentColorRgb;
@@ -960,6 +971,7 @@ bool PrinterService::performPoll(const PollRequest& request, PollResult& result)
         }
     }
     result.chamberTempC = filterChamberTemperature(rawChamberTempC);
+    result.chamberSampleMs = workerChamberFilterMs_;
     result.printDurationSec = duration > 0.0f ? static_cast<uint32_t>(duration + 0.5f) : 0;
     if (progress > 0.001f && progress < 1.0f && duration > 0.0f) {
         const double eta = static_cast<double>(duration) / static_cast<double>(progress) - duration;
@@ -1235,7 +1247,10 @@ void PrinterService::resetChamberFilter() {
 }
 
 float PrinterService::filterChamberTemperature(float rawTemperatureC) {
-    if (!isfinite(rawTemperatureC)) return workerChamberFilteredC_;
+    if (!isfinite(rawTemperatureC)) {
+        resetChamberFilter();
+        return NAN;
+    }
 
     const uint32_t now = millis();
     if (!isfinite(workerChamberFilteredC_) || workerChamberFilterMs_ == 0U ||
@@ -1327,9 +1342,11 @@ void PrinterService::applyRealtimeStatus(JsonVariantConst status) {
     }
     if (workerChamberObject_[0]) {
         JsonVariantConst chamberStatus = status[workerChamberObject_];
-        if (!chamberStatus.isNull() && !chamberStatus["temperature"].isNull()) {
+        // Missing fields in deltas mean unchanged; an explicit invalid value does not.
+        if (chamberStatus.is<JsonObjectConst>() && !chamberStatus["temperature"].isUnbound()) {
             workerSnapshot_.chamberTempC = filterChamberTemperature(
-                chamberStatus["temperature"].as<float>());
+                chamberStatus["temperature"] | NAN);
+            workerSnapshot_.chamberSampleMs = workerChamberFilterMs_;
         }
     }
 

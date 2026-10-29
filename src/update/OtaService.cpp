@@ -47,7 +47,7 @@ public:
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         updateState([](SystemState& state) { state.otaTlsWindowActive = true; });
         const uint32_t started = millis();
-        while (millis() - started < 1500U) {
+        while (millis() - started < 8000U) {
             const SystemState state = stateSnapshot();
             if (bleService().startupSettled() && !state.bleReady &&
                 printerService().realtimeResourcesReleased() &&
@@ -323,7 +323,8 @@ bool OtaService::ensureSecureClock() {
         return true;
     }
     setState(OtaState::Checking, "Synchronizing secure clock");
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+    const AppSettings settings = settingsService().snapshot();
+    configTzTime(settings.timeZone, "pool.ntp.org", "time.nist.gov", "time.google.com");
     const uint32_t started = millis();
     while (millis() - started < 8000U) {
         if (time(nullptr) >= kMinimumTrustedEpoch) {
@@ -507,8 +508,17 @@ bool OtaService::enterMaintenance() {
     settingsService().flush();
     updateState([](SystemState& state) { state.maintenanceMode = true; });
     ledService().cancelPreview();
-    pandaBreathService().disconnect();
     ventService().applyNow();
+    const uint32_t pandaStopStarted = millis();
+    while (!pandaBreathService().realtimeResourcesReleased() &&
+           millis() - pandaStopStarted < 8000U) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (!pandaBreathService().realtimeResourcesReleased()) {
+        updateState([](SystemState& state) { state.maintenanceMode = false; });
+        setState(OtaState::Failed, "Panda could not stop safely for update");
+        return false;
+    }
     audioWasReady_ = stateSnapshot().audioReady;
     if (!audioService().release()) {
         audioWasReady_ = false;

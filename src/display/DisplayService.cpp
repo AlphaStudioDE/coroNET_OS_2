@@ -318,12 +318,13 @@ void DisplayService::updateScreenSaver(uint32_t now) {
         system.lastTouchMs = now;
         if (screenSaverActive_) leaveScreenSaver(true);
     }
-    if (printerError) return;
-
     if (screenSaverActive_) {
-        if (system.lastTouchMs != screenSaverActivityMark_) leaveScreenSaver(screenSaverClock_);
+        if (printerError || system.lastTouchMs != screenSaverActivityMark_) {
+            leaveScreenSaver(screenSaverClock_);
+        }
         return;
     }
+    if (printerError) return;
     const AppSettings& settings = settingsService().settings();
     if (settings.screenSaverMode == ScreenSaverMode::Disabled) return;
     const uint32_t activity = system.lastTouchMs ? system.lastTouchMs : system.bootMs;

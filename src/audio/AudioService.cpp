@@ -525,25 +525,51 @@ void AudioService::stop() {
 
 bool AudioService::release() {
     portENTER_CRITICAL(&requestMux_);
+    if (lifecycleBusy_) {
+        portEXIT_CRITICAL(&requestMux_);
+        return false;
+    }
+    lifecycleBusy_ = true;
     acceptingRequests_ = false;
     const bool taskRunning = task_ != nullptr;
     portEXIT_CRITICAL(&requestMux_);
     if (taskRunning && !stopAndWait()) {
         portENTER_CRITICAL(&requestMux_);
         acceptingRequests_ = true;
+        lifecycleBusy_ = false;
         portEXIT_CRITICAL(&requestMux_);
         Serial.println("[audio] release aborted: task did not stop");
         return false;
     }
     uninstallDriver();
+    if (txChannel_) {
+        portENTER_CRITICAL(&requestMux_);
+        acceptingRequests_ = true;
+        lifecycleBusy_ = false;
+        portEXIT_CRITICAL(&requestMux_);
+        Serial.println("[audio] release aborted: I2S channel could not be deleted");
+        return false;
+    }
     updateState([](SystemState& system) { system.audioReady = false; });
+    portENTER_CRITICAL(&requestMux_);
+    lifecycleBusy_ = false;
+    portEXIT_CRITICAL(&requestMux_);
     logMemory("released");
     return true;
 }
 
 bool AudioService::useDmaProfile(AudioDmaProfile profile) {
-    if (profile == profile_ && driverReady_) return true;
+    if (stateSnapshot().maintenanceMode) return false;
     portENTER_CRITICAL(&requestMux_);
+    if (lifecycleBusy_) {
+        portEXIT_CRITICAL(&requestMux_);
+        return false;
+    }
+    if (profile == profile_ && driverReady_) {
+        portEXIT_CRITICAL(&requestMux_);
+        return true;
+    }
+    lifecycleBusy_ = true;
     acceptingRequests_ = false;
     portEXIT_CRITICAL(&requestMux_);
     if (!stopAndWait()) {
@@ -551,6 +577,9 @@ bool AudioService::useDmaProfile(AudioDmaProfile profile) {
         acceptingRequests_ = true;
         portEXIT_CRITICAL(&requestMux_);
         Serial.println("[audio] DMA profile change aborted: task did not stop");
+        portENTER_CRITICAL(&requestMux_);
+        lifecycleBusy_ = false;
+        portEXIT_CRITICAL(&requestMux_);
         return false;
     }
     uninstallDriver();
@@ -563,6 +592,9 @@ bool AudioService::useDmaProfile(AudioDmaProfile profile) {
     acceptingRequests_ = true;
     portEXIT_CRITICAL(&requestMux_);
     updateState([ready](SystemState& system) { system.audioReady = ready; });
+    portENTER_CRITICAL(&requestMux_);
+    lifecycleBusy_ = false;
+    portEXIT_CRITICAL(&requestMux_);
     logStatus();
     return ready;
 }
@@ -713,7 +745,11 @@ void AudioService::taskLoop() {
 
     uint32_t handledSequence = 0;
     while (true) {
-        if (handledSequence == requestSequenceSnapshot()) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        // Notifications are wake hints; the sequence is the authoritative request.
+        ulTaskNotifyTake(pdTRUE, 0);
+        if (handledSequence == requestSequenceSnapshot()) {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
 
         uint32_t sequence = 0;
         RequestType type = RequestType::Stop;
@@ -724,6 +760,8 @@ void AudioService::taskLoop() {
         bool bootAudio = false;
         uint32_t durationMs = 0;
         snapshotRequest(sequence, type, path, volume, repeat, scenario, bootAudio, durationMs);
+
+        if (sequence == handledSequence) continue;
         handledSequence = sequence;
 
         closeWav();
@@ -734,7 +772,6 @@ void AudioService::taskLoop() {
             system.audioPlaying = false;
             system.activeSoundPath[0] = '\0';
         });
-        primeSilence();
         if (type == RequestType::Stop) {
             updateState([](SystemState& system) {
                 strlcpy(system.audioStatusText, "Ready", sizeof(system.audioStatusText));
@@ -754,6 +791,26 @@ void AudioService::taskLoop() {
             markRequestCompleted(sequence);
             continue;
         }
+
+        // Recover a failed clock transition on the audio worker, never in a callback.
+        if (!driverReady_) {
+            uninstallDriver();
+            const uint16_t count = profile_ == AudioDmaProfile::Coronet1
+                                       ? Coronet1DmaBufferCount
+                                       : BalancedDmaBufferCount;
+            if (installDriver(count)) {
+                Serial.println("[audio] I2S driver reinstalled after clock-change failure");
+                updateState([](SystemState& system) { system.audioReady = true; });
+            } else {
+                Serial.println("[audio] I2S driver reinstall failed; skipping request");
+                updateState([](SystemState& system) {
+                    strlcpy(system.audioStatusText, "I2S recovery failed", sizeof(system.audioStatusText));
+                });
+                markRequestCompleted(sequence);
+                continue;
+            }
+        }
+        primeSilence();
 
         if (type == RequestType::Wav || type == RequestType::Scenario) {
             if (!storageReadySnapshot() && !mountStorage()) {
@@ -813,7 +870,7 @@ void AudioService::taskLoop() {
         });
         bool naturalEnd = false;
         do {
-            if (!openWav(path)) {
+            if (!openWav(path, sequence)) {
                 Serial.printf("[audio] WAV could not be opened: %s\n", path);
                 updateState([&path](SystemState& system) {
                     snprintf(system.audioStatusText, sizeof(system.audioStatusText),
@@ -842,6 +899,7 @@ void AudioService::taskLoop() {
 }
 
 bool AudioService::installDriver(uint16_t dmaBufferCount) {
+    if (txChannel_) return false;
     logMemory("before-driver");
     i2s_chan_config_t channelConfig = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     channelConfig.dma_desc_num = dmaBufferCount;
@@ -883,11 +941,10 @@ bool AudioService::installDriver(uint16_t dmaBufferCount) {
 }
 
 void AudioService::uninstallDriver() {
-    if (!driverReady_ || !txChannel_) return;
-    settleToSilence();
+    if (!txChannel_) return;
+    if (driverReady_) settleToSilence();
     i2s_channel_disable(txChannel_);
-    i2s_del_channel(txChannel_);
-    txChannel_ = nullptr;
+    if (i2s_del_channel(txChannel_) == ESP_OK) txChannel_ = nullptr;
     driverReady_ = false;
     dmaBufferCount_ = 0;
 }
@@ -903,22 +960,30 @@ bool AudioService::reconfigureClock(uint32_t sampleRate) {
         result = i2s_channel_reconfig_std_clock(txChannel_, &clockConfig);
     }
     if (result == ESP_OK) {
-        sampleRate_ = sampleRate;
         if (!preloadSilence(dmaBufferCount_)) result = ESP_FAIL;
     }
     if (result == ESP_OK) result = i2s_channel_enable(txChannel_);
     if (result != ESP_OK) {
         Serial.printf("[audio] I2S clock change to %lu Hz failed: %d\n",
                       static_cast<unsigned long>(sampleRate), static_cast<int>(result));
+        // Keep the last working rate; the next playback request rebuilds I2S.
+        i2s_channel_disable(txChannel_);
+        if (i2s_del_channel(txChannel_) == ESP_OK) txChannel_ = nullptr;
+        driverReady_ = false;
+        dmaBufferCount_ = 0;
         return false;
     }
+    sampleRate_ = sampleRate;
     return true;
 }
 
-bool AudioService::openWav(const char* path) {
+bool AudioService::openWav(const char* path, uint32_t sequence) {
     closeWav();
+    if (!requestIsCurrent(sequence)) return false;
     wavFile_ = SD_MMC.open(path, FILE_READ);
     if (!wavFile_ || wavFile_.isDirectory()) return false;
+
+    const uint64_t fileSize = static_cast<uint64_t>(wavFile_.size());
 
     uint8_t riff[12] = {};
     if (wavFile_.read(riff, sizeof(riff)) != sizeof(riff) || memcmp(riff, "RIFF", 4) != 0 ||
@@ -927,14 +992,35 @@ bool AudioService::openWav(const char* path) {
         return false;
     }
 
+    // Bound all offsets before narrowing to the filesystem's 32-bit seek API.
+    const uint64_t riffDeclared = static_cast<uint64_t>(readLe32(riff + 4));
+    const uint64_t riffExtent = riffDeclared + 8U;
+    if (riffExtent < 12U || riffExtent > fileSize || riffExtent > UINT32_MAX) {
+        closeWav();
+        return false;
+    }
+
     bool gotFormat = false;
     bool gotData = false;
     uint16_t format = 0;
-    while (wavFile_.available()) {
+    uint32_t chunksRead = 0;
+    while (wavFile_.available() && chunksRead++ < 1024U) {
+        if (!requestIsCurrent(sequence)) {
+            closeWav();
+            return false;
+        }
+
+        const uint64_t chunkHeaderPos = static_cast<uint64_t>(wavFile_.position());
+        if (chunkHeaderPos + 8ULL > riffExtent) break;
+
         uint8_t chunk[8] = {};
         if (wavFile_.read(chunk, sizeof(chunk)) != sizeof(chunk)) break;
-        const uint32_t chunkSize = readLe32(chunk + 4);
-        const uint32_t chunkData = wavFile_.position();
+
+        const uint64_t chunkSize = static_cast<uint64_t>(readLe32(chunk + 4));
+        const uint64_t chunkData = static_cast<uint64_t>(wavFile_.position());
+
+        if (chunkData + chunkSize > riffExtent) break;
+
         if (memcmp(chunk, "fmt ", 4) == 0 && chunkSize >= 16U) {
             uint8_t formatData[16] = {};
             if (wavFile_.read(formatData, sizeof(formatData)) != sizeof(formatData)) break;
@@ -944,12 +1030,16 @@ bool AudioService::openWav(const char* path) {
             wav_.bitsPerSample = readLe16(formatData + 14);
             gotFormat = true;
         } else if (memcmp(chunk, "data", 4) == 0) {
-            wav_.dataOffset = chunkData;
-            wav_.dataSize = chunkSize;
+            wav_.dataOffset = static_cast<uint32_t>(chunkData);
+            wav_.dataSize = static_cast<uint32_t>(chunkSize);
             gotData = true;
         }
-        wavFile_.seek(chunkData + chunkSize + (chunkSize & 1U));
+
         if (gotFormat && gotData) break;
+        const uint64_t nextOffset = chunkData + chunkSize + (chunkSize & 1ULL);
+        if (nextOffset <= chunkHeaderPos || nextOffset > riffExtent ||
+            !wavFile_.seek(static_cast<uint32_t>(nextOffset)) ||
+            wavFile_.position() != nextOffset) break;
     }
 
     if (!gotFormat || !gotData || format != 1U || (wav_.channels != 1U && wav_.channels != 2U) ||
@@ -961,13 +1051,17 @@ bool AudioService::openWav(const char* path) {
     }
     const size_t bytesPerFrame = (wav_.bitsPerSample / 8U) * wav_.channels;
     wav_.outputFramesTotal = bytesPerFrame ? wav_.dataSize / bytesPerFrame : 0U;
-    if (!wav_.outputFramesTotal || !reconfigureClock(wav_.sampleRate)) {
+    if (!wav_.outputFramesTotal || !requestIsCurrent(sequence) ||
+        !reconfigureClock(wav_.sampleRate)) {
         closeWav();
         return false;
     }
     wav_.dataRemaining = wav_.outputFramesTotal * bytesPerFrame;
     wav_.outputFrames = 0;
-    wavFile_.seek(wav_.dataOffset);
+    if (!wavFile_.seek(wav_.dataOffset) || wavFile_.position() != wav_.dataOffset) {
+        closeWav();
+        return false;
+    }
     primeSilence(kGuardSilenceBuffers);
     return true;
 }

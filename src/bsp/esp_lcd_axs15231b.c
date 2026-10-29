@@ -296,31 +296,30 @@ static esp_err_t panel_axs15231b_draw_bitmap(esp_lcd_panel_t *panel, int x_start
     y_end += axs15231b->y_gap;
 
     // define an area of frame memory where MCU can access
-    tx_param(axs15231b, io, LCD_CMD_CASET, (uint8_t[]) {
+    ESP_RETURN_ON_ERROR(tx_param(axs15231b, io, LCD_CMD_CASET, (uint8_t[]) {
         (x_start >> 8) & 0xFF,
         x_start & 0xFF,
         ((x_end - 1) >> 8) & 0xFF,
         (x_end - 1) & 0xFF,
-    }, 4);
+    }, 4), TAG, "set column failed");
 
     if (0 == axs15231b->flags.use_qspi_interface) {
-        tx_param(axs15231b, io, LCD_CMD_RASET, (uint8_t[]) {
+        ESP_RETURN_ON_ERROR(tx_param(axs15231b, io, LCD_CMD_RASET, (uint8_t[]) {
             (y_start >> 8) & 0xFF,
             y_start & 0xFF,
             ((y_end - 1) >> 8) & 0xFF,
             (y_end - 1) & 0xFF,
-        }, 4);
+        }, 4), TAG, "set row failed");
     }
 
     // transfer frame buffer
     size_t len = (x_end - x_start) * (y_end - y_start) * axs15231b->fb_bits_per_pixel / 8;
     if (y_start == 0) {
-        tx_color(axs15231b, io, LCD_CMD_RAMWR, color_data, len);//2C
+        return tx_color(axs15231b, io, LCD_CMD_RAMWR, color_data, len);//2C
     } else {
-        tx_color(axs15231b, io, LCD_CMD_RAMWRC, color_data, len);//3C
+        return tx_color(axs15231b, io, LCD_CMD_RAMWRC, color_data, len);//3C
     }
 
-    return ESP_OK;
 }
 
 static esp_err_t panel_axs15231b_invert_color(esp_lcd_panel_t *panel, bool invert_color_data)

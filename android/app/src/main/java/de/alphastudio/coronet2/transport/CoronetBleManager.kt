@@ -49,10 +49,8 @@ class CoronetBleManager(
         private const val MaxPendingCommands = 16
     }
 
-    private data class AssemblyKey(val source: UUID, val type: Int, val messageId: Int)
-    private data class Assembly(val total: Int, val chunks: Array<ByteArray?>, val startedAtMs: Long)
     private val adapter get() = context.getSystemService(BluetoothManager::class.java)?.adapter
-    private val assemblies = mutableMapOf<AssemblyKey, Assembly>()
+    private val assemblies = BleFrameAssembler(SystemClock::elapsedRealtime)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scanExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "coroNET-BLE-scan").apply { isDaemon = true }
@@ -61,7 +59,7 @@ class CoronetBleManager(
     @Volatile private var gatt: BluetoothGatt? = null
     @Volatile private var command: BluetoothGattCharacteristic? = null
     private var activeDevice: CoronetDevice? = null
-    private val commandWrites = ArrayDeque<ByteArray>()
+    private val commandWrites = ArrayDeque<Pair<BluetoothGatt, ByteArray>>()
     private val descriptorWrites = ArrayDeque<BluetoothGattDescriptor>()
     private var commandWriteInFlight = false
     @Volatile private var subscriptionsReady = false
@@ -79,6 +77,12 @@ class CoronetBleManager(
         val device = activeDevice
         if (reconnectEnabled && device != null && gatt == null) connectGatt(device)
     }
+    private val commandWriteTimeout = Runnable {
+        val currentGatt = gatt
+        if (currentGatt != null && synchronized(commandWrites) { commandWriteInFlight }) {
+            failAndReconnect(currentGatt, "command write timed out")
+        }
+    }
     private var adapterReceiverRegistered = false
     private val adapterStateReceiver = object : BroadcastReceiver() {
         @SuppressLint("MissingPermission")
@@ -88,6 +92,7 @@ class CoronetBleManager(
                 BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
                     mainHandler.removeCallbacks(serviceDiscoveryFallback)
                     mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+                    mainHandler.removeCallbacks(commandWriteTimeout)
                     mainHandler.removeCallbacks(reconnectRunnable)
                     command = null
                     subscriptionsReady = false
@@ -164,6 +169,10 @@ class CoronetBleManager(
 
     @SuppressLint("MissingPermission")
     fun connect(device: CoronetDevice) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { connect(device) }
+            return
+        }
         if (!hasConnectPermission() || device.address.isBlank()) return
         Log.i("coroNET-BLE", "connect requested address=${device.address}")
         stopScan()
@@ -180,20 +189,29 @@ class CoronetBleManager(
         Log.i("coroNET-BLE", "GATT attempt=${reconnectAttempt + 1} address=${device.address}")
         gatt?.close()
         gatt = null
+        command = null
         synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
         descriptorWrites.clear(); synchronized(assemblies) { assemblies.clear() }; subscriptionsReady = false
         serviceDiscoveryStarted = false
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
+        mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+        mainHandler.removeCallbacks(commandWriteTimeout)
         gatt = runCatching {
             adapter?.getRemoteDevice(device.address)?.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
         }.getOrNull()
         if (gatt == null) scheduleReconnect()
+        else mainHandler.postDelayed(serviceDiscoveryTimeout, 15000L)
     }
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { disconnect() }
+            return
+        }
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
         mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+        mainHandler.removeCallbacks(commandWriteTimeout)
         mainHandler.removeCallbacks(reconnectRunnable)
         reconnectEnabled = false
         gatt?.disconnect()
@@ -203,7 +221,38 @@ class CoronetBleManager(
         activeDevice = null
         subscriptionsReady = false
         serviceDiscoveryStarted = false
+        descriptorWrites.clear()
+        synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
         synchronized(assemblies) { assemblies.clear() }
+    }
+
+    /** Called by the connection watchdog when BLE notifications have gone stale. */
+    @SuppressLint("MissingPermission")
+    fun reconnectIfStale() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { reconnectIfStale() }
+            return
+        }
+        if (activeDevice == null) return
+        if (!reconnectEnabled) return
+        // If GATT is open but subscriptions are stale, close and reconnect.
+        val currentGatt = gatt
+        if (currentGatt != null) {
+            Log.w("coroNET-BLE", "stale BLE session; closing and reconnecting")
+            mainHandler.removeCallbacks(serviceDiscoveryFallback)
+            mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+            mainHandler.removeCallbacks(commandWriteTimeout)
+            command = null
+            subscriptionsReady = false
+            serviceDiscoveryStarted = false
+            descriptorWrites.clear()
+            synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
+            synchronized(assemblies) { assemblies.clear() }
+            gatt = null
+            runCatching { currentGatt.disconnect() }
+            currentGatt.close()
+        }
+        scheduleReconnect()
     }
 
     fun close() {
@@ -218,14 +267,15 @@ class CoronetBleManager(
 
     @SuppressLint("MissingPermission")
     fun send(json: String): Boolean {
-        if (gatt == null || command == null) return false
+        val target = gatt ?: return false
+        if (command == null) return false
         val bytes = json.toByteArray()
         if (bytes.size > MaxCommandBytes) return false
         synchronized(commandWrites) {
             if (commandWrites.size >= MaxPendingCommands) return false
-            commandWrites.addLast(bytes)
+            commandWrites.addLast(target to bytes)
         }
-        writeNextCommand()
+        mainHandler.post { writeNextCommand() }
         return true
     }
 
@@ -247,9 +297,14 @@ class CoronetBleManager(
         val characteristic = command ?: return
         if (!subscriptionsReady) return
         val bytes = synchronized(commandWrites) {
+            if (!commandWriteInFlight) {
+                while (commandWrites.isNotEmpty() && commandWrites.first().first !== currentGatt) {
+                    commandWrites.removeFirst()
+                }
+            }
             if (commandWriteInFlight || commandWrites.isEmpty()) return
             commandWriteInFlight = true
-            commandWrites.first()
+            commandWrites.first().second
         }
         val started = if (Build.VERSION.SDK_INT >= 33) {
             currentGatt.writeCharacteristic(characteristic, bytes, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
@@ -260,31 +315,40 @@ class CoronetBleManager(
             currentGatt.writeCharacteristic(characteristic)
         }
         if (!started) {
-            synchronized(commandWrites) { commandWriteInFlight = false; if (commandWrites.isNotEmpty()) commandWrites.removeFirst() }
-            writeNextCommand()
+            failAndReconnect(currentGatt, "command write did not start")
+        } else {
+            mainHandler.removeCallbacks(commandWriteTimeout)
+            mainHandler.postDelayed(commandWriteTimeout, 8000L)
         }
+    }
+
+    // All GATT lifecycle mutations share the main queue; late callbacks cannot
+    // clear a newer session's timers or consume its command/descriptor queue.
+    private fun forCurrentGatt(target: BluetoothGatt, action: () -> Unit) {
+        mainHandler.post { if (target === gatt) action() }
     }
 
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) = forCurrentGatt(gatt) {
             Log.i("coroNET-BLE", "connection status=$status state=$newState address=${gatt.device.address}")
-            if (this@CoronetBleManager.gatt !== gatt) {
-                if (newState == BluetoothProfile.STATE_DISCONNECTED) gatt.close()
-                return
-            }
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 mainHandler.removeCallbacks(reconnectRunnable)
                 reconnectAttempt = 0
+                mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+                mainHandler.postDelayed(serviceDiscoveryTimeout, 7000L)
                 val mtuRequestStarted = gatt.requestMtu(247)
                 if (mtuRequestStarted) mainHandler.postDelayed(serviceDiscoveryFallback, 1200)
                 else discoverServicesOnce(gatt)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
                 mainHandler.removeCallbacks(serviceDiscoveryFallback)
                 mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+                mainHandler.removeCallbacks(commandWriteTimeout)
                 command = null
                 subscriptionsReady = false
                 serviceDiscoveryStarted = false
+                descriptorWrites.clear()
+                synchronized(commandWrites) { commandWrites.clear(); commandWriteInFlight = false }
                 synchronized(assemblies) { assemblies.clear() }
                 activeDevice?.let { onSnapshot(DeviceSnapshot(device = it)) }
                 if (this@CoronetBleManager.gatt === gatt) this@CoronetBleManager.gatt = null
@@ -294,30 +358,31 @@ class CoronetBleManager(
         }
 
         @SuppressLint("MissingPermission")
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) = forCurrentGatt(gatt) {
             mainHandler.removeCallbacks(serviceDiscoveryFallback)
             discoverServicesOnce(gatt)
         }
 
         @SuppressLint("MissingPermission")
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) = forCurrentGatt(gatt) {
+            // Re-arm the timeout to cover the CCCD subscription phase that follows.
             mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+            mainHandler.postDelayed(serviceDiscoveryTimeout, 5000)
             Log.i("coroNET-BLE", "services status=$status service=${gatt.getService(ServiceUuid) != null}")
-            if (gatt !== this@CoronetBleManager.gatt) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndReconnect(gatt, "service discovery failed: $status")
-                return
+                return@forCurrentGatt
             }
             val service = gatt.getService(ServiceUuid)
             if (service == null) {
                 failAndReconnect(gatt, "coroNET service missing")
-                return
+                return@forCurrentGatt
             }
             command = service.getCharacteristic(CommandUuid)
             if (command == null || !queueNotify(gatt, service.getCharacteristic(StateUuid)) ||
                 !queueNotify(gatt, service.getCharacteristic(EventUuid))) {
                 failAndReconnect(gatt, "required characteristic or notification descriptor missing")
-                return
+                return@forCurrentGatt
             }
             writeNextDescriptor(gatt)
         }
@@ -335,6 +400,7 @@ class CoronetBleManager(
         private fun writeNextDescriptor(gatt: BluetoothGatt) {
             val descriptor = descriptorWrites.firstOrNull()
             if (descriptor == null) {
+                // All CCCD writes have been acknowledged.
                 mainHandler.removeCallbacks(serviceDiscoveryTimeout)
                 subscriptionsReady = true
                 activeDevice?.token?.takeIf { it.length == 32 }?.let { token ->
@@ -345,6 +411,7 @@ class CoronetBleManager(
                 send("{\"cmd\":\"getPairingChallenge\"}")
                 return
             }
+            // Keep serviceDiscoveryTimeout alive until all descriptors are written.
             val started = if (Build.VERSION.SDK_INT >= 33) {
                 gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothStatusCodes.SUCCESS
             } else {
@@ -356,21 +423,22 @@ class CoronetBleManager(
             if (!started) failAndReconnect(gatt, "notification subscription did not start")
         }
 
-        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (gatt !== this@CoronetBleManager.gatt) return
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) = forCurrentGatt(gatt) {
+            if (descriptorWrites.firstOrNull() !== descriptor) return@forCurrentGatt
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndReconnect(gatt, "notification subscription failed: $status")
-                return
+                return@forCurrentGatt
             }
             if (descriptorWrites.firstOrNull() == descriptor) descriptorWrites.removeFirst()
             writeNextDescriptor(gatt)
         }
 
-        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            if (gatt !== this@CoronetBleManager.gatt) return
+        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) = forCurrentGatt(gatt) {
+            if (characteristic.uuid != CommandUuid || !commandWriteInFlight) return@forCurrentGatt
+            mainHandler.removeCallbacks(commandWriteTimeout)
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndReconnect(gatt, "command write failed: $status")
-                return
+                return@forCurrentGatt
             }
             synchronized(commandWrites) {
                 if (commandWrites.isNotEmpty()) commandWrites.removeFirst()
@@ -381,13 +449,15 @@ class CoronetBleManager(
 
         @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (gatt === this@CoronetBleManager.gatt && Build.VERSION.SDK_INT < 33) {
-                acceptFrame(characteristic.uuid, characteristic.value ?: return)
+            if (Build.VERSION.SDK_INT < 33) {
+                val value = characteristic.value?.copyOf() ?: return
+                forCurrentGatt(gatt) { acceptFrame(characteristic.uuid, value) }
             }
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            if (gatt === this@CoronetBleManager.gatt) acceptFrame(characteristic.uuid, value)
+            val copy = value.copyOf()
+            forCurrentGatt(gatt) { acceptFrame(characteristic.uuid, copy) }
         }
     }
 
@@ -410,6 +480,7 @@ class CoronetBleManager(
         Log.w("coroNET-BLE", "$reason; reconnecting")
         mainHandler.removeCallbacks(serviceDiscoveryFallback)
         mainHandler.removeCallbacks(serviceDiscoveryTimeout)
+        mainHandler.removeCallbacks(commandWriteTimeout)
         command = null
         subscriptionsReady = false
         serviceDiscoveryStarted = false
@@ -434,46 +505,11 @@ class CoronetBleManager(
     }
 
     private fun acceptFrame(source: UUID, frame: ByteArray) {
-        if (frame.size < 8 || (frame[0].toInt() and 0xff) != ProtocolVersion) return
-        val header = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN)
-        header.get(); val type = header.get().toInt() and 0xff
-        val messageId = header.short.toInt() and 0xffff
-        val total = header.short.toInt() and 0xffff
-        val index = header.get().toInt() and 0xff
-        val count = header.get().toInt() and 0xff
-        if (total !in 1..4096 || count !in 1..64 || index >= count) return
-        val payload = synchronized(assemblies) {
-            val now = SystemClock.elapsedRealtime()
-            assemblies.entries.removeAll { now - it.value.startedAtMs > 5000L }
-            val key = AssemblyKey(source, type, messageId)
-            if (key !in assemblies && assemblies.size >= 8) {
-                assemblies.minByOrNull { it.value.startedAtMs }?.key?.let(assemblies::remove)
-            }
-            val assembly = assemblies.getOrPut(key) { Assembly(total, arrayOfNulls(count), now) }
-            if (assembly.total != total || assembly.chunks.size != count) {
-                assemblies.remove(key)
-                return@synchronized null
-            }
-            assembly.chunks[index] = frame.copyOfRange(8, frame.size)
-            if (assembly.chunks.any { it == null }) return@synchronized null
-            val completeChunks = assembly.chunks.filterNotNull()
-            if (completeChunks.sumOf { it.size } != total) {
-                assemblies.remove(key)
-                return@synchronized null
-            }
-            ByteArray(total).also { complete ->
-                var offset = 0
-                completeChunks.forEach { chunk ->
-                    chunk.copyInto(complete, offset)
-                    offset += chunk.size
-                }
-                assemblies.remove(key)
-            }
-        } ?: return
-        when (type) {
-            1 -> parseSnapshot(payload)
-            LedFrameMessageType -> parseLedFrame(payload)?.let(onLedFrame)
-            else -> parseJson(payload)
+        val message = synchronized(assemblies) { assemblies.accept(source, frame) } ?: return
+        when (message.type) {
+            1 -> parseSnapshot(message.bytes)
+            LedFrameMessageType -> parseLedFrame(message.bytes)?.let(onLedFrame)
+            else -> parseJson(message.bytes)
         }
     }
 

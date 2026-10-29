@@ -384,7 +384,8 @@ void BleService::startStack() {
     }
     logHeapDiagnostics("ble-after-chars");
 
-    gCommandChr->setCallbacks(new CommandCallbacks());
+    static CommandCallbacks commandCallbacks;
+    gCommandChr->setCallbacks(&commandCallbacks);
     server->start();
 
     NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();

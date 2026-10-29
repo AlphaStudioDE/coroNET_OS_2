@@ -1,6 +1,22 @@
 # Development Updates
 
-## Unreleased
+## 0.9.9
+
+### Reliability Audit Corrections
+- Includes code corrections for all 17 confirmed findings from the October 29 firmware, web and Android audit. This is a stability-testing release on the path to 1.0.0, not a claim of completed long-duration hardware qualification.
+- Invalid chamber measurements now invalidate the filter instead of retaining old temperatures indefinitely. Chamber sample age is tracked independently from overall printer telemetry; omitted WebSocket delta fields remain distinct from explicit invalid values.
+- Bounds WAV parsing against file and RIFF sizes, checks seek progress, limits chunk count and permits cancellation. Prevents duplicate playback from stale task notifications and rebuilds I2S after failed clock transitions without committing an unusable sample rate.
+- Moves optional Panda Breath networking to a dedicated worker. OTA waits for the worker to stop using its socket and aborts preparation if acknowledgement is missing. New manual tempering cycles correctly initialize after an earlier completed cycle.
+- Bounds LCD TE/DMA waits, propagates submission errors and keeps in-flight DMA buffers protected until completion. Fixes waking the screen saver when the printer is already in Error.
+- Fixes BLE callback lifetime, accepts up to 255 message fragments, adds Android connection/subscription/write deadlines and isolates late callbacks and queued commands by GATT session.
+- Corrects Android boolean parsing and transport-setting aliases, stale browser LED catalogue responses, accent hue zero, and timezone preservation during OTA clock synchronization.
+- Preserves NEW/LEGACY renderers, LED timing/calibration, audio gain/fades, partition layout and saved settings.
+
+### Validation and Remaining Hardware Tests
+- Firmware build, artifact validation, Android build/lint and 19 Android unit tests passed locally. Source-based regression tests cover 12 runtime groups, six display-transfer groups and three web cases; both LED libraries retain 336 animations.
+- The optional Panda worker allocates an 8 KB task stack when first enabled or used for discovery. Real stack margins, free/largest DMA, simultaneous LED/audio performance, GATT recovery and OTA interruption still require physical testing.
+- A permanent LCD DMA completion failure no longer waits forever or reuses an owned buffer, but may still require a device restart. This release does not claim to repair a failed physical display.
+- The complete audit and repair evidence is available in [docs/audits/2026-10-29](https://github.com/AlphaStudioDE/coroNET_OS_2/tree/v0.9.9/docs/audits/2026-10-29).
 
 ### Chitu Systems U1 Enclosure Integration
 - Added a dedicated integration path for the Chitu Systems Snapmaker U1 Top Cover & Enclosure.
@@ -8,6 +24,15 @@
 - Added official manufacturer product images, complete source attribution, and a direct link to the Chitu Systems store.
 - Documented the physical-validation plan for fit, adapters, airflow, cable routing, fail-safe behavior, temperature characterization, and filtration arrangements.
 - Kept mechanical compatibility and filtration performance explicitly unverified until the product and final airflow hardware are tested together.
+
+### Installation
+- Existing coroNET OS 2 installations: open **Settings > Firmware update**, select **CHECK**, confirm **0.9.9**, then **INSTALL**. Keep power connected until the device has restarted and shows 0.9.9.
+- New installations and USB recovery: download `coroNET_OS_2_0.9.9_Flash_Tool.zip` and follow its included instructions. No partition-layout change is introduced by this release.
+- Android: install the matching signed `coroNET_Companion.apk` version 0.9.9 to receive the BLE and settings corrections.
+- The web panel is included in firmware; reload the browser after updating. No separate web installation is required.
+- Verify downloads with `SHA256SUMS.txt`; OTA additionally validates `coronet_os2.bin.md5`.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.7.1...v0.9.9
 
 ## 0.7.1
 

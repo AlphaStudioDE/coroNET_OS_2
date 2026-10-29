@@ -40,7 +40,7 @@ jobs:
               exit 1
             fi
           else
-            version="0.7.1-dev"
+            version="0.9.9-dev"
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -51,6 +51,17 @@ jobs:
 
       - name: Validate LED catalog
         run: python scripts/validate_led_catalog.py
+
+      - name: Set up Node for regression tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test runtime, display transfers and web regressions
+        run: |
+          node tests/runtime-regression.mjs
+          node tests/display-transfer-regression.mjs
+          node tests/web-regression.mjs
 
       - name: Validate release artifacts
         run: >-
@@ -160,7 +171,7 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
             gh release create "${GITHUB_REF_NAME}" \
               --title "coroNET OS 2 ${{ steps.version.outputs.version }}" \
-              --notes-file dist/RELEASE_NOTES.md
+              --notes-file dist/RELEASE_NOTES.md --draft
           gh release upload "${GITHUB_REF_NAME}" \
             dist/coronet_os2.bin \
             dist/coronet_os2.bin.md5 \
@@ -170,3 +181,5 @@ jobs:
             dist/coroNET_OS_2_*_Flash_Tool.zip \
             dist/coroNET_Companion.apk \
             --clobber
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --latest \
+            --notes-file dist/RELEASE_NOTES.md

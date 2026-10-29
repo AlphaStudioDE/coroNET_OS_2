@@ -183,7 +183,14 @@ static bool bsp_display_sync_cb(void *arg)
 
     if (tear_handle->te_v_sync_sem) {
 
-        xSemaphoreTake(tear_handle->te_v_sync_sem, portMAX_DELAY);
+        if (xSemaphoreTake(tear_handle->te_v_sync_sem, pdMS_TO_TICKS(50)) != pdTRUE) {
+            static uint32_t last_warning_ms = 0;
+            const uint32_t now = esp_log_timestamp();
+            if (!last_warning_ms || now - last_warning_ms >= 5000U) {
+                ESP_LOGW(TAG, "TE timeout; drawing without synchronization");
+                last_warning_ms = now;
+            }
+        }
     }
     return true;
 }

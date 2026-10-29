@@ -76,6 +76,7 @@ struct SystemState {
     float toolTemperaturesC[4] = {NAN, NAN, NAN, NAN};
     float bedTempC = NAN;
     float chamberTempC = NAN;
+    uint32_t lastChamberUpdateMs = 0;
     char printFilename[65] = "";
     char materialName[25] = "";
     uint32_t filamentColorRgb = 0xFFFFFF;

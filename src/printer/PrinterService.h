@@ -68,6 +68,7 @@ private:
         float toolTemperaturesC[4] = {NAN, NAN, NAN, NAN};
         float bedTempC = NAN;
         float chamberTempC = NAN;
+        uint32_t chamberSampleMs = 0;
         uint32_t printDurationSec = 0;
         uint32_t printEtaSec = 0;
         uint32_t filamentColorRgb = 0xFFFFFF;

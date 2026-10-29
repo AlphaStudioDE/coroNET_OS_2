@@ -79,7 +79,7 @@ private:
     bool installDriver(uint16_t dmaBufferCount);
     void uninstallDriver();
     bool reconfigureClock(uint32_t sampleRate);
-    bool openWav(const char* path);
+    bool openWav(const char* path, uint32_t sequence);
     void closeWav();
     bool writeWavBuffer(uint8_t volumePercent, uint32_t stopFadeOffset = 0,
                         uint32_t stopFadeFrames = 0);
@@ -135,6 +135,7 @@ private:
     volatile uint32_t requestSequence_ = 0;
     volatile uint32_t completedRequestSequence_ = 0;
     bool acceptingRequests_ = true;
+    bool lifecycleBusy_ = false;
     RequestType requestedType_ = RequestType::Stop;
     char requestedPath_[65] = "";
     uint8_t requestedVolume_ = 75;

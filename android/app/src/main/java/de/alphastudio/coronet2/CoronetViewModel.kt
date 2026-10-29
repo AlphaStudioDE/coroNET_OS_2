@@ -581,9 +581,19 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
         synchronized(pendingSettingsLock) {
             pendingSettings.entries.removeAll { (key, pending) ->
                 now - pending.createdAtMs > 5000L ||
-                    (remote.has(key) && jsonValuesEqual(remote.opt(key), pending.value))
+                    transportKeyAliases(key).any { alias ->
+                        remote.has(alias) && jsonValuesEqual(remote.opt(alias), pending.value)
+                    }
             }
         }
+    }
+
+    /** Returns the key and any known transport-field aliases for pending-setting reconciliation. */
+    private fun transportKeyAliases(key: String): List<String> = when (key) {
+        "companionTransport" -> listOf("companionTransport", "transportValue", "transport")
+        "transportValue" -> listOf("transportValue", "companionTransport", "transport")
+        "transport" -> listOf("transport", "transportValue", "companionTransport")
+        else -> listOf(key)
     }
 
     private fun clearPendingSettings(mutation: Long) {
@@ -770,6 +780,11 @@ class CoronetViewModel(application: Application) : AndroidViewModel(application)
                         error = "Bluetooth link timed out",
                         cached = true,
                     )
+                    // Attempt GATT reconnection only if the stale snapshot belongs to the
+                    // currently selected device and Wi-Fi is not already active.
+                    if (current.device?.id == _selectedId.value && !wifiReachable.get()) {
+                        ble.reconnectIfStale()
+                    }
                 }
             }
         }

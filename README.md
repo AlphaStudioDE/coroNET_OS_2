@@ -118,7 +118,7 @@ Featured installations built and photographed by **@wlodeka on Discord** and **B
 
 ## Current Development Status
 
-The current public firmware and Android companion release is **coroNET OS 2 0.7.1**. This maintenance release keeps the complete `0.7.0` stability-test feature set and corrects LED editor state across the touchscreen, Android companion, and browser panel. Selecting `OTHER` now activates the decorative mode just as it did in coroNET OS 1, leaving that animation live instead of silently returning to the current printer-state animation after the ten-second preview. The selected category stays synchronized with `Other mode`, and every Color Remix change renews the matching animation preview so the controls always affect the output shown to the user. The `0.7.x` line remains dedicated to endurance, recovery, and tester-led defect correction before the `1.0.0` production qualification milestone.
+The current public firmware and Android companion release is **coroNET OS 2 0.9.9**. This stability-testing release corrects 17 confirmed audit findings across audio, chamber telemetry, Panda Breath, display recovery, BLE, OTA and the web/Android interfaces. It preserves both LED renderer libraries, color calibration, audio fades and saved settings. Builds and automated regression tests pass; simultaneous-load, recovery and endurance testing on physical hardware remain the gate before `1.0.0`. See the [release notes](docs/UPDATES.md#099) and [audit repair report](docs/audits/2026-10-29/FIXES.md) for details and test limits.
 
 | Area | Status |
 | --- | --- |
@@ -141,11 +141,11 @@ The current public firmware and Android companion release is **coroNET OS 2 0.7.
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.7.1 stability-test maintenance release with core-first validation, measured runtime-network stack margins, recovery boot protection, Flash Tool package, checksums, and Android APK published together |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.9.9 stability-testing release with core-first validation, Panda suspension acknowledgement, recovery boot protection, Flash Tool package, checksums, and matching Android APK |
 
-Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The current public firmware is stable and feature-complete in its intended scope; active development now focuses on systematic physical fault finding, recovery validation, and long-duration stability qualification.
+Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The feature set is complete in its intended scope; active development focuses on systematic physical fault finding, recovery validation, and long-duration stability qualification.
 
-The path to `1.0.0` is deliberately staged. Release `0.5.0` closed the planned visual and interaction refinement pass. Release `0.6.0` incorporated the full coroNET OS 1 parity and reliability audit, including field-reported LED, audio, Moonraker-state, touch, resource-lifetime, and recovery corrections. Releases `0.6.1` through `0.6.9` hardened the OTA-to-runtime handoff, radio startup and reconnect lifecycle, browser-state publication, post-crash evidence capture, first-request memory handoff, core-first OTA validation, and stack-safe Moonraker recovery from physical validation. Release `0.7.0` began the dedicated stability-test line; `0.7.1` is its first tester-led LED-control correction. Version `1.0.0` will mark completion of extended endurance and recovery qualification.
+The path to `1.0.0` is deliberately staged. Release `0.5.0` closed the planned visual and interaction refinement pass. Release `0.6.0` incorporated the coroNET OS 1 parity and reliability audit. Releases `0.6.1` through `0.6.9` hardened OTA startup, radio lifecycle, crash recovery and Moonraker stack margins. Release `0.7.0` began dedicated stability testing and `0.7.1` corrected LED-control behavior. Release `0.9.9` delivers the subsequent cross-system audit corrections and maintained regression tests. Version `1.0.0` still requires extended endurance and recovery qualification.
 
 ## Hardware
 

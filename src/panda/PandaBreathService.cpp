@@ -21,6 +21,7 @@ constexpr uint32_t kTemperatureStaleMs = 10000;
 constexpr float kHeatOnMarginC = 0.6f;
 constexpr float kHeatOffMarginC = 0.2f;
 constexpr float kPreheatReadyMarginC = 0.5f;
+constexpr uint32_t kWorkerStackBytes = 8192;
 
 }
 
@@ -41,16 +42,60 @@ void PandaBreathService::begin() {
 
 void PandaBreathService::loop() {
     if (!initialized_) return;
+    if (workerTask_) return;
+    const SystemState system = stateSnapshot();
+    if (system.maintenanceMode || system.otaTlsWindowActive) return;
+    if (!settingsService().settings().pandaEnabled && !discoveryRequested_.load()) return;
+    const uint32_t now = millis();
+    if (lastWorkerStartAttemptMs_ && now - lastWorkerStartAttemptMs_ < 5000U) return;
+    lastWorkerStartAttemptMs_ = now;
+    if (xTaskCreatePinnedToCore(workerEntry, "coronet-panda", kWorkerStackBytes,
+                               this, 2, &workerTask_, 0) != pdPASS) {
+        workerTask_ = nullptr;
+        updateState([](SystemState& current) {
+            current.pandaConnected = false;
+            current.pandaPhase = PandaWorkflowPhase::Fault;
+            strlcpy(current.pandaStatusText, "Panda worker unavailable", sizeof(current.pandaStatusText));
+        });
+    }
+}
+
+void PandaBreathService::workerEntry(void* context) {
+    static_cast<PandaBreathService*>(context)->workerLoop();
+}
+
+void PandaBreathService::workerLoop() {
+    for (;;) {
+        if (resourcesReleased_.load()) {
+            const SystemState system = stateSnapshot();
+            if (system.maintenanceMode || system.otaTlsWindowActive) {
+                vTaskDelay(pdMS_TO_TICKS(20));
+                continue;
+            }
+        }
+        // Publish busy before reading the maintenance flag; only this task owns socket_.
+        resourcesReleased_.store(false);
+        service();
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+void PandaBreathService::service() {
     SystemState system = stateSnapshot();
     if (system.maintenanceMode || system.otaTlsWindowActive) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
         if (socketConfigured_) disconnect();
+        resourcesReleased_.store(true);
         return;
+    }
+    if (applyRequested_.exchange(false)) {
+        observedSettingsRevision_ = 0;
+        commandDirty_ = true;
+        lastWorkflowMs_ = 0;
     }
     if (observedSettingsRevision_ != settingsService().revision()) configureFromSettings();
 
-    if (discoveryRequested_) {
-        discoveryRequested_ = false;
+    if (discoveryRequested_.exchange(false)) {
         performDiscovery();
         return;
     }
@@ -59,6 +104,7 @@ void PandaBreathService::loop() {
     if (!settings.pandaEnabled || !configuredHost_[0]) {
         observedPrinterEventSequence_ = system.printerStateEventSequence;
         if (socketConfigured_) disconnect();
+        resourcesReleased_.store(true);
         updateState([](SystemState& current) { current.pandaConnected = false; });
         if (static_cast<int32_t>(discoveryStatusUntilMs_ - millis()) <= 0) {
             if (!settings.pandaEnabled && oneShotComplete_) {
@@ -80,6 +126,14 @@ void PandaBreathService::loop() {
     connectIfNeeded();
     if (socketConfigured_) socket_.loop();
 
+    // A maintenance request may have arrived during a blocking TCP operation.
+    system = stateSnapshot();
+    if (system.maintenanceMode || system.otaTlsWindowActive) {
+        disconnect();
+        resourcesReleased_.store(true);
+        return;
+    }
+
     const uint32_t now = millis();
     if (now - lastWorkflowMs_ >= kWorkflowIntervalMs) {
         lastWorkflowMs_ = now;
@@ -89,13 +143,11 @@ void PandaBreathService::loop() {
 }
 
 void PandaBreathService::applyNow() {
-    observedSettingsRevision_ = 0;
-    commandDirty_ = true;
-    lastWorkflowMs_ = 0;
+    applyRequested_.store(true);
 }
 
 void PandaBreathService::requestDiscovery() {
-    discoveryRequested_ = true;
+    discoveryRequested_.store(true);
     updateState([](SystemState& system) {
         strlcpy(system.pandaStatusText, "Panda discovery queued", sizeof(system.pandaStatusText));
     });
@@ -162,7 +214,7 @@ void PandaBreathService::logStatus() const {
     Serial.printf(
         "[panda] enabled=%u host=%s socket=%u phase=%u target=%uC current=%.1fC heating=%u status=%s\n",
         settings.pandaEnabled ? 1U : 0U,
-        configuredHost_[0] ? configuredHost_ : "-", connected_ ? 1U : 0U,
+        settings.pandaHost[0] ? settings.pandaHost : "-", system.pandaConnected ? 1U : 0U,
         static_cast<unsigned>(system.pandaPhase), static_cast<unsigned>(system.pandaTargetTempC),
         system.pandaCurrentTempC, system.pandaHeating ? 1U : 0U, system.pandaStatusText);
 }
@@ -179,6 +231,7 @@ void PandaBreathService::configureFromSettings() {
         phaseStartedMs_ = 0;
         temperingStartTempC_ = NAN;
         oneShotComplete_ = false;
+        temperingInitialized_ = false;
     }
     observedMode_ = settings.pandaMode;
     observedEnabled_ = settings.pandaEnabled;
@@ -354,10 +407,10 @@ void PandaBreathService::updateWorkflow(uint32_t now) {
             }
         } else if (settings.pandaMode == PandaBreathMode::Tempering) {
             automaticSawPrint_ = false;
-            if (system.pandaPhase != PandaWorkflowPhase::Tempering &&
-                system.pandaPhase != PandaWorkflowPhase::Complete) {
+            if (!temperingInitialized_ || system.pandaPhase != PandaWorkflowPhase::Tempering) {
                 temperingStartTempC_ = constrain(controlTempC, 0.0f, 80.0f);
                 phaseStartedMs_ = now;
+                temperingInitialized_ = true;
                 setPhase(PandaWorkflowPhase::Tempering, "Controlled tempering");
             }
             const uint32_t durationMs =
@@ -481,7 +534,7 @@ bool PandaBreathService::controlTemperature(uint32_t now, float& temperatureC) c
     const SystemState system = stateSnapshot();
     if (!system.printerConnected || !system.printerTelemetryValid ||
         system.lastPrinterUpdateMs == 0U || now - system.lastPrinterUpdateMs > kTemperatureStaleMs ||
-        isnan(system.chamberTempC)) {
+        !isfinite(system.chamberTempC)) {
         temperatureC = NAN;
         return false;
     }
