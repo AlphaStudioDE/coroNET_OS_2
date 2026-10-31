@@ -2,6 +2,13 @@
 
 This roadmap describes direction, not a promise of release dates. Features move to complete only after they build successfully and are validated on the target hardware. Release `0.5.0` closed the planned visual and interaction refinement pass across the complete firmware, Android companion, and browser panel. Release `0.6.0` completed the detailed coroNET OS 1 parity and reliability audit. Releases `0.6.1` through `0.6.9` completed the physical-validation correction line with a hardened OTA-to-runtime handoff, supervised BLE startup, restored Wi-Fi/BLE coexistence defaults, direct portal discovery, safe browser-state serialization, persistent boot-crash evidence, an ordered startup-memory handoff before the first HTTP request, core OTA validation before independent network clients, and protected stack headroom for Moonraker failure and recovery handling. Release `0.7.0` began the dedicated stability-test phase for the reference unit and external testers; `0.7.1` applies the first tester-led correction by restoring coroNET OS 1's durable `OTHER` selection and keeping Color Remix previews aligned across all interfaces. Development remains focused on endurance, recovery, reproducible defect correction, and formal 1.0 qualification.
 
+## 1.0.0 Cancellation Correction
+
+- [x] Map cancelled/canceled jobs to Idle without masking actual error/timeout states.
+- [x] Add production-source status normalization regression coverage.
+- [x] Align firmware and companion version metadata with 1.0.0.
+- [ ] Confirm cancel -> Idle -> new print on physical printer hardware.
+
 ## 0.9.9 Audit Correction Milestone
 
 - [x] Implement corrections for the 17 confirmed firmware, web and Android audit findings.
@@ -9,9 +16,9 @@ This roadmap describes direction, not a promise of release dates. Features move 
 - [x] Build coordinated firmware, embedded web panel and Android version 0.9.9.
 - [ ] Qualify 0.9.9 on physical hardware under simultaneous LED/audio/UI/network load.
 - [ ] Measure the new optional Panda worker stack margin and runtime free/largest DMA.
-- [ ] Complete real BLE fault/reconnect and OTA interruption/recovery tests before 1.0.0.
+- [ ] Complete real BLE fault/reconnect and OTA interruption/recovery qualification.
 
-The latest release is **0.9.9**. The milestone history above describes earlier
+The latest release is **1.0.0**. The milestone history above describes earlier
 releases; successful code/build tests do not mark these physical checks complete.
 
 ## Foundation

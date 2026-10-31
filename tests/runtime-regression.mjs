@@ -44,6 +44,7 @@ const source = String.raw`
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -51,6 +52,7 @@ const source = String.raw`
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 #include <ArduinoJson.h>
 using std::min;
@@ -75,6 +77,20 @@ ${stripIncludes(read('src/core/ProductTypes.h'))}
 ${settings}
 ${state}
 namespace coronet {
+struct String : std::string {
+  using std::string::string;
+  void trim() {
+    const auto first = find_first_not_of(" \t\r\n");
+    if (first == npos) { clear(); return; }
+    const auto last = find_last_not_of(" \t\r\n");
+    erase(last + 1);
+    erase(0, first);
+  }
+  void toLowerCase() {
+    for (char& c : *this) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+};
+${method('src/printer/PrinterService.cpp', 'PrinterState normalizePrinterState(')}
 SystemState currentState;
 SystemState stateSnapshot() { return currentState; }
 template<class F> void updateState(F f) { f(currentState); }
@@ -285,8 +301,21 @@ ${method('src/update/OtaService.cpp', 'bool OtaService::enterMaintenance()')}
 }
 
 int main() {
+  using coronet::normalizePrinterState;
+  using coronet::PrinterState;
+  assert(normalizePrinterState("cancelled") == PrinterState::Idle);
+  assert(normalizePrinterState("canceled") == PrinterState::Idle);
+  assert(normalizePrinterState("  CANCELLED  ") == PrinterState::Idle);
+  assert(normalizePrinterState("error") == PrinterState::Error);
+  assert(normalizePrinterState("timeout") == PrinterState::Error);
+  assert(normalizePrinterState("printing") == PrinterState::Printing);
+  assert(normalizePrinterState("paused") == PrinterState::Paused);
+  assert(normalizePrinterState("complete") == PrinterState::Complete);
+  assert(normalizePrinterState(nullptr) == PrinterState::Unknown);
+  assert(normalizePrinterState("unrecognized") == PrinterState::Unknown);
+  std::cout << "PASS: cancelled jobs are Idle, faults remain Error and next print is Printing\n";
   using namespace coronet;
-  int passed = 0;
+  int passed = 1;
   // Finish a normal preheat first, then enable manual tempering at 1h uptime.
   PandaBreathService panda;
   fakeSettings.value.pandaEnabled = true;
@@ -454,7 +483,7 @@ int main() {
   std::cout << "PASS: OTA refuses missing Panda ack and proceeds only after worker quiescence\n";
   ++passed;
   std::cout << "Host structure sizes: AppSettings=" << sizeof(AppSettings) << ", SystemState=" << sizeof(SystemState) << '\n';
-  return passed == 12 ? 0 : 1;
+  return passed == 13 ? 0 : 1;
 }
 `;
 const output = path.join(root, '.pio/host-tests');

@@ -1,5 +1,23 @@
 # Development Updates
 
+## 1.0.0
+
+### Printer Cancellation Status
+- Fixes ordinary print cancellation being shown as a printer error. Both `cancelled` and `canceled` now map to `Idle`, not `Error` or successful completion.
+- The shared normalization applies to HTTP polling and WebSocket telemetry. Actual `error` and `timeout` states remain errors, and a subsequent `printing` state remains Printing.
+- Adds a production-source regression test for cancellation, case/whitespace normalization, real faults, printing, pause, completion and unknown states.
+- Includes all reliability corrections from 0.9.9. LED rendering, audio processing, partition layout and saved settings are unchanged by this correction.
+- Aligns firmware version sources and the bundled signed Android companion with 1.0.0. Android has no functional changes compared with 0.9.9; this firmware correction does not require reinstalling the companion app.
+
+### Installation and Validation
+- On an existing coroNET OS 2 device, open **Settings > Firmware update > CHECK**, confirm **1.0.0**, then select **INSTALL**. Keep power connected and verify Installed **1.0.0** after restart.
+- The browser panel is included in firmware. Reload the browser after updating.
+- USB installation/recovery package: `coroNET_OS_2_1.0.0_Flash_Tool.zip`. Android package: `coroNET_Companion.apk`. Download checksums are provided in `SHA256SUMS.txt`; OTA also checks the firmware MD5.
+- Release CI builds firmware and Android and runs runtime, display, web and Android regression tests before publication.
+- Version 1.0.0 does not imply that the outstanding physical qualification checks have been completed: cancellation on a real printer, simultaneous-load/endurance runs, Panda stack/DMA margins, BLE faults and interrupted OTA recovery remain hardware-test items.
+
+**Full changelog:** https://github.com/AlphaStudioDE/coroNET_OS_2/compare/v0.9.9...v1.0.0
+
 ## 0.9.9
 
 ### Reliability Audit Corrections

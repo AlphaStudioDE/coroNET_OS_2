@@ -118,7 +118,7 @@ Featured installations built and photographed by **@wlodeka on Discord** and **B
 
 ## Current Development Status
 
-The current public firmware and Android companion release is **coroNET OS 2 0.9.9**. This stability-testing release corrects 17 confirmed audit findings across audio, chamber telemetry, Panda Breath, display recovery, BLE, OTA and the web/Android interfaces. It preserves both LED renderer libraries, color calibration, audio fades and saved settings. Builds and automated regression tests pass; simultaneous-load, recovery and endurance testing on physical hardware remain the gate before `1.0.0`. See the [release notes](docs/UPDATES.md#099) and [audit repair report](docs/audits/2026-10-29/FIXES.md) for details and test limits.
+The current public firmware and Android companion release is **coroNET OS 2 1.0.0**. It fixes ordinary print cancellation being reported as Error and includes the 17 audit corrections from 0.9.9 across audio, chamber telemetry, Panda Breath, display recovery, BLE, OTA and the web/Android interfaces. Both LED renderer libraries, color calibration, audio fades and saved settings are preserved. Automated tests accompany the release; outstanding simultaneous-load, recovery and endurance checks on physical hardware remain open and are not certified by the version number. See the [release notes](docs/UPDATES.md#100) and [audit repair report](docs/audits/2026-10-29/FIXES.md) for details and test limits.
 
 | Area | Status |
 | --- | --- |
@@ -141,11 +141,11 @@ The current public firmware and Android companion release is **coroNET OS 2 0.9.
 | PWM fan and servo flap | Working with calibration and fail-safe logic |
 | Panda Breath workflows | Implemented with mDNS discovery and manual host configuration; physical Panda validation pending |
 | DIY chamber-heater control | Implemented as a guarded GPIO46 logic output for an external driver |
-| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 0.9.9 stability-testing release with core-first validation, Panda suspension acknowledgement, recovery boot protection, Flash Tool package, checksums, and matching Android APK |
+| GitHub OTA, same-version reinstall, SD recovery, and automatic rollback validation | Public 1.0.0 release with core-first validation, Panda suspension acknowledgement, recovery boot protection, Flash Tool package, checksums, and matching Android APK |
 
 Versioned firmware packages are published under [GitHub Releases](https://github.com/AlphaStudioDE/coroNET_OS_2/releases). The feature set is complete in its intended scope; active development focuses on systematic physical fault finding, recovery validation, and long-duration stability qualification.
 
-The path to `1.0.0` is deliberately staged. Release `0.5.0` closed the planned visual and interaction refinement pass. Release `0.6.0` incorporated the coroNET OS 1 parity and reliability audit. Releases `0.6.1` through `0.6.9` hardened OTA startup, radio lifecycle, crash recovery and Moonraker stack margins. Release `0.7.0` began dedicated stability testing and `0.7.1` corrected LED-control behavior. Release `0.9.9` delivers the subsequent cross-system audit corrections and maintained regression tests. Version `1.0.0` still requires extended endurance and recovery qualification.
+Release `0.5.0` closed the planned visual and interaction refinement pass. Release `0.6.0` incorporated the coroNET OS 1 parity and reliability audit. Releases `0.6.1` through `0.6.9` hardened OTA startup, radio lifecycle, crash recovery and Moonraker stack margins. Release `0.7.0` began dedicated stability testing and `0.7.1` corrected LED-control behavior. Release `0.9.9` delivered the subsequent cross-system audit corrections and maintained regression tests. Release `1.0.0` corrects cancellation status; extended endurance and recovery qualification continues.
 
 ## Hardware
 

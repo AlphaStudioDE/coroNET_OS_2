@@ -69,7 +69,9 @@ PrinterState normalizePrinterState(const char* stateText) {
     if (value == "printing" || value == "print" || value == "busy") return PrinterState::Printing;
     if (value == "paused" || value == "pause") return PrinterState::Paused;
     if (value == "complete" || value == "completed" || value == "finished" || value == "finish") return PrinterState::Complete;
-    if (value == "error" || value == "cancelled" || value == "canceled" || value == "timeout") return PrinterState::Error;
+    // Cancelling a job is neither a printer fault nor successful completion.
+    if (value == "cancelled" || value == "canceled") return PrinterState::Idle;
+    if (value == "error" || value == "timeout") return PrinterState::Error;
     return PrinterState::Unknown;
 }
 
