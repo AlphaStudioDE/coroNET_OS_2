@@ -77,7 +77,12 @@ coroNET 2 is being prepared to work with the [**Chitu Systems Snapmaker U1 Top C
 
 The integration can be configured for heat retention, active ventilation, or connection to an external exhaust or suitable filtration system. Three experimental hardware packages are available for trial printing: the **N1 iris**, **P1 butterfly damper**, and **M1 filter/duct modules**. The models have been checked digitally; physical fit and airflow performance are not yet verified.
 
-See the **[STL downloads and motion gallery](hardware/chitu/README.md)** and the **[Chitu Systems U1 Enclosure Integration Guide](docs/CHITU_U1_ENCLOSURE.md)**.
+| N1 Iris | P1 Butterfly Damper | M1 Filter and Duct Modules |
+| :---: | :---: | :---: |
+| ![N1 80 mm iris, fan and M1 outlet mounted outside the fabric panel](hardware/chitu/n1-80-exterior.png) | ![P1 80 mm butterfly damper, fan and servo mounted outside the fabric panel](hardware/chitu/p1-80-exterior.png) | ![M1 configurations: filter only, duct only, and filter with duct](hardware/chitu/m1-configurations.png) |
+| [**Download STL ZIP (40 and 80 mm)**](hardware/chitu/CHITU_IRIS_NOWY_N1.zip?raw=true) | [**Download STL ZIP (40 and 80 mm)**](hardware/chitu/CHITU_BUTTERFLY_NOVA_P1.zip?raw=true) | [**Download STL ZIP (filter and duct)**](hardware/chitu/CHITU_MODULOWY_M1.zip?raw=true) |
+
+See the **[motion gallery and build notes](hardware/chitu/README.md)** and the **[Chitu Systems U1 Enclosure Integration Guide](docs/CHITU_U1_ENCLOSURE.md)**.
 
 ## Creator's Reference Build
 
