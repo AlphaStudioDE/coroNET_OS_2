@@ -75,9 +75,9 @@ coroNET 2 is being prepared to work with the [**Chitu Systems Snapmaker U1 Top C
 
 <p align="center"><sub>Official product images published directly by Chitu Systems. All image rights remain with the manufacturer. Click either image to open the official store.</sub></p>
 
-The planned integration can retain heat for suitable engineering materials, release excess heat when required, or direct air to an external exhaust or appropriate filtration system. Mechanical adapters and operating limits will be published after validation on physical hardware.
+The integration can be configured for heat retention, active ventilation, or connection to an external exhaust or suitable filtration system. Three experimental hardware packages are available for trial printing: the **N1 iris**, **P1 butterfly damper**, and **M1 filter/duct modules**. The models have been checked digitally; physical fit and airflow performance are not yet verified.
 
-See the **[Chitu Systems U1 Enclosure Integration Guide](docs/CHITU_U1_ENCLOSURE.md)** for the gallery, planned architecture, current status, and safety boundaries.
+See the **[STL downloads and motion gallery](hardware/chitu/README.md)** and the **[Chitu Systems U1 Enclosure Integration Guide](docs/CHITU_U1_ENCLOSURE.md)**.
 
 ## Creator's Reference Build
 

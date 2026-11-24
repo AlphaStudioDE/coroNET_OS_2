@@ -103,6 +103,12 @@ These are integration goals, not universal material settings. Filament manufactu
 
 ## Validation Status
 
+The [prototype download page](../hardware/chitu/README.md) provides N1 iris
+and P1 butterfly damper configurations for 40 and 80 mm fans, plus M1
+modules for a filter cartridge, an exhaust hose, or both in series.
+These printable packages and mounting renders are based on nominal
+dimensions and digital checks, not on a physical installation.
+
 The software building blocks already exist in coroNET OS 2. The following items must still be tested with the Chitu enclosure and final airflow hardware before the integration is described as physically verified:
 
 1. coroNET controller, status-light, cable, and touchscreen clearance;
@@ -115,7 +121,8 @@ The software building blocks already exist in coroNET OS 2. The following items 
 8. external filter pressure loss or outdoor-exhaust performance;
 9. long-duration temperature and electrical testing.
 
-Installation photographs, measured dimensions, printable adapters, and final build instructions will be added after physical validation.
+Installation photographs, confirmed fit dimensions, and any related
+assembly revisions will follow physical validation.
 
 ## Product And Installation References
 

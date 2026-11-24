@@ -15,3 +15,8 @@ Before printing or purchasing hardware, read:
 Mechanical revisions should be stored in clearly named subdirectories and include source files, exported print files, print settings, required hardware, photographs, revision notes, attribution, and licensing.
 
 The optional magnetic enclosure by **@wlodeka** remains linked from the [coroNET OS 1 repository](https://github.com/AlphaStudioDE/coroNET_OS_1/tree/main/mods/alternative-magnetic-enclosure) until its redistribution terms for OS 2 are explicitly confirmed.
+
+## Chitu U1 Ventilation Prototypes
+
+The [Chitu prototype page](chitu/README.md) includes the N1 iris, P1 butterfly
+damper and M1 filter/duct modules, along with motion and mounting previews.
